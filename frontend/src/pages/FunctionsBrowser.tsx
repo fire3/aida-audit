@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { binaryApi } from '../api/client';
@@ -11,9 +11,27 @@ import { FunctionDetail } from '../components/FunctionDetail';
 export function FunctionsBrowser() {
   const { binaryName } = useParams<{ binaryName: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [selectedAddress, setSelectedAddress] = useState<string | null>(null);
+  const [selectedAddress, setSelectedAddress] = useState<string | null>(searchParams.get('address'));
   const [page, setPage] = useState(0);
   const limit = 50;
+
+  useEffect(() => {
+    const addr = searchParams.get('address');
+    if (addr && binaryName) {
+      binaryApi.resolveAddress(binaryName, addr)
+        .then((res) => {
+          if (res.function && res.function.address) {
+            setSelectedAddress(res.function.address);
+          } else {
+            setSelectedAddress(addr);
+          }
+        })
+        .catch((err) => {
+          console.error('Failed to resolve address:', err);
+          setSelectedAddress(addr);
+        });
+    }
+  }, [searchParams, binaryName]);
 
   const query = searchParams.get('q') || '';
 

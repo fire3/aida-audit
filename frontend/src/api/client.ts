@@ -109,6 +109,18 @@ export interface BinaryString {
   section?: string;
 }
 
+export interface ResolveAddressResult {
+  address: string;
+  function?: BinaryFunction;
+  symbol?: any;
+  segment?: any;
+  section?: any;
+  string_ref?: any;
+  data_item?: any;
+  is_code: boolean;
+  is_data: boolean;
+}
+
 export const projectApi = {
   getOverview: () => apiClient.get<ProjectOverview>('/project').then(res => res.data),
   listBinaries: (offset = 0, limit = 50) => 
@@ -141,4 +153,7 @@ export const binaryApi = {
 
   listStrings: (name: string, query?: string, min_length?: number, offset = 0, limit = 50) =>
     apiClient.get<BinaryString[]>(`/binary/${name}/strings`, { params: { query, min_length, offset, limit } }).then(res => res.data),
+
+  resolveAddress: (name: string, address: string) =>
+    apiClient.get<ResolveAddressResult>(`/binary/${name}/address/${encodeURIComponent(address)}`).then(res => res.data),
 };

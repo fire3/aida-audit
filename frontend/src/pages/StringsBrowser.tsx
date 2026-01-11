@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { binaryApi } from '../api/client';
 import { Input } from '../components/ui/input';
@@ -80,6 +80,7 @@ function StringDetail({ binaryName, address, stringContent, onNavigate }: String
 export function StringsBrowser() {
   const { binaryName } = useParams<{ binaryName: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [selectedString, setSelectedString] = useState<{ address: string; string: string } | null>(null);
   const [page, setPage] = useState(0);
   const [minLength, setMinLength] = useState<number | undefined>(undefined);
@@ -189,7 +190,7 @@ export function StringsBrowser() {
             binaryName={binaryName!} 
             address={selectedString.address} 
             stringContent={selectedString.string}
-            // onNavigate could navigate to disassembly view if we had global navigation context
+            onNavigate={(addr) => navigate(`/binary/${binaryName}/functions?address=${addr}`)}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-muted-foreground">
