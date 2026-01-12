@@ -124,6 +124,14 @@ export interface BinaryExport {
   forwarder?: string;
 }
 
+export interface BinarySymbol {
+  name: string;
+  demangled_name?: string | null;
+  kind: string;
+  address: string;
+  size: number;
+}
+
 export interface ResolveAddressResult {
   address: string;
   function?: BinaryFunction;
@@ -176,6 +184,9 @@ export const binaryApi = {
 
   listExports: (name: string, query?: string, offset = 0, limit = 50) =>
     apiClient.get<BinaryExport[]>(`/binary/${name}/exports`, { params: { query, offset, limit } }).then(res => res.data),
+
+  listSymbols: (name: string, query?: string, offset = 0, limit = 50) =>
+    apiClient.get<BinarySymbol[]>(`/binary/${name}/symbols`, { params: { query, offset, limit } }).then(res => res.data),
 
   resolveAddress: (name: string, address: string) =>
     apiClient.get<ResolveAddressResult>(`/binary/${name}/address/${encodeURIComponent(address)}`).then(res => res.data),

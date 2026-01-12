@@ -8,6 +8,7 @@ import { FunctionsBrowser } from './pages/FunctionsBrowser';
 import { StringsBrowser } from './pages/StringsBrowser';
 import { ImportsBrowser } from './pages/ImportsBrowser';
 import { ExportsBrowser } from './pages/ExportsBrowser';
+import { SymbolsBrowser } from './pages/SymbolsBrowser';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,7 +43,7 @@ function App() {
               <Route path="strings" element={<StringsBrowser />} />
               <Route path="imports" element={<ImportsBrowser />} />
               <Route path="exports" element={<ExportsBrowser />} />
-              <Route path="symbols" element={<Placeholder title="Symbols" />} />
+              <Route path="symbols" element={<SymbolsBrowser />} />
               <Route path="segments" element={<Placeholder title="Segments" />} />
             </Route>
             
