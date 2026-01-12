@@ -18,17 +18,21 @@ export function FunctionsBrowser() {
   useEffect(() => {
     const addr = searchParams.get('address');
     if (addr && binaryName) {
+      // First, set the address from URL to ensure immediate feedback
+      setSelectedAddress(addr);
+      
+      // Then try to resolve to the function's start address (canonical address)
       binaryApi.resolveAddress(binaryName, addr)
         .then((res) => {
           if (res.function && res.function.address) {
+            // If we found a containing function, update to its start address
+            // This ensures we open the function at its definition, not in the middle
             setSelectedAddress(res.function.address);
-          } else {
-            setSelectedAddress(addr);
           }
         })
         .catch((err) => {
           console.error('Failed to resolve address:', err);
-          setSelectedAddress(addr);
+          // Keep the original address if resolution fails
         });
     }
   }, [searchParams, binaryName]);
@@ -42,8 +46,20 @@ export function FunctionsBrowser() {
   });
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchParams({ q: e.target.value });
+    setSearchParams(prev => {
+      const newParams = new URLSearchParams(prev);
+      newParams.set('q', e.target.value);
+      return newParams;
+    });
     setPage(0);
+  };
+
+  const handleNavigate = (addr: string) => {
+    setSearchParams(prev => {
+      const newParams = new URLSearchParams(prev);
+      newParams.set('address', addr);
+      return newParams;
+    });
   };
 
   return (
@@ -119,7 +135,7 @@ export function FunctionsBrowser() {
           <FunctionDetail 
             binaryName={binaryName!} 
             address={selectedAddress} 
-            onNavigate={setSelectedAddress}
+            onNavigate={handleNavigate}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-muted-foreground">
