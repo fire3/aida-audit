@@ -281,14 +281,26 @@ class BinaryDbQuery:
             )
         return out
 
-    def list_exports(self, offset=None, limit=None):
+    def list_exports(self, query=None, name=None, offset=None, limit=None):
         if not self._table_exists("exports"):
             return []
         offset = _clamp_offset(offset)
         limit = _clamp_limit(limit)
+        
+        wh = []
+        params = []
+        if query:
+            wh.append("name LIKE ?")
+            params.append(f"%{query}%")
+        if name:
+            wh.append("name = ?")
+            params.append(name)
+            
+        where = ("WHERE " + " AND ".join(wh)) if wh else ""
+        
         rows = self._fetchall(
-            "SELECT name, ordinal, address, forwarder FROM exports ORDER BY name ASC LIMIT ? OFFSET ?",
-            (limit, offset),
+            f"SELECT name, ordinal, address, forwarder FROM exports {where} ORDER BY name ASC LIMIT ? OFFSET ?",
+            tuple(params + [limit, offset]),
         )
         out = []
         for r in rows:

@@ -363,8 +363,13 @@ class IDAExporter:
         self.timer.start_step("Exports")
         self.log("Exporting exports...")
         data = []
-        for ordinal, ea, name, public_name in idautils.Entries():
-            data.append((name if name else public_name, ordinal, ea, None))
+        for index, ordinal, ea, name in idautils.Entries():
+            forwarder = None
+            try:
+                forwarder = ida_entry.get_entry_forwarder(ordinal)
+            except Exception:
+                pass
+            data.append((name, ordinal, ea, forwarder))
             
         self.db.insert_exports(data)
         self.timer.end_step("Exports")

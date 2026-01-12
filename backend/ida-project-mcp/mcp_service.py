@@ -560,21 +560,25 @@ class McpService:
         
         hits = []
         for b in self.project_store.list_binaries():
-            exports = b.list_exports(offset=0, limit=500)
-            for ex in exports:
-                name = ex.get("name") or ""
-                ok = False
-                if match == "exact":
-                    ok = name == function_name
-                elif match == "contains":
-                    ok = function_name in name
-                elif match == "regex":
+            found_exports = []
+            if match == "exact":
+                found_exports = b.list_exports(name=function_name, limit=500)
+            elif match == "contains":
+                found_exports = b.list_exports(query=function_name, limit=500)
+            else:
+                # Regex support: fetch all exports (limit=10000) and filter
+                all_exports = b.list_exports(limit=10000)
+                for ex in all_exports:
+                    name = ex.get("name") or ""
                     try:
-                        ok = re.search(function_name, name) is not None
+                        if re.search(function_name, name):
+                            found_exports.append(ex)
                     except Exception:
-                        ok = False
-                if ok:
-                    hits.append({"binary": b.display_name, "export": ex})
+                        pass
+            
+            for ex in found_exports:
+                hits.append({"binary": b.display_name, "export": ex})
+                
         return hits[offset : offset + limit]
 
     @mcp_tool(name="search_similar_functions_in_project")
