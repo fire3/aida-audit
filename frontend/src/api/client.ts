@@ -132,6 +132,16 @@ export interface BinarySymbol {
   size: number;
 }
 
+export interface BinarySegment {
+  name: string;
+  start_address: string;
+  end_address: string;
+  size: number;
+  permissions: string;
+  file_offset: number;
+  type: string;
+}
+
 export interface ResolveAddressResult {
   address: string;
   function?: BinaryFunction;
@@ -187,6 +197,9 @@ export const binaryApi = {
 
   listSymbols: (name: string, query?: string, offset = 0, limit = 50) =>
     apiClient.get<BinarySymbol[]>(`/binary/${name}/symbols`, { params: { query, offset, limit } }).then(res => res.data),
+
+  listSegments: (name: string) =>
+    apiClient.get<BinarySegment[]>(`/binary/${name}/segments`).then(res => res.data),
 
   resolveAddress: (name: string, address: string) =>
     apiClient.get<ResolveAddressResult>(`/binary/${name}/address/${encodeURIComponent(address)}`).then(res => res.data),
