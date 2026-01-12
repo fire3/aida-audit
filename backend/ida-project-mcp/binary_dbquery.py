@@ -290,8 +290,29 @@ class BinaryDbQuery:
         wh = []
         params = []
         if query:
-            wh.append("name LIKE ?")
-            params.append(f"%{query}%")
+            sub_wh = ["name LIKE ?"]
+            sub_params = [f"%{query}%"]
+            
+            # Try to parse as address or ordinal
+            try:
+                q_str = query.strip()
+                if q_str.lower().startswith("0x"):
+                    val = int(q_str, 16)
+                    sub_wh.append("address = ?")
+                    sub_params.append(val)
+                elif q_str.isdigit():
+                    val = int(q_str)
+                    sub_wh.append("ordinal = ?")
+                    sub_params.append(val)
+                    # Also try as decimal address if plausible? 
+                    # Usually addresses are hex, ordinals are decimal.
+                    # But keeping it simple: digit -> ordinal.
+            except Exception:
+                pass
+                
+            wh.append(f"({' OR '.join(sub_wh)})")
+            params.extend(sub_params)
+
         if name:
             wh.append("name = ?")
             params.append(name)

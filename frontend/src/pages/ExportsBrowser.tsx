@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { binaryApi } from '../api/client';
@@ -7,6 +7,7 @@ import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Search, ChevronLeft, ChevronRight, ArrowRight, Share2 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useDebounce } from '../hooks/useDebounce';
 
 interface ExportDetailProps {
   binaryName: string;
@@ -99,17 +100,41 @@ export function ExportsBrowser() {
   const [page, setPage] = useState(0);
   const limit = 50;
 
-  const query = searchParams.get('q') || '';
+  const queryParam = searchParams.get('q') || '';
+  const [searchTerm, setSearchTerm] = useState(queryParam);
+  const debouncedSearch = useDebounce(searchTerm, 300);
+
+  // Sync URL with debounced value
+  useEffect(() => {
+    if (debouncedSearch !== queryParam) {
+      setSearchParams(prev => {
+        const newParams = new URLSearchParams(prev);
+        if (debouncedSearch) {
+          newParams.set('q', debouncedSearch);
+        } else {
+          newParams.delete('q');
+        }
+        return newParams;
+      });
+      setPage(0);
+    }
+  }, [debouncedSearch, setSearchParams]);
+
+  // Sync input with URL (for back/forward navigation)
+  useEffect(() => {
+    if (queryParam !== searchTerm) {
+      setSearchTerm(queryParam);
+    }
+  }, [queryParam]);
 
   const { data: exports, isLoading } = useQuery({
-    queryKey: ['exports', binaryName, query, page],
-    queryFn: () => binaryApi.listExports(binaryName!, query, page * limit, limit),
+    queryKey: ['exports', binaryName, debouncedSearch, page],
+    queryFn: () => binaryApi.listExports(binaryName!, debouncedSearch, page * limit, limit),
     enabled: !!binaryName,
   });
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchParams({ q: e.target.value });
-    setPage(0);
+    setSearchTerm(e.target.value);
   };
 
   return (
@@ -120,8 +145,8 @@ export function ExportsBrowser() {
           <div className="relative">
             <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search exports..."
-              value={query}
+              placeholder="Search exports (name, ordinal, address)..."
+              value={searchTerm}
               onChange={handleSearch}
               className="pl-8"
             />
