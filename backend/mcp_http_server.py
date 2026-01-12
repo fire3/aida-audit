@@ -97,6 +97,19 @@ def list_binaries(
     svc = get_service()
     return svc.get_project_binaries(offset=offset, limit=limit, detail=detail)
 
+@api_router.get("/project/search/exports")
+def search_project_exports(
+    function_name: str,
+    match: str = "exact",
+    offset: int = 0,
+    limit: int = 50
+):
+    svc = get_service()
+    try:
+        return svc.search_exported_function_in_project(function_name, match, offset, limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Binary Endpoints
 
 @api_router.get("/binary/{binary_name}")

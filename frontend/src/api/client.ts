@@ -125,6 +125,8 @@ export const projectApi = {
   getOverview: () => apiClient.get<ProjectOverview>('/project').then(res => res.data),
   listBinaries: (offset = 0, limit = 50) => 
     apiClient.get<BinarySummary[]>('/project/binaries', { params: { offset, limit } }).then(res => res.data),
+  searchExports: (functionName: string, match = 'exact', offset = 0, limit = 50) =>
+    apiClient.get<{ binary: string; export: any }[]>('/project/search/exports', { params: { function_name: functionName, match, offset, limit } }).then(res => res.data),
 };
 
 export const binaryApi = {

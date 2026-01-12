@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { binaryApi } from '../api/client';
+import { binaryApi, projectApi } from '../api/client';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { Code, FileText, ArrowRight, ArrowLeft, Search } from 'lucide-react';
+import { Code, FileText, ArrowRight, ArrowLeft, Search, Database } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
@@ -14,14 +14,43 @@ interface FunctionDetailProps {
 }
 
 export function FunctionDetail({ binaryName, address, onNavigate }: FunctionDetailProps) {
-  const [view, setView] = useState<'pseudocode' | 'disassembly'>('pseudocode');
+  const [view, setView] = useState<'pseudocode' | 'disassembly' | 'implementation'>('pseudocode');
   const [callerSearch, setCallerSearch] = useState('');
   const [calleeSearch, setCalleeSearch] = useState('');
+
+  const { data: addressInfo } = useQuery({
+    queryKey: ['addressInfo', binaryName, address],
+    queryFn: () => binaryApi.resolveAddress(binaryName, address),
+  });
+
+  const functionInfo = addressInfo?.function;
+  const isThunk = functionInfo?.is_thunk;
 
   const { data: pseudocode, isLoading: isPseudoLoading } = useQuery({
     queryKey: ['pseudocode', binaryName, address],
     queryFn: () => binaryApi.getFunctionPseudocode(binaryName, address),
     enabled: view === 'pseudocode',
+  });
+
+  const { data: implementation, isLoading: isImplLoading } = useQuery({
+    queryKey: ['implementation', functionInfo?.name],
+    queryFn: async () => {
+      if (!functionInfo?.name) return null;
+      const results = await projectApi.searchExports(functionInfo.name);
+      // Filter out the current binary if possible, or just take the first one that is likely the library
+      // Usually thunk in binary A points to export in binary B.
+      const target = results.find(r => r.binary !== binaryName);
+      if (!target) return null;
+      
+      // Fetch pseudocode for the target implementation
+      try {
+        const pseudo = await binaryApi.getFunctionPseudocode(target.binary, target.export.address);
+        return { ...target, pseudocode: pseudo?.pseudo_code };
+      } catch (e) {
+        return { ...target, pseudocode: null };
+      }
+    },
+    enabled: view === 'implementation' && !!isThunk && !!functionInfo?.name,
   });
 
   const { data: disassembly, isLoading: isDisasmLoading } = useQuery({
@@ -72,6 +101,16 @@ export function FunctionDetail({ binaryName, address, onNavigate }: FunctionDeta
             <FileText className="mr-2 h-4 w-4" />
             Disassembly
           </Button>
+          {isThunk && (
+            <Button
+              variant={view === 'implementation' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setView('implementation')}
+            >
+              <Database className="mr-2 h-4 w-4" />
+              Implementation
+            </Button>
+          )}
         </div>
 
         {/* Content */}
@@ -106,6 +145,45 @@ export function FunctionDetail({ binaryName, address, onNavigate }: FunctionDeta
                 >
                   {disassembly || "; No disassembly available."}
                 </SyntaxHighlighter>
+              </div>
+            )
+          )}
+
+          {view === 'implementation' && (
+            isImplLoading ? (
+              <div className="flex items-center justify-center h-full text-muted-foreground">Searching implementation...</div>
+            ) : implementation ? (
+              <div className="flex flex-col h-full">
+                <div className="p-4 border-b border-border bg-muted/10">
+                  <div className="text-sm space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-muted-foreground">Binary:</span>
+                      <span className="font-mono text-primary">{implementation.binary}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-muted-foreground">Address:</span>
+                      <span className="font-mono">{implementation.export.address}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-muted-foreground">Name:</span>
+                      <span className="font-mono">{implementation.export.name}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-auto">
+                  <SyntaxHighlighter
+                    language="cpp"
+                    style={vscDarkPlus}
+                    customStyle={{ margin: 0, height: '100%', borderRadius: 0 }}
+                    showLineNumbers
+                  >
+                    {implementation.pseudocode || "// No pseudocode available for implementation."}
+                  </SyntaxHighlighter>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-full text-muted-foreground">
+                No implementation found in other binaries.
               </div>
             )
           )}
