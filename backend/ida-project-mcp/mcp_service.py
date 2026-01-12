@@ -178,31 +178,6 @@ class McpService:
         """
         return self._get_binary(binary_name).list_segments()
 
-    @mcp_tool(name="list_binary_imports")
-    def list_binary_imports(self, binary_name: str, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
-        """List imports in the binary.
-
-        Args:
-            binary_name: Binary name (string).
-            offset: Start index for pagination (default: 0).
-            limit: Maximum number of imports to return (default: 50).
-        Returns:
-            list: List of dictionaries, each representing an imported function or symbol.
-        """
-        return self._get_binary(binary_name).list_imports(offset, limit)
-
-    @mcp_tool(name="list_binary_exports")
-    def list_binary_exports(self, binary_name: str, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
-        """List exports in the binary.
-
-        Args:
-            binary_name: Binary name (string).
-            offset: Start index for pagination (default: 0).
-            limit: Maximum number of exports to return (default: 50).
-        Returns:
-            list: List of dictionaries, each representing an exported function or symbol.
-        """
-        return self._get_binary(binary_name).list_exports(offset, limit)
 
     @mcp_tool(name="list_binary_symbols")
     def list_binary_symbols(self, binary_name: str, query: str = None, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:

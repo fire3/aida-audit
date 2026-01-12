@@ -154,29 +154,6 @@ def list_binary_functions(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.get("/binary/{binary_name}/imports")
-def list_binary_imports(
-    binary_name: str,
-    offset: int = 0,
-    limit: int = 50
-):
-    svc = get_service()
-    try:
-        return svc.list_binary_imports(binary_name, offset=offset, limit=limit)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.get("/binary/{binary_name}/exports")
-def list_binary_exports(
-    binary_name: str,
-    offset: int = 0,
-    limit: int = 50
-):
-    svc = get_service()
-    try:
-        return svc.list_binary_exports(binary_name, offset=offset, limit=limit)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/binary/{binary_name}/symbols")
 def list_binary_symbols(
