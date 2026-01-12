@@ -430,6 +430,33 @@ class McpService:
             encodings = self._coerce_json_list(encodings)
         return self._get_binary(binary_name).list_strings(query, min_length, encodings, offset, limit)
 
+    @mcp_tool(name="list_binary_imports")
+    def list_binary_imports(self, binary_name: str, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
+        """List imports in the binary.
+
+        Args:
+            binary_name: Binary name (string).
+            offset: Start index for pagination (default: 0).
+            limit: Maximum number of imports to return (default: 50).
+        Returns:
+            list: List of dictionaries, each representing an import.
+        """
+        return self._get_binary(binary_name).list_imports(offset, limit)
+
+    @mcp_tool(name="list_binary_exports")
+    def list_binary_exports(self, binary_name: str, query: str = None, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
+        """List exports in the binary.
+
+        Args:
+            binary_name: Binary name (string).
+            query: Search query for exports (optional).
+            offset: Start index for pagination (default: 0).
+            limit: Maximum number of exports to return (default: 50).
+        Returns:
+            list: List of dictionaries, each representing an export.
+        """
+        return self._get_binary(binary_name).list_exports(query=query, offset=offset, limit=limit)
+
     @mcp_tool(name="get_string_xrefs")
     def get_string_xrefs(self, binary_name: str, string_address: Union[str, int], offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
         """Get cross references to a string.

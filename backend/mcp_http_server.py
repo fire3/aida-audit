@@ -192,7 +192,7 @@ def list_binary_symbols(
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/binary/{binary_name}/strings")
-def list_binary_strings(
+def list_strings(
     binary_name: str,
     query: Optional[str] = None,
     min_length: Optional[int] = None,
@@ -202,6 +202,31 @@ def list_binary_strings(
     svc = get_service()
     try:
         return svc.list_binary_strings(binary_name, query=query, min_length=min_length, offset=offset, limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/binary/{binary_name}/imports")
+def list_imports(
+    binary_name: str,
+    offset: int = 0,
+    limit: int = 50
+):
+    svc = get_service()
+    try:
+        return svc.list_binary_imports(binary_name, offset=offset, limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/binary/{binary_name}/exports")
+def list_exports(
+    binary_name: str,
+    query: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 50
+):
+    svc = get_service()
+    try:
+        return svc.list_binary_exports(binary_name, query=query, offset=offset, limit=limit)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -109,6 +109,21 @@ export interface BinaryString {
   section?: string;
 }
 
+export interface BinaryImport {
+  library: string;
+  name: string;
+  ordinal: number;
+  address: string;
+  thunk_address: string;
+}
+
+export interface BinaryExport {
+  name: string;
+  ordinal: number;
+  address: string;
+  forwarder?: string;
+}
+
 export interface ResolveAddressResult {
   address: string;
   function?: BinaryFunction;
@@ -155,6 +170,12 @@ export const binaryApi = {
 
   listStrings: (name: string, query?: string, min_length?: number, offset = 0, limit = 50) =>
     apiClient.get<BinaryString[]>(`/binary/${name}/strings`, { params: { query, min_length, offset, limit } }).then(res => res.data),
+
+  listImports: (name: string, offset = 0, limit = 50) =>
+    apiClient.get<BinaryImport[]>(`/binary/${name}/imports`, { params: { offset, limit } }).then(res => res.data),
+
+  listExports: (name: string, query?: string, offset = 0, limit = 50) =>
+    apiClient.get<BinaryExport[]>(`/binary/${name}/exports`, { params: { query, offset, limit } }).then(res => res.data),
 
   resolveAddress: (name: string, address: string) =>
     apiClient.get<ResolveAddressResult>(`/binary/${name}/address/${encodeURIComponent(address)}`).then(res => res.data),

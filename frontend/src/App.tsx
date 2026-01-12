@@ -6,6 +6,8 @@ import { BinaryLayout } from './layouts/BinaryLayout';
 import { BinaryOverview } from './pages/BinaryOverview';
 import { FunctionsBrowser } from './pages/FunctionsBrowser';
 import { StringsBrowser } from './pages/StringsBrowser';
+import { ImportsBrowser } from './pages/ImportsBrowser';
+import { ExportsBrowser } from './pages/ExportsBrowser';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,8 +40,8 @@ function App() {
               <Route path="overview" element={<BinaryOverview />} />
               <Route path="functions" element={<FunctionsBrowser />} />
               <Route path="strings" element={<StringsBrowser />} />
-              <Route path="imports" element={<Placeholder title="Imports" />} />
-              <Route path="exports" element={<Placeholder title="Exports" />} />
+              <Route path="imports" element={<ImportsBrowser />} />
+              <Route path="exports" element={<ExportsBrowser />} />
               <Route path="symbols" element={<Placeholder title="Symbols" />} />
               <Route path="segments" element={<Placeholder title="Segments" />} />
             </Route>
