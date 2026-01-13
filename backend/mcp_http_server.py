@@ -232,6 +232,18 @@ def get_binary_function_disassembly(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.get("/binary/{binary_name}/address/{address}/disassembly")
+def get_binary_disassembly_context(
+    binary_name: str,
+    address: str,
+    context_lines: int = 10
+):
+    svc = get_service()
+    try:
+        return svc.get_binary_disassembly_context(binary_name, address, context_lines)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @api_router.get("/binary/{binary_name}/function/{address}/pseudocode")
 def get_binary_function_pseudocode(
     binary_name: str,

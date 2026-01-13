@@ -264,6 +264,19 @@ class McpService:
         """
         return self._get_binary(binary_name).get_function_disassembly_text(function_address)
 
+    @mcp_tool(name="get_binary_disassembly_context")
+    def get_binary_disassembly_context(self, binary_name: str, address: Union[str, int], context_lines: int = 10) -> str:
+        """Get disassembly context around an address.
+
+        Args:
+            binary_name: Binary name (string).
+            address: Address to center context around (hex string or integer).
+            context_lines: Number of lines before and after to include (default: 10).
+        Returns:
+            str: Disassembly text for the context.
+        """
+        return self._get_binary(binary_name).get_disassembly_context(address, context_lines)
+
     @mcp_tool(name="list_binary_functions")
     def list_binary_functions(self, binary_name: str, query: str = None, offset: int = 0, limit: int = 50, filters: dict = None) -> List[Dict[str, Any]]:
         """List functions in the binary.

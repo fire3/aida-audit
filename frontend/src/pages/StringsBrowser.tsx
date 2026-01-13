@@ -18,7 +18,8 @@ function XrefItem({ binaryName, xref, onNavigate }: XrefItemProps) {
     queryKey: ['disassembly', binaryName, xref.from_address],
     queryFn: async () => {
       try {
-        return await binaryApi.getFunctionDisassembly(binaryName, xref.from_address);
+        // Use new context-aware API with small context (3 lines)
+        return await binaryApi.getDisassemblyContext(binaryName, xref.from_address, 3);
       } catch (e) {
         return null;
       }
@@ -34,19 +35,16 @@ function XrefItem({ binaryName, xref, onNavigate }: XrefItemProps) {
     const targetAddr = xref.from_address.toLowerCase();
     
     // Find line starting with address (ignoring case)
-    // Format is usually "0x1234: instruction"
     const index = lines.findIndex(line => 
       line.trim().toLowerCase().startsWith(targetAddr)
     );
 
-    if (index === -1) return null;
-
-    const start = Math.max(0, index - 3);
-    const end = Math.min(lines.length, index + 4); // 3 before, 1 target, 3 after
+    // If we can't find the exact line, just show all lines (the backend already filtered them)
+    // But we want to know which one to highlight
     
     return {
-      lines: lines.slice(start, end),
-      targetIndex: index - start
+      lines: lines,
+      targetIndex: index
     };
   }, [disassembly, xref.from_address]);
 

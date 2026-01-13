@@ -174,6 +174,9 @@ export const binaryApi = {
   getFunctionDisassembly: (name: string, address: string) =>
     apiClient.get<string>(`/binary/${name}/function/${encodeURIComponent(address)}/disassembly`).then(res => res.data),
 
+  getDisassemblyContext: (name: string, address: string, contextLines: number = 10) =>
+    apiClient.get<string>(`/binary/${name}/address/${encodeURIComponent(address)}/disassembly`, { params: { context_lines: contextLines } }).then(res => res.data),
+
   getFunctionCallers: (name: string, address: string, depth?: number, limit?: number) =>
     apiClient.get<FunctionCallerRef[]>(`/binary/${name}/function/${encodeURIComponent(address)}/callers`, { params: { depth, limit } }).then(res => res.data),
 
