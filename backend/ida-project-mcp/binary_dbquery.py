@@ -604,6 +604,47 @@ class BinaryDbQuery:
             end_va = int(frow["end_va"])
         return self.get_disassembly_text(_format_address(start_va), _format_address(end_va))
 
+    def get_disassembly_context(self, address, context_lines=10):
+        target_va = _parse_address(address)
+        # Search range: +/- 4KB should be enough for context
+        search_range = 4096
+        start_search = max(0, target_va - search_range)
+        end_search = target_va + search_range
+        
+        chunks = self._get_disasm_chunks(start_search, end_search)
+        all_lines = []
+        for c in chunks:
+            content = c.get("content") or ""
+            for line in content.splitlines():
+                m = re.match(r"^\s*(0x[0-9a-fA-F]+)\s*:", line)
+                if m:
+                    try:
+                        va = int(m.group(1), 16)
+                        all_lines.append((va, line))
+                    except:
+                        pass
+        
+        all_lines.sort(key=lambda x: x[0])
+        
+        # Find best index (exact or nearest preceding)
+        best_idx = -1
+        for i, (va, line) in enumerate(all_lines):
+            if va == target_va:
+                best_idx = i
+                break
+            if va < target_va:
+                best_idx = i
+            else:
+                break
+                
+        if best_idx == -1:
+            return ""
+            
+        start_idx = max(0, best_idx - context_lines)
+        end_idx = min(len(all_lines), best_idx + context_lines + 1)
+        
+        return "\n".join(line for _, line in all_lines[start_idx:end_idx])
+
     def list_strings(self, query=None, min_length=None, encodings=None, offset=None, limit=None):
         if not self._table_exists("strings"):
             return []

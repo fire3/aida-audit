@@ -1,11 +1,104 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { binaryApi } from '../api/client';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
-import { Search, ChevronLeft, ChevronRight, Quote, ArrowRight, Filter } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Quote, ArrowRight, Filter, FileCode } from 'lucide-react';
 import { cn } from '../lib/utils';
+
+interface XrefItemProps {
+  binaryName: string;
+  xref: any;
+  onNavigate?: (address: string) => void;
+}
+
+function XrefItem({ binaryName, xref, onNavigate }: XrefItemProps) {
+  const { data: disassembly, isLoading } = useQuery({
+    queryKey: ['disassembly', binaryName, xref.from_address],
+    queryFn: async () => {
+      try {
+        return await binaryApi.getFunctionDisassembly(binaryName, xref.from_address);
+      } catch (e) {
+        return null;
+      }
+    },
+    retry: false,
+    staleTime: 1000 * 60 * 5,
+  });
+
+  const contextLines = useMemo(() => {
+    if (!disassembly) return null;
+    
+    const lines = disassembly.split('\n');
+    const targetAddr = xref.from_address.toLowerCase();
+    
+    // Find line starting with address (ignoring case)
+    // Format is usually "0x1234: instruction"
+    const index = lines.findIndex(line => 
+      line.trim().toLowerCase().startsWith(targetAddr)
+    );
+
+    if (index === -1) return null;
+
+    const start = Math.max(0, index - 3);
+    const end = Math.min(lines.length, index + 4); // 3 before, 1 target, 3 after
+    
+    return {
+      lines: lines.slice(start, end),
+      targetIndex: index - start
+    };
+  }, [disassembly, xref.from_address]);
+
+  return (
+    <div className="p-3 hover:bg-muted/50 transition-colors group border-b border-border/50 last:border-0">
+      <div 
+        className="flex items-center justify-between gap-2 cursor-pointer mb-2"
+        onClick={() => onNavigate?.(xref.from_address)}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <FileCode className="h-4 w-4 text-muted-foreground" />
+          <div className="font-mono text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors">
+            {xref.from_function || 'Unknown Function'}
+          </div>
+        </div>
+        <div className="text-xs text-muted-foreground font-mono flex-shrink-0 bg-muted px-1.5 py-0.5 rounded">
+          {xref.from_address}
+        </div>
+      </div>
+      
+      {isLoading ? (
+        <div className="ml-6 h-16 bg-muted/30 rounded animate-pulse" />
+      ) : contextLines ? (
+        <div className="ml-6 bg-muted/30 rounded border border-border/50 p-2 overflow-x-auto">
+          <div className="font-mono text-xs space-y-0.5">
+            {contextLines.lines.map((line, i) => (
+              <div 
+                key={i} 
+                className={cn(
+                  "whitespace-pre px-1 rounded",
+                  i === contextLines.targetIndex 
+                    ? "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400 font-medium border border-yellow-500/20" 
+                    : "text-muted-foreground/80"
+                )}
+              >
+                {line}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="ml-6 text-xs text-muted-foreground italic">
+          {disassembly === null ? "No disassembly available (data reference?)" : "Address not found in disassembly"}
+        </div>
+      )}
+      
+      <div className="ml-6 mt-1 text-xs text-muted-foreground font-mono">
+        Type: {xref.xref_type}
+      </div>
+    </div>
+  );
+}
 
 interface StringDetailProps {
   binaryName: string;
@@ -46,23 +139,12 @@ function StringDetail({ binaryName, address, stringContent, onNavigate }: String
           ) : (
             <div className="divide-y divide-border">
               {xrefs?.map((ref: any, idx) => (
-                <div
+                <XrefItem 
                   key={`${ref.from_address}-${idx}`}
-                  className="p-3 hover:bg-muted/50 cursor-pointer transition-colors group"
-                  onClick={() => onNavigate?.(ref.from_address)}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="font-mono text-sm font-medium text-foreground truncate min-w-0 group-hover:text-green-600 dark:group-hover:text-green-400">
-                      {ref.from_function || ref.from_address}
-                    </div>
-                    <div className="text-xs text-muted-foreground font-mono flex-shrink-0">
-                      {ref.from_address}
-                    </div>
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-1 font-mono">
-                    {ref.xref_type} reference
-                  </div>
-                </div>
+                  binaryName={binaryName}
+                  xref={ref}
+                  onNavigate={onNavigate}
+                />
               ))}
               {xrefs?.length === 0 && (
                 <div className="p-4 text-center text-muted-foreground text-xs">
