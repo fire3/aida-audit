@@ -110,6 +110,33 @@ def search_project_exports(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.get("/project/search/functions")
+def search_project_functions(
+    function_name: str,
+    match: str = "contains",
+    offset: int = 0,
+    limit: int = 50
+):
+    svc = get_service()
+    try:
+        return svc.search_functions_in_project(function_name, match, offset, limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/project/search/strings")
+def search_project_strings(
+    query: str,
+    match: str = "contains",
+    offset: int = 0,
+    limit: int = 50
+):
+    svc = get_service()
+    try:
+        return svc.search_string_symbol_in_project(query, match, offset, limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Binary Endpoints
 
 @api_router.get("/binary/{binary_name}")

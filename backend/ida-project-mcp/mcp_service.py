@@ -557,6 +557,47 @@ class McpService:
                 all_hits.append({"binary": b.display_name, **h})
         return all_hits[offset : offset + limit]
 
+    @mcp_tool(name="search_functions_in_project")
+    def search_functions_in_project(self, function_name: str, match: str = "contains", offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
+        """Search for functions in project.
+
+        Args:
+            function_name: The function name to search for.
+            match: Matching mode ('exact', 'contains', 'regex'). Default is 'contains'.
+            offset: Start index for pagination (default: 0).
+            limit: Maximum number of matches to return (default: 50).
+        Returns:
+            list: List of dictionaries, each representing a match.
+        """
+        match = (match or "contains").lower()
+        offset = max(0, offset)
+        limit = min(500, max(1, limit))
+        
+        hits = []
+        for b in self.project_store.list_binaries():
+            found_funcs = []
+            if match == "exact":
+                # list_functions query is typically "contains", so we might need to filter manually if list_functions doesn't support exact
+                # But list_functions usually does "contains".
+                # Let's fetch with query and filter.
+                funcs = b.list_functions(query=function_name, limit=500)
+                found_funcs = [f for f in funcs if f.get("name") == function_name]
+            elif match == "contains":
+                found_funcs = b.list_functions(query=function_name, limit=500)
+            else:
+                # Regex
+                try:
+                    rx = re.compile(function_name)
+                except Exception as e:
+                    raise McpError("INVALID_ARGUMENT", "regex_invalid", {"error": str(e)})
+                funcs = b.list_functions(query=None, limit=5000) # Fetch more for regex
+                found_funcs = [f for f in funcs if f.get("name") and rx.search(f["name"])]
+            
+            for f in found_funcs:
+                hits.append({"binary": b.display_name, "function": f})
+                
+        return hits[offset : offset + limit]
+
     @mcp_tool(name="search_exported_function_in_project")
     def search_exported_function_in_project(self, function_name: str, match: str = "exact", offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
         """Search for exported function in project.
