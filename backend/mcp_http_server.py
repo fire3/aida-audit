@@ -80,6 +80,15 @@ def handle_mcp_error(e: McpError):
 
 # Project Endpoints
 
+@api_router.get("/mcp/tools")
+def get_mcp_tools():
+    """Get list of available MCP tools and their schemas."""
+    svc = get_service()
+    try:
+        return svc.get_tools_metadata()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @api_router.get("/project")
 def get_project_overview():
     svc = get_service()

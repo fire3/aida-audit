@@ -47,6 +47,12 @@ class McpService:
                 })
         return tools
 
+    def get_tools_metadata(self) -> List[Dict[str, Any]]:
+        """Get metadata of registered tools (without handlers) for API display."""
+        tools = self.get_tools()
+        # Remove handler from each tool for JSON serialization
+        return [{k: v for k, v in t.items() if k != "handler"} for t in tools]
+
     def _generate_schema(self, method) -> Dict[str, Any]:
         """Generate JSON schema from method signature."""
         sig = inspect.signature(method)

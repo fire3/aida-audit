@@ -154,8 +154,19 @@ export interface ResolveAddressResult {
   is_data: boolean;
 }
 
+export interface McpTool {
+  name: string;
+  description: string;
+  inputSchema: {
+    type: string;
+    properties: Record<string, any>;
+    required?: string[];
+  };
+}
+
 export const projectApi = {
   getOverview: () => apiClient.get<ProjectOverview>('/project').then(res => res.data),
+  getMcpTools: () => apiClient.get<McpTool[]>('/mcp/tools').then(res => res.data),
   listBinaries: (offset = 0, limit = 50) => 
     apiClient.get<BinarySummary[]>('/project/binaries', { params: { offset, limit } }).then(res => res.data),
   searchExports: (functionName: string, match = 'exact', offset = 0, limit = 50) =>
