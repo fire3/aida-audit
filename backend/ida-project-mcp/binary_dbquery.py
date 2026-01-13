@@ -730,10 +730,18 @@ class BinaryDbQuery:
         )
         out = []
         for r in rows:
+            from_func_va = r["from_function_va"]
+            func_name = None
+            if from_func_va and self._table_exists("functions"):
+                 f_row = self._fetchone("SELECT name FROM functions WHERE function_va=?", (from_func_va,))
+                 if f_row:
+                     func_name = f_row["name"]
+
             out.append(
                 {
                     "from_address": _format_address(r["from_va"]),
-                    "from_function": _format_address(r["from_function_va"]),
+                    "from_function": _format_address(from_func_va),
+                    "from_function_name": func_name,
                     "xref_type": r["xref_type"],
                     "operand_index": r["operand_index"],
                 }

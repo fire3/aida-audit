@@ -51,13 +51,21 @@ function XrefItem({ binaryName, xref, onNavigate }: XrefItemProps) {
   return (
     <div className="p-3 hover:bg-muted/50 transition-colors group border-b border-border/50 last:border-0">
       <div 
-        className="flex items-center justify-between gap-2 cursor-pointer mb-2"
-        onClick={() => onNavigate?.(xref.from_address)}
+        className={cn(
+          "flex items-center justify-between gap-2 mb-2",
+          xref.from_function ? "cursor-pointer" : ""
+        )}
+        onClick={() => xref.from_function && onNavigate?.(xref.from_function)}
       >
         <div className="flex items-center gap-2 min-w-0">
           <FileCode className="h-4 w-4 text-muted-foreground" />
-          <div className="font-mono text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors">
-            {xref.from_function || 'Unknown Function'}
+          <div className={cn(
+            "font-mono text-sm font-medium text-foreground truncate transition-colors",
+            xref.from_function ? "group-hover:text-primary" : ""
+          )}>
+            {xref.from_function_name || xref.from_function || (
+              <span className="text-muted-foreground italic text-xs">No function</span>
+            )}
           </div>
         </div>
         <div className="text-xs text-muted-foreground font-mono flex-shrink-0 bg-muted px-1.5 py-0.5 rounded">
