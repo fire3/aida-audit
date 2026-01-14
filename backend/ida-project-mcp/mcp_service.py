@@ -563,29 +563,11 @@ class McpService:
         """
         return self._get_binary(binary_name).list_exports(query, offset, limit)
 
-    @mcp_tool(name="get_string_xrefs")
-    def get_string_xrefs(self, binary_name: str, string_address: Union[str, int], offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
-        """Find where a specific string is used in the binary.
-
-        Use this tool to find code that references a particular string.
-        This is typically the next step after finding a string with `list_binary_strings`.
-
-        Args:
-            binary_name: The unique name of the binary.
-            string_address: The address of the string (hex string or integer).
-            offset: The starting index for pagination.
-            limit: The maximum number of xrefs to return (max 50).
-
-        Returns:
-            list: A list of code references (xrefs) to the string.
-        """
-        return self._get_binary(binary_name).get_string_xrefs(string_address, offset, limit)
-
     @mcp_tool(name="search_string_symbol_in_binary")
-    def search_string_symbol_in_binary(self, binary_name: str, search_string: str, match: str = "contains") -> List[Dict[str, Any]]:
-        """Search for a string or symbol within a specific binary.
+    def search_string_in_binary(self, binary_name: str, search_string: str, match: str = "contains") -> List[Dict[str, Any]]:
+        """Search for a string within a specific binary.
 
-        Use this tool to find a specific text string or symbol name within one binary.
+        Use this tool to find a specific text string within one binary.
         This is similar to `search_strings` but scoped to a single binary.
 
         Args:
@@ -656,8 +638,8 @@ class McpService:
         except ValueError as e:
             raise McpError("INVALID_ARGUMENT", str(e))
 
-    @mcp_tool(name="search_strings")
-    def search_strings(self, search_string: str, match: str = "contains", offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
+    @mcp_tool(name="search_strings_in_project")
+    def search_strings_in_project(self, search_string: str, match: str = "contains", offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
         """Search for strings across ALL binaries in the project.
 
         Use this tool when you don't know which binary contains a specific string.
@@ -783,21 +765,6 @@ class McpService:
                 hits.append({"binary": b.display_name, "export": ex})
                 
         return hits[offset : offset + limit]
-
-    @mcp_tool(name="search_similar_functions_in_project")
-    def search_similar_functions_in_project(self, binary_name: str, function_address: Union[str, int], top_k: int = None, threshold: float = None) -> None:
-        """(UNSUPPORTED) Search for similar functions.
-
-        This tool is currently not implemented and will always return an error.
-        Do not use this tool.
-
-        Args:
-            binary_name: Binary name.
-            function_address: Address of the function.
-            top_k: Number of results.
-            threshold: Similarity threshold.
-        """
-        raise McpError("UNSUPPORTED", "similarity_index_not_available")
 
     def _maybe_parse_json(self, value):
         if not isinstance(value, str):
