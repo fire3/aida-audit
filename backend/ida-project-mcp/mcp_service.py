@@ -377,7 +377,6 @@ class McpService:
         """
         return self._get_binary(binary_name).get_callers(function_address, depth, limit)
 
-    @mcp_tool(name="get_binary_cross_references_to_address")
     def get_binary_cross_references_to_address(self, binary_name: str, address: Union[str, int], offset: int = 0, limit: int = 50, filters: dict = None) -> List[Dict[str, Any]]:
         """Get cross references to an address.
 
@@ -392,7 +391,6 @@ class McpService:
         """
         return self._get_binary(binary_name).get_xrefs_to_address(address, offset, limit, filters)
 
-    @mcp_tool(name="get_binary_cross_references_from_address")
     def get_binary_cross_references_from_address(self, binary_name: str, address: Union[str, int], offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
         """Get cross references from an address.
 
@@ -405,6 +403,30 @@ class McpService:
             list: List of dictionaries, each representing a cross reference.
         """
         return self._get_binary(binary_name).get_xrefs_from_address(address, offset, limit)
+
+    @mcp_tool(name="get_binary_cross_references")
+    def get_binary_cross_references(self, binary_name: str, address: Union[str, int], offset: int = 0, limit: int = 50, filters: dict = None) -> Dict[str, List[Dict[str, Any]]]:
+        """Get both cross references TO and FROM an address.
+        
+        This tool combines 'get_binary_cross_references_to_address' and 'get_binary_cross_references_from_address'
+        to provide a complete picture of references for a given address.
+
+        Args:
+            binary_name: Binary name (string).
+            address: The address to query (hex string or integer).
+            offset: Start index for pagination (default: 0).
+            limit: Maximum number of xrefs to return per direction (default: 50).
+            filters: Filters for xrefs (optional).
+        Returns:
+            dict: A dictionary containing two keys:
+                - 'to': List of cross references TO this address.
+                - 'from': List of cross references FROM this address.
+        """
+        return {
+            "to": self.get_binary_cross_references_to_address(binary_name, address, offset, limit, filters),
+            "from": self.get_binary_cross_references_from_address(binary_name, address, offset, limit)
+        }
+
 
     @mcp_tool(name="list_binary_strings")
     def list_binary_strings(self, binary_name: str, query: str = None, min_length: int = None, encodings: Union[str, List[str]] = None, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:

@@ -204,6 +204,9 @@ export const binaryApi = {
   getXrefsFrom: (name: string, address: string, offset = 0, limit = 50) =>
     apiClient.get<unknown[]>(`/binary/${name}/xrefs/from/${encodeURIComponent(address)}`, { params: { offset, limit } }).then(res => res.data),
 
+  getCrossReferences: (name: string, address: string, offset = 0, limit = 50) =>
+    apiClient.get<{ to: unknown[], from: unknown[] }>(`/binary/${name}/xrefs/${encodeURIComponent(address)}`, { params: { offset, limit } }).then(res => res.data),
+
   listStrings: (name: string, query?: string, min_length?: number, offset = 0, limit = 50) =>
     apiClient.get<BinaryString[]>(`/binary/${name}/strings`, { params: { query, min_length, offset, limit } }).then(res => res.data),
 

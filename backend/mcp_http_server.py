@@ -373,6 +373,20 @@ def get_xrefs_from(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.get("/binary/{binary_name}/xrefs/{address}")
+def get_xrefs(
+    binary_name: str,
+    address: str,
+    offset: int = 0,
+    limit: int = 50
+):
+    svc = get_service()
+    try:
+        return svc.get_binary_cross_references(binary_name, address, offset, limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Include the API router
 app.include_router(api_router)
 
