@@ -344,7 +344,7 @@ export function Dashboard() {
                     <Card key={tool.name} className="flex flex-col">
                       <CardHeader className="pb-2">
                         <CardTitle className="font-mono text-base text-primary">{tool.name}</CardTitle>
-                        <CardDescription className="text-sm mt-1">{tool.description}</CardDescription>
+                        <CardDescription className="text-sm mt-1 whitespace-pre-wrap">{tool.description}</CardDescription>
                       </CardHeader>
                       <CardContent className="flex-1">
                         <div className="text-xs font-semibold mb-2 text-muted-foreground uppercase tracking-wider">Parameters</div>

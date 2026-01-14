@@ -37,7 +37,7 @@ class McpService:
                 schema = self._generate_schema(method)
                 handler = self._create_handler(method)
                 
-                description = method.__doc__.strip() if method.__doc__ else ""
+                description = inspect.cleandoc(method.__doc__) if method.__doc__ else ""
                 
                 tools.append({
                     "name": cfg["name"],
@@ -130,98 +130,136 @@ class McpService:
 
     @mcp_tool(name="get_project_overview")
     def get_project_overview(self) -> Dict[str, Any]:
-        """Get overview of the project including binaries count and capabilities.
+        """Retrieve a high-level overview of the current analysis project.
+
+        Use this tool to understand the scope of the project, including the number of binaries analyzed and the available analysis capabilities.
+        This is typically the first step to verify project status before diving into specific binaries.
 
         Returns:
-            dict: Project overview information containing 'binaries_count' (int) and 'capabilities' (dict).
+            dict: A dictionary containing project statistics:
+                - 'binaries_count' (int): Total number of binaries in the project.
+                - 'capabilities' (dict): Supported analysis features (e.g., disassembly, decompilation).
         """
         return self.project_store.get_overview()
 
     @mcp_tool(name="get_project_binaries")
     def get_project_binaries(self, offset: int = 0, limit: int = 50, filters: dict = None, detail: bool = False) -> List[Dict[str, Any]]:
-        """Get list of binaries in the project.
+        """List all binaries available in the current project with pagination support.
+
+        Use this tool to discover available binaries for analysis. It returns basic metadata for each binary, allowing you to select specific targets for deeper inspection.
 
         Args:
-            offset: Start index for pagination (default: 0).
-            limit: Maximum number of binaries to return (default: 50).
-            filters: Dictionary of filters to apply (optional).
-            detail: Whether to include detailed information (default: False).
+            offset: The starting index for pagination. Use 0 for the first page.
+            limit: The maximum number of binaries to return (max 50). Use a lower value for quick checks.
+            filters: A dictionary of key-value pairs to filter the results (e.g., {'arch': 'x86'}).
+            detail: If True, returns extended metadata for each binary (slower). Default is False.
+
         Returns:
-            list: List of dictionaries, each representing a binary with its metadata.
+            list: A list of binary metadata objects, each containing 'name', 'size', 'arch', etc.
         """
         return self.project_store.get_project_binaries(offset, limit, filters, detail)
 
     @mcp_tool(name="get_binary_metadata")
     def get_binary_metadata(self, binary_name: str) -> Dict[str, Any]:
-        """Get metadata for a specific binary.
+        """Retrieve detailed metadata for a specific binary file.
+
+        Use this tool to get technical details about a binary, such as its architecture (x86/ARM), file format (PE/ELF), entry point, and other properties.
+        This helps in understanding the target environment before analyzing code.
 
         Args:
-            binary_name: Binary name (string).
+            binary_name: The unique name of the binary to inspect (e.g., 'ntoskrnl.exe').
+
         Returns:
-            dict: Metadata of the binary including architecture, file type, etc.
+            dict: A dictionary containing detailed binary properties: architecture, endianness, entry_point, file_format, etc.
         """
         return self._get_binary(binary_name).get_extended_metadata()
 
     @mcp_tool(name="list_binary_sections")
     def list_binary_sections(self, binary_name: str) -> List[Dict[str, Any]]:
-        """List sections in the binary.
+        """Retrieve the list of sections (e.g., .text, .data) in the specified binary.
+
+        Use this tool to map out the binary's memory layout. It helps identify code regions (executable) versus data regions (readable/writable).
 
         Args:
-            binary_name: Binary name (string).
+            binary_name: The unique name of the binary to analyze.
+
         Returns:
-            list: List of dictionaries, each representing a section (name, start_address, size, etc.).
+            list: A list of section objects, each containing:
+                - 'name': Section name.
+                - 'start_address': Start address in memory (hex string).
+                - 'size': Size in bytes.
         """
         return self._get_binary(binary_name).list_sections()
 
     @mcp_tool(name="list_binary_segments")
     def list_binary_segments(self, binary_name: str) -> List[Dict[str, Any]]:
-        """List segments in the binary.
+        """Retrieve the list of segments in the specified binary.
+
+        Use this tool to understand the memory segmentation of the binary, including permissions (read, write, execute) for each segment.
 
         Args:
-            binary_name: Binary name (string).
+            binary_name: The unique name of the binary to analyze.
+
         Returns:
-            list: List of dictionaries, each representing a segment (name, start_address, size, permissions).
+            list: A list of segment objects, each containing:
+                - 'name': Segment name.
+                - 'start_address': Start address (hex string).
+                - 'size': Size in bytes.
+                - 'permissions': Permission flags (e.g., 'R-X').
         """
         return self._get_binary(binary_name).list_segments()
 
 
     @mcp_tool(name="list_binary_symbols")
     def list_binary_symbols(self, binary_name: str, query: str = None, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
-        """List symbols in the binary.
+        """Search and list symbols (functions, variables, labels) in the binary.
+
+        Use this tool to find specific symbols by name or to browse available symbols. This is useful for locating known functions or global variables.
 
         Args:
-            binary_name: Binary name (string).
-            query: Search query string (optional).
-            offset: Start index for pagination (default: 0).
-            limit: Maximum number of symbols to return (default: 50).
+            binary_name: The unique name of the binary to search.
+            query: A partial name or keyword to filter symbols (case-insensitive). Optional.
+            offset: The starting index for pagination (default: 0).
+            limit: The maximum number of symbols to return (max 50).
+
         Returns:
-            list: List of dictionaries, each representing a symbol.
+            list: A list of symbol objects, each containing 'name', 'address', and 'type'.
         """
         return self._get_binary(binary_name).list_symbols(query, offset, limit)
 
     @mcp_tool(name="resolve_address")
     def resolve_address(self, binary_name: str, address: Union[str, int]) -> Dict[str, Any]:
-        """Resolve information about an address.
+        """Resolve the context of a specific memory address.
+
+        Use this tool to determine what resides at a given address: which function it belongs to, which section it falls into, and what symbol (if any) is associated with it.
 
         Args:
-            binary_name: Binary name (string).
-            address: Address to resolve (hex string or integer).
+            binary_name: The unique name of the binary.
+            address: The memory address to resolve (hex string like '0x401000' or integer).
+
         Returns:
-            dict: Information about the address, including location (function, block, instruction).
+            dict: Contextual information including:
+                - 'function': The containing function (if any).
+                - 'segment': The containing segment.
+                - 'symbol': The nearest symbol.
         """
         return self._get_binary(binary_name).resolve_address(address)
 
     @mcp_tool(name="get_binary_bytes")
     def get_binary_bytes(self, binary_name: str, address: Union[str, int], length: int, format_type: str = None) -> str:
-        """Get bytes from the binary.
+        """Read raw bytes from a specific memory address in the binary.
+
+        Use this tool to inspect raw data, such as headers, strings, or unknown data structures.
+        Do not use this for code analysis; use disassembly tools instead.
 
         Args:
-            binary_name: Binary name (string).
-            address: Start address to read bytes from (hex string or integer).
-            length: Number of bytes to read.
-            format_type: Output format (optional, e.g., 'hex', 'base64').
+            binary_name: The unique name of the binary.
+            address: The starting memory address (hex string like '0x401000' or integer).
+            length: The number of bytes to read (must be positive).
+            format_type: The output format. Options: 'hex' (default) or 'base64'.
+
         Returns:
-            str: The bytes read, formatted as requested.
+            str: The read bytes formatted as a hex string (e.g., '4d5a90...') or base64 string.
         """
         try:
             return self._get_binary(binary_name).get_bytes(address, length, format_type)
@@ -234,80 +272,103 @@ class McpService:
 
     @mcp_tool(name="get_binary_decoded_data")
     def get_binary_decoded_data(self, binary_name: str, address: Union[str, int], length: int) -> Dict[str, Any]:
-        """Get decoded data from the binary.
+        """Decode raw bytes at an address into a structured format (if possible).
+
+        Use this tool when you suspect an address contains a specific data type (string, pointer, etc.) and want the tool to attempt automatic decoding.
 
         Args:
-            binary_name: Binary name (string).
-            address: Start address to read data from (hex string or integer).
-            length: Number of bytes to read.
+            binary_name: The unique name of the binary.
+            address: The starting memory address (hex string or integer).
+            length: The number of bytes to analyze.
+
         Returns:
-            dict: Decoded data information.
+            dict: A dictionary containing the 'decoded_value' (if successful) and the 'type' (e.g., 'string', 'pointer').
         """
         return self._get_binary(binary_name).get_decoded_data(address, length)
 
     @mcp_tool(name="get_binary_disassembly_text")
     def get_binary_disassembly_text(self, binary_name: str, start_address: Union[str, int], end_address: Union[str, int]) -> str:
-        """Get disassembly text for a range.
+        """Retrieve assembly instructions for a specific memory range.
+
+        Use this tool to analyze a custom block of code that might not correspond to a single function.
+        This provides the raw assembly instructions (mnemonics and operands).
 
         Args:
-            binary_name: Binary name (string).
-            start_address: Start address of the range (hex string or integer).
-            end_address: End address of the range (hex string or integer).
+            binary_name: The unique name of the binary.
+            start_address: The starting memory address (hex string or integer).
+            end_address: The ending memory address (hex string or integer).
+
         Returns:
-            str: Disassembly text for the specified range.
+            str: A text block containing the assembly instructions, one per line.
         """
         return self._get_binary(binary_name).get_disassembly_text(start_address, end_address)
 
     @mcp_tool(name="get_binary_function_disassembly_text")
     def get_binary_function_disassembly_text(self, binary_name: str, function_address: Union[str, int]) -> str:
-        """Get disassembly text for a function.
+        """Retrieve the complete assembly code for a specific function.
+
+        Use this tool to study the implementation details of a function at the assembly level.
+        It returns the instructions for the entire function body.
 
         Args:
-            binary_name: Binary name (string).
-            function_address: Address of the function (hex string or integer).
+            binary_name: The unique name of the binary.
+            function_address: The entry address of the function (hex string or integer).
+
         Returns:
-            str: Disassembly text for the entire function.
+            str: A text block containing the function's assembly code.
         """
         return self._get_binary(binary_name).get_function_disassembly_text(function_address)
 
     @mcp_tool(name="get_binary_disassembly_context")
     def get_binary_disassembly_context(self, binary_name: str, address: Union[str, int], context_lines: int = 10) -> str:
-        """Get disassembly context around an address.
+        """Retrieve assembly instructions surrounding a specific address.
+
+        Use this tool to see the context of an instruction (lines before and after) without fetching the entire function.
+        Useful for quick checks or understanding the immediate neighborhood of an address.
 
         Args:
-            binary_name: Binary name (string).
-            address: Address to center context around (hex string or integer).
-            context_lines: Number of lines before and after to include (default: 10).
+            binary_name: The unique name of the binary.
+            address: The central memory address (hex string or integer).
+            context_lines: The number of instructions to show before and after the target address (default: 10).
+
         Returns:
-            str: Disassembly text for the context.
+            str: A text block showing the assembly instructions with the target address in the middle.
         """
         return self._get_binary(binary_name).get_disassembly_context(address, context_lines)
 
     @mcp_tool(name="list_binary_functions")
     def list_binary_functions(self, binary_name: str, query: str = None, offset: int = 0, limit: int = 50, filters: dict = None) -> List[Dict[str, Any]]:
-        """List functions in the binary.
+        """List functions available in the binary.
+
+        Use this tool to explore the functions defined in the binary. You can search by name or list them sequentially.
+        This is essential for identifying interesting code regions to analyze.
 
         Args:
-            binary_name: Binary name (string).
-            query: Search query for function names (optional).
-            offset: Start index for pagination (default: 0).
-            limit: Maximum number of functions to return (default: 50).
-            filters: Dictionary of filters (optional).
+            binary_name: The unique name of the binary.
+            query: A partial string to filter function names (e.g., 'main', 'ssl'). Optional.
+            offset: The starting index for pagination (default: 0).
+            limit: The maximum number of functions to return (max 50).
+            filters: Additional criteria to filter functions (e.g., size range). Optional.
+
         Returns:
-            list: List of dictionaries, each representing a function (name, address, size).
+            list: A list of function objects, each containing 'name', 'address', and 'size'.
         """
         return self._get_binary(binary_name).list_functions(query, offset, limit, filters)
 
     @mcp_tool(name="get_binary_function_by_name")
     def get_binary_function_by_name(self, binary_name: str, names: Union[str, List[str]], match: str = None) -> List[Dict[str, Any]]:
-        """Get functions by name.
+        """Find functions by their name(s).
+
+        Use this tool when you have a specific function name or pattern in mind and want to find its address and details.
+        Supports exact matching, substring matching, and regular expressions.
 
         Args:
-            binary_name: Binary name (string).
-            names: Function name(s) (string or list of strings).
-            match: Matching mode ('exact', 'contains', 'regex').
+            binary_name: The unique name of the binary.
+            names: The function name(s) to search for. Can be a single string or a list of strings.
+            match: The matching strategy. Options: 'exact' (default), 'contains', or 'regex'.
+
         Returns:
-            list: List of dictionaries, each representing a matching function.
+            list: A list of matching function objects with their metadata.
         """
         if isinstance(names, str):
             # Try parsing as JSON if it looks like one, or wrap in list
@@ -318,13 +379,17 @@ class McpService:
 
     @mcp_tool(name="get_binary_function_by_address")
     def get_binary_function_by_address(self, binary_name: str, addresses: Union[str, int, List[Union[str, int]]]) -> List[Dict[str, Any]]:
-        """Get function information in the project by address(es).
+        """Retrieve function details for specific address(es).
+
+        Use this tool to get metadata (name, size, start/end) for a function given its entry address.
+        This is useful when you have an address (e.g., from a cross-reference) and need to know which function it corresponds to.
 
         Args:
-            binary_name: Binary name (string).
-            addresses: Function address(es) (hexadecimal or integer). Can be a single address, a comma-separated string, or a list of addresses.
+            binary_name: The unique name of the binary.
+            addresses: The function address(es) to query (hex string or integer). Can be a single value or a list.
+
         Returns:
-            list: A list of dictionaries mapping addresses to function information (name, address, size) or error info.
+            list: A list of function metadata objects corresponding to the requested addresses.
         """
         if isinstance(addresses, (str, int)):
              addresses = self._coerce_json_list(addresses)
@@ -334,14 +399,18 @@ class McpService:
 
     @mcp_tool(name="get_binary_function_pseudocode_by_address")
     def get_binary_function_pseudocode_by_address(self, binary_name: str, addresses: Union[str, int, List[Union[str, int]]], options: dict = None) -> List[Dict[str, Any]]:
-        """Get decompiled C-style code for functions.
+        """Decompile a function into C-style pseudocode.
+
+        Use this tool to get a high-level C-like representation of the assembly code.
+        This is the primary tool for understanding complex logic, as it abstracts away registers and stack management.
 
         Args:
-            binary_name: Binary name (string).
-            addresses: Function address(es) (hexadecimal or integer). Can be a single address, a comma-separated string, or a list of addresses.
-            options: Options for decompilation (optional).
+            binary_name: The unique name of the binary.
+            addresses: The entry address(es) of the function(s) to decompile (hex string or integer).
+            options: Decompilation settings (optional).
+
         Returns:
-            list: List of dictionaries containing pseudocode for the requested functions.
+            list: A list of results, each containing the 'pseudocode' string for the requested function.
         """
         if isinstance(addresses, (str, int)):
              addresses = self._coerce_json_list(addresses)
@@ -351,29 +420,37 @@ class McpService:
 
     @mcp_tool(name="get_binary_function_callees")
     def get_binary_function_callees(self, binary_name: str, function_address: Union[str, int], depth: int = None, limit: int = None) -> List[Dict[str, Any]]:
-        """Get callees of a function.
+        """Identify which functions are called by a specific function (outbound calls).
+
+        Use this tool to understand the dependencies of a function: what other subroutines does it invoke?
+        This helps in tracing the control flow downwards.
 
         Args:
-            binary_name: Binary name (string).
-            function_address: Address of the function (hex string or integer).
-            depth: Recursion depth (optional).
-            limit: Maximum number of callees to return (optional).
+            binary_name: The unique name of the binary.
+            function_address: The entry address of the caller function (hex string or integer).
+            depth: The depth of the call graph to traverse (default: 1, immediate callees).
+            limit: The maximum number of callees to return.
+
         Returns:
-            list: List of dictionaries, each representing a called function.
+            list: A list of called functions, including their addresses and names.
         """
         return self._get_binary(binary_name).get_callees(function_address, depth, limit)
 
     @mcp_tool(name="get_binary_function_callers")
     def get_binary_function_callers(self, binary_name: str, function_address: Union[str, int], depth: int = None, limit: int = None) -> List[Dict[str, Any]]:
-        """Get callers of a function.
+        """Identify which functions call a specific function (inbound calls).
+
+        Use this tool to find usage examples (X-refs) of a function.
+        This is crucial for understanding how a function is used throughout the program and tracing execution paths upwards.
 
         Args:
-            binary_name: Binary name (string).
-            function_address: Address of the function (hex string or integer).
-            depth: Recursion depth (optional).
-            limit: Maximum number of callers to return (optional).
+            binary_name: The unique name of the binary.
+            function_address: The entry address of the target function (hex string or integer).
+            depth: The depth of the call graph to traverse (default: 1, immediate callers).
+            limit: The maximum number of callers to return.
+
         Returns:
-            list: List of dictionaries, each representing a calling function.
+            list: A list of calling functions (call sites), including their addresses and names.
         """
         return self._get_binary(binary_name).get_callers(function_address, depth, limit)
 
@@ -406,21 +483,22 @@ class McpService:
 
     @mcp_tool(name="get_binary_cross_references")
     def get_binary_cross_references(self, binary_name: str, address: Union[str, int], offset: int = 0, limit: int = 50, filters: dict = None) -> Dict[str, List[Dict[str, Any]]]:
-        """Get both cross references TO and FROM an address.
-        
-        This tool combines 'get_binary_cross_references_to_address' and 'get_binary_cross_references_from_address'
-        to provide a complete picture of references for a given address.
+        """Retrieve cross-references (xrefs) to and from a specific address.
+
+        Use this tool to find:
+        1. Who refers to this address (Code X-refs or Data X-refs).
+        2. What this address refers to (e.g., calls, string usage).
+        This is a comprehensive tool for analyzing relationships between code and data.
 
         Args:
-            binary_name: Binary name (string).
-            address: The address to query (hex string or integer).
-            offset: Start index for pagination (default: 0).
-            limit: Maximum number of xrefs to return per direction (default: 50).
-            filters: Filters for xrefs (optional).
+            binary_name: The unique name of the binary.
+            address: The memory address to analyze (hex string or integer).
+            offset: Pagination offset for the results list (default: 0).
+            limit: Max number of xrefs to return per direction (max 50).
+            filters: Optional filters (e.g., type='code').
+
         Returns:
-            dict: A dictionary containing two keys:
-                - 'to': List of cross references TO this address.
-                - 'from': List of cross references FROM this address.
+            dict: An object with 'to' (incoming references) and 'from' (outgoing references) lists.
         """
         return {
             "to": self.get_binary_cross_references_to_address(binary_name, address, offset, limit, filters),
@@ -430,17 +508,21 @@ class McpService:
 
     @mcp_tool(name="list_binary_strings")
     def list_binary_strings(self, binary_name: str, query: str = None, min_length: int = None, encodings: Union[str, List[str]] = None, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
-        """List strings in the binary.
+        """Search for strings found within the binary.
+
+        Use this tool to find text data (ASCII, Unicode, etc.).
+        Searching for specific strings (e.g., "error", "password") is a common starting point for finding relevant code logic.
 
         Args:
-            binary_name: Binary name (string).
-            query: Search query for strings (optional).
-            min_length: Minimum string length (optional).
-            encodings: List of encodings to search (optional).
-            offset: Start index for pagination (default: 0).
-            limit: Maximum number of strings to return (default: 50).
+            binary_name: The unique name of the binary.
+            query: A specific string or substring to search for (case-insensitive). Optional.
+            min_length: The minimum length of strings to return (default: 5).
+            encodings: List of encodings to include (e.g., ['ascii', 'utf-16le']). Optional.
+            offset: The starting index for pagination.
+            limit: The maximum number of strings to return (max 50).
+
         Returns:
-            list: List of dictionaries, each representing a found string.
+            list: A list of string objects, including 'value', 'address', and 'encoding'.
         """
         if encodings:
             encodings = self._coerce_json_list(encodings)
@@ -448,55 +530,71 @@ class McpService:
 
     @mcp_tool(name="list_binary_imports")
     def list_binary_imports(self, binary_name: str, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
-        """List imports in the binary.
+        """List external functions imported by the binary (Imports).
+
+        Use this tool to see what external libraries and APIs the binary relies on (e.g., 'kernel32.dll', 'CreateFile').
+        This gives strong clues about the binary's behavior (file I/O, network, GUI, etc.).
 
         Args:
-            binary_name: Binary name (string).
-            offset: Start index for pagination (default: 0).
-            limit: Maximum number of imports to return (default: 50).
+            binary_name: The unique name of the binary.
+            offset: The starting index for pagination.
+            limit: The maximum number of imports to return (max 50).
+
         Returns:
-            list: List of dictionaries, each representing an import.
+            list: A list of import objects, each containing 'name', 'library', and 'address'.
         """
         return self._get_binary(binary_name).list_imports(offset, limit)
 
     @mcp_tool(name="list_binary_exports")
     def list_binary_exports(self, binary_name: str, query: str = None, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
-        """List exports in the binary.
+        """List functions exported by the binary (Exports).
+
+        Use this tool to identify the public API of a DLL or shared library.
+        These are the entry points intended for external use.
 
         Args:
-            binary_name: Binary name (string).
-            query: Search query for exports (optional).
-            offset: Start index for pagination (default: 0).
-            limit: Maximum number of exports to return (default: 50).
+            binary_name: The unique name of the binary.
+            query: A partial name to filter exports. Optional.
+            offset: The starting index for pagination.
+            limit: The maximum number of exports to return (max 50).
+
         Returns:
-            list: List of dictionaries, each representing an export.
+            list: A list of export objects, each containing 'name', 'ordinal', and 'address'.
         """
-        return self._get_binary(binary_name).list_exports(query=query, offset=offset, limit=limit)
+        return self._get_binary(binary_name).list_exports(query, offset, limit)
 
     @mcp_tool(name="get_string_xrefs")
     def get_string_xrefs(self, binary_name: str, string_address: Union[str, int], offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
-        """Get cross references to a string.
+        """Find where a specific string is used in the binary.
+
+        Use this tool to find code that references a particular string.
+        This is typically the next step after finding a string with `list_binary_strings`.
 
         Args:
-            binary_name: Binary name (string).
-            string_address: Address of the string (hex string or integer).
-            offset: Start index for pagination (default: 0).
-            limit: Maximum number of xrefs to return (default: 50).
+            binary_name: The unique name of the binary.
+            string_address: The address of the string (hex string or integer).
+            offset: The starting index for pagination.
+            limit: The maximum number of xrefs to return (max 50).
+
         Returns:
-            list: List of dictionaries, each representing a cross reference to the string.
+            list: A list of code references (xrefs) to the string.
         """
         return self._get_binary(binary_name).get_string_xrefs(string_address, offset, limit)
 
     @mcp_tool(name="search_string_symbol_in_binary")
     def search_string_symbol_in_binary(self, binary_name: str, search_string: str, match: str = "contains") -> List[Dict[str, Any]]:
-        """Search for string/symbol in binary.
+        """Search for a string or symbol within a specific binary.
+
+        Use this tool to find a specific text string or symbol name within one binary.
+        This is similar to `search_strings` but scoped to a single binary.
 
         Args:
-            binary_name: Binary name (string).
-            search_string: The string or symbol name to search for.
-            match: Matching mode ('exact', 'contains', 'regex'). Default is 'contains'.
+            binary_name: The unique name of the binary.
+            search_string: The text or symbol name to search for.
+            match: The matching strategy. Options: 'contains' (default), 'exact', 'regex'.
+
         Returns:
-            list: List of dictionaries, each representing a match.
+            list: A list of matches found in the binary.
         """
         b = self._get_binary(binary_name)
         match = (match or "contains").lower()
@@ -516,30 +614,39 @@ class McpService:
 
     @mcp_tool(name="search_immediates_in_binary")
     def search_immediates_in_binary(self, binary_name: str, value: Any, width: int = None, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
-        """Search for immediate values.
+        """Search for constant values (immediates) in the code.
+
+        Use this tool to find where specific constants (e.g., magic numbers, error codes like 0x80040154) are used.
+        This is very effective for locating code handling specific error conditions or cryptographic constants.
 
         Args:
-            binary_name: Binary name (string).
-            value: The immediate value to search for.
-            width: Width of the value in bytes (optional).
-            offset: Start index for pagination (default: 0).
-            limit: Maximum number of matches to return (default: 50).
+            binary_name: The unique name of the binary.
+            value: The constant value to search for (integer or hex string).
+            width: The size of the value in bytes (optional).
+            offset: The starting index for pagination.
+            limit: The maximum number of matches to return (max 50).
+
         Returns:
-            list: List of dictionaries, each representing a match.
+            list: A list of instructions or data locations using the value.
         """
         return self._get_binary(binary_name).search_immediates(value, width, offset, limit)
 
     @mcp_tool(name="search_bytes_pattern_in_binary")
     def search_bytes_pattern_in_binary(self, binary_name: str, pattern: str, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
-        """Search for byte pattern.
+        """Search for a sequence of bytes (binary signature).
+
+        Use this tool to find code or data matching a specific byte signature.
+        Supports wildcards (??) for matching variable bytes.
+        Example pattern: "55 8B EC" (standard function prologue).
 
         Args:
-            binary_name: Binary name (string).
-            pattern: Byte pattern string (e.g., "E8 ?? ?? ?? ??").
-            offset: Start index for pagination (default: 0).
-            limit: Maximum number of matches to return (default: 50).
+            binary_name: The unique name of the binary.
+            pattern: The byte sequence to search for (hex string with spaces, e.g., "E8 ?? ?? ?? ??").
+            offset: The starting index for pagination.
+            limit: The maximum number of matches to return (max 50).
+
         Returns:
-            list: List of dictionaries, each representing a match.
+            list: A list of addresses where the pattern matches.
         """
         b = self._get_binary(binary_name)
         try:
@@ -549,17 +656,21 @@ class McpService:
         except ValueError as e:
             raise McpError("INVALID_ARGUMENT", str(e))
 
-    @mcp_tool(name="search_string_symbol_in_project")
-    def search_string_symbol_in_project(self, search_string: str, match: str = "contains", offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
-        """Search for string/symbol in project.
+    @mcp_tool(name="search_strings")
+    def search_strings(self, search_string: str, match: str = "contains", offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
+        """Search for strings across ALL binaries in the project.
+
+        Use this tool when you don't know which binary contains a specific string.
+        It aggregates results from all loaded binaries.
 
         Args:
-            search_string: The string or symbol name to search for.
-            match: Matching mode ('exact', 'contains', 'regex'). Default is 'contains'.
-            offset: Start index for pagination (default: 0).
-            limit: Maximum number of matches to return (default: 50).
+            search_string: The text content to search for.
+            match: The matching strategy. Options: 'contains' (default), 'exact', 'regex'.
+            offset: The starting index for pagination.
+            limit: The maximum number of matches to return (max 50).
+
         Returns:
-            list: List of dictionaries, each representing a match across binaries.
+            list: A list of matches, each containing 'binary', 'string', and 'address'.
         """
         match = (match or "contains").lower()
         offset = max(0, offset)
@@ -587,15 +698,19 @@ class McpService:
 
     @mcp_tool(name="search_functions_in_project")
     def search_functions_in_project(self, function_name: str, match: str = "contains", offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
-        """Search for functions in project.
+        """Search for exported functions across ALL binaries in the project.
+
+        Use this tool to find where a specific API is exported within the entire project scope.
+        Useful for finding specific library functions in a multi-binary analysis.
 
         Args:
-            function_name: The function name to search for.
-            match: Matching mode ('exact', 'contains', 'regex'). Default is 'contains'.
-            offset: Start index for pagination (default: 0).
-            limit: Maximum number of matches to return (default: 50).
+            function_name: The name of the function to search for.
+            match: The matching strategy. Options: 'contains' (default), 'exact', 'regex'.
+            offset: The starting index for pagination.
+            limit: The maximum number of matches to return (max 50).
+
         Returns:
-            list: List of dictionaries, each representing a match.
+            list: A list of matches, each containing 'binary', 'function_name', and 'address'.
         """
         match = (match or "contains").lower()
         offset = max(0, offset)
@@ -628,15 +743,19 @@ class McpService:
 
     @mcp_tool(name="search_exported_function_in_project")
     def search_exported_function_in_project(self, function_name: str, match: str = "exact", offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
-        """Search for exported function in project.
+        """Find specific exported functions across the entire project.
+
+        Use this tool to locate where a particular function is exported (e.g., 'DllRegisterServer').
+        This is useful for identifying entry points in DLLs or shared objects.
 
         Args:
-            function_name: The name of the exported function to search for.
-            match: Matching mode ('exact', 'contains', 'regex'). Default is 'exact'.
-            offset: Start index for pagination (default: 0).
-            limit: Maximum number of matches to return (default: 50).
+            function_name: The name of the exported function to find.
+            match: The matching strategy. Options: 'exact' (default), 'contains', 'regex'.
+            offset: The starting index for pagination.
+            limit: The maximum number of matches to return (max 50).
+
         Returns:
-            list: List of dictionaries, each representing a match.
+            list: A list of matches, each containing 'binary', 'export', and 'address'.
         """
         match = (match or "exact").lower()
         offset = max(0, offset)
@@ -667,15 +786,16 @@ class McpService:
 
     @mcp_tool(name="search_similar_functions_in_project")
     def search_similar_functions_in_project(self, binary_name: str, function_address: Union[str, int], top_k: int = None, threshold: float = None) -> None:
-        """Search similar functions.
+        """(UNSUPPORTED) Search for similar functions.
+
+        This tool is currently not implemented and will always return an error.
+        Do not use this tool.
 
         Args:
-            binary_name: Binary name (string).
-            function_address: Address of the function to find similarities for (hex string or integer).
-            top_k: Number of similar functions to return (optional).
-            threshold: Similarity threshold (optional).
-        Returns:
-            None: Currently raises McpError("UNSUPPORTED").
+            binary_name: Binary name.
+            function_address: Address of the function.
+            top_k: Number of results.
+            threshold: Similarity threshold.
         """
         raise McpError("UNSUPPORTED", "similarity_index_not_available")
 
