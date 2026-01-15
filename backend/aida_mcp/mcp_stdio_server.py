@@ -8,14 +8,14 @@ from typing import Any
 # Ensure we can import local modules if run as script
 if __name__ == "__main__" and __package__ is None:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    __package__ = "ida_project_mcp"
+    __package__ = "aida_mcp"
 
 from .project_store import ProjectStore
 from .mcp_service import McpService
 
 # Configure logging to stderr (so stdout is clean for JSON-RPC)
 logging.basicConfig(stream=sys.stderr, level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("mcp-server")
+logger = logging.getLogger("aida-mcp-server")
 
 def main():
     parser = argparse.ArgumentParser()
@@ -23,13 +23,13 @@ def main():
     args = parser.parse_args()
 
     project_path = args.project
-    if project_path == "." and "IDA_MCP_PROJECT" in os.environ:
-         project_path = os.environ["IDA_MCP_PROJECT"]
+    if project_path == "." and "AIDA_MCP_PROJECT" in os.environ:
+         project_path = os.environ["AIDA_MCP_PROJECT"]
 
     try:
         store = ProjectStore(project_path)
         service = McpService(store)
-        logger.info(f"IDA MCP Server running for project: {project_path}")
+        logger.info(f"AIDA MCP Server running for project: {project_path}")
     except Exception as e:
         logger.error(f"Failed to initialize service: {e}")
         sys.exit(1)
@@ -70,7 +70,7 @@ def handle_request(request: dict, service: McpService):
                     "tools": {}
                 },
                 "serverInfo": {
-                    "name": "ida-mcp-server",
+                    "name": "aida-mcp-server",
                     "version": "0.1.0"
                 }
             }

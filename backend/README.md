@@ -1,6 +1,6 @@
-# IDA Project MCP Backend
+# AIDA Project MCP Backend
 
-This is the backend tool for IDA Project MCP. It provides functionality to export IDA Pro databases and serve them via MCP (Model Context Protocol).
+This is the backend tool for AIDA Project MCP. It provides functionality to export IDA Pro databases and serve them via MCP (Model Context Protocol).
 
 ## Features
 
@@ -46,19 +46,19 @@ Or manually:
    ```
 2. Install the generated wheel:
    ```bash
-   pip install dist/ida_mcp-0.1.0-py3-none-any.whl
+   pip install dist/aida_mcp-0.1.0-py3-none-any.whl
    ```
 
 ## Usage
 
-After installation, the `ida-mcp` command will be available in your Python scripts directory.
+After installation, the `aida-mcp` command will be available in your Python scripts directory.
 
 ### Export Command
 
 Analyzes a binary and exports it to a database file.
 
 ```bash
-ida-mcp export <path_to_binary> -o <output_db_path>
+aida-mcp export <path_to_binary> -o <output_db_path>
 ```
 
 Options:
@@ -73,7 +73,7 @@ Options:
 Starts the MCP HTTP server.
 
 ```bash
-ida-mcp serve --project <path_to_project_or_db>
+aida-mcp serve --project <path_to_project_or_db>
 ```
 
 Options:
@@ -82,5 +82,5 @@ Options:
 
 ## Directory Structure
 
-- `ida_mcp/`: Source code package.
+- `aida_mcp/`: Source code package.
 - `setup.py`: Packaging configuration.
