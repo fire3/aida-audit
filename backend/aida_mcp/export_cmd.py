@@ -82,10 +82,36 @@ def _is_within_dir(path, root_dir):
 def _copy_to_out_dir(src_path, out_dir):
     src_path = os.path.abspath(src_path)
     out_dir = os.path.abspath(out_dir)
+    
+    # Resolve symlinks to ensure we copy the actual file content
+    real_src = src_path
+    if os.path.islink(src_path):
+        try:
+            real_src = os.path.realpath(src_path)
+        except Exception:
+            real_src = src_path
+
+    if not os.path.exists(real_src):
+        raise FileNotFoundError(f"Source file not found (or broken link): {src_path}")
+        
+    if not os.path.isfile(real_src):
+        raise OSError(f"Source is not a regular file: {real_src}")
+
     dst_path = os.path.join(out_dir, os.path.basename(src_path))
-    if os.path.abspath(dst_path) == src_path:
+    
+    if os.path.abspath(dst_path) == os.path.abspath(real_src):
         return dst_path
-    shutil.copy2(src_path, dst_path)
+        
+    try:
+        shutil.copy2(real_src, dst_path)
+    except Exception as e:
+        raise OSError(f"Failed to copy {real_src} to {dst_path}: {e}")
+
+    if not os.path.exists(dst_path) or not os.path.getsize(dst_path) > 0:
+         # Double check if file exists and has content (unless source was empty)
+         if os.path.getsize(real_src) > 0:
+             raise OSError(f"Copy failed or resulted in empty file: {dst_path}")
+             
     return dst_path
 
 def _detect_idb_path(binary_path):
@@ -592,39 +618,53 @@ class ExportOrchestrator:
             src_path = os.path.abspath(item["path"])
             name = os.path.basename(src_path)
             
-            # Copy binary to output dir
-            out_bin = _copy_to_out_dir(src_path, out_dir)
-            self.logger.log(f"Copied {name} -> {out_bin}", context="BUNDLE")
+            try:
+                # Copy binary to output dir
+                out_bin = _copy_to_out_dir(src_path, out_dir)
+                self.logger.log(f"Copied {name} -> {out_bin}", context="BUNDLE")
 
-            db_name = f"{name}.{_sha256_prefix(src_path)}.db"
-            out_db = os.path.join(out_dir, db_name)
-            
-            self.logger.log(f"Exporting {name} -> {out_db}", context="BUNDLE")
-            
-            # Call single file process directly
-            # We set save_idb to the binary path (so it saves .i64 next to the binary in out_dir)
-            success = self.process_single_file(
-                input_path=out_bin,
-                output_db=out_db,
-                save_idb=out_bin, # This will create .i64 next to the copied binary
-            )
-            
-            status = "ok" if success else "failed"
-            out_idb = _detect_idb_path(out_bin) if status == "ok" else None
+                # Calculate hash for DB name
+                # Handle potential errors reading the source file (e.g. symlinks on Windows)
+                try:
+                    file_hash = _sha256_prefix(src_path)
+                except Exception as e:
+                    self.logger.log(f"Error hashing {src_path}: {e}. Using fallback name.", context="BUNDLE")
+                    file_hash = "nohash"
 
-            entry = {
-                "name": item["name"],
-                "db": os.path.basename(out_db) if out_db and status == "ok" else None,
-                "idb": os.path.basename(out_idb) if out_idb else None
-            }
+                db_name = f"{name}.{file_hash}.db"
+                out_db = os.path.join(out_dir, db_name)
+                
+                self.logger.log(f"Exporting {name} -> {out_db}", context="BUNDLE")
+                
+                # Call single file process directly
+                # We set save_idb to the binary path (so it saves .i64 next to the binary in out_dir)
+                success = self.process_single_file(
+                    input_path=out_bin,
+                    output_db=out_db,
+                    save_idb=out_bin, # This will create .i64 next to the copied binary
+                )
+                
+                status = "ok" if success else "failed"
+                out_idb = _detect_idb_path(out_bin) if status == "ok" else None
 
-            if item["role"] == "main":
-                index["target"]["db"] = entry["db"]
-                index["target"]["idb"] = entry["idb"]
-            elif item["role"] in ("dep", "dep_missing"):
-                index["dependencies"].append(entry)
-            else:
-                index["standalone"].append(entry)
+                entry = {
+                    "name": item["name"],
+                    "db": os.path.basename(out_db) if out_db and status == "ok" else None,
+                    "idb": os.path.basename(out_idb) if out_idb else None
+                }
+
+                if item["role"] == "main":
+                    index["target"]["db"] = entry["db"]
+                    index["target"]["idb"] = entry["idb"]
+                elif item["role"] in ("dep", "dep_missing"):
+                    index["dependencies"].append(entry)
+                else:
+                    index["standalone"].append(entry)
+                    
+            except Exception as e:
+                self.logger.log(f"Failed to process {name}: {e}", context="ERROR")
+                # Continue with next file
+                continue
 
         index_path = os.path.join(out_dir, "export_index.json")
         with open(index_path, "w", encoding="utf-8") as f:
