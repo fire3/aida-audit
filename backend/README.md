@@ -73,8 +73,11 @@ Options:
 Starts the MCP HTTP server.
 
 ```bash
-aida-mcp serve --project <path_to_project_or_db>
+aida-mcp serve [path_to_project_or_db]
 ```
+
+Arguments:
+- `project`: Path to the exported project directory or database file (optional, default: current directory).
 
 Options:
 - `--host`: Host to bind to (default: 127.0.0.1).

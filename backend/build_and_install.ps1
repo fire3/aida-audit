@@ -1,5 +1,43 @@
 # Build and Install Script for Windows
 
+# --- Frontend Build ---
+$FrontendDir = "..\frontend"
+$BackendStaticDir = "aida_mcp\static"
+
+if (Test-Path $FrontendDir) {
+    Write-Host "Found frontend directory. Building frontend..."
+    
+    # Check if npm is available
+    if (Get-Command npm -ErrorAction SilentlyContinue) {
+        Push-Location $FrontendDir
+        try {
+            Write-Host "Running npm install..."
+            npm install
+            if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
+            
+            Write-Host "Running npm run build..."
+            npm run build
+            if ($LASTEXITCODE -ne 0) { throw "npm run build failed" }
+        }
+        catch {
+            Write-Host "Error building frontend: $_"
+            Pop-Location
+            exit 1
+        }
+        Pop-Location
+        
+        Write-Host "Copying frontend files to backend..."
+        if (Test-Path $BackendStaticDir) { Remove-Item -Recurse -Force $BackendStaticDir }
+        New-Item -ItemType Directory -Force -Path $BackendStaticDir | Out-Null
+        Copy-Item -Recurse -Force "$FrontendDir\dist\*" $BackendStaticDir
+    } else {
+        Write-Host "Warning: npm not found. Skipping frontend build."
+    }
+} else {
+    Write-Host "Frontend directory not found. Skipping frontend build."
+}
+
+# --- Backend Build ---
 Write-Host "Cleaning up previous builds..."
 if (Test-Path "dist") { Remove-Item -Recurse -Force "dist" }
 if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
@@ -20,7 +58,7 @@ if ($whl) {
     Write-Host "Installation complete."
     Write-Host "You can now use the 'aida-mcp' command."
     Write-Host "  Example: aida-mcp export mybinary.exe -o mybinary.db"
-    Write-Host "  Example: aida-mcp serve --project ."
+    Write-Host "  Example: aida-mcp serve ."
 } else {
     Write-Host "Error: No wheel file found."
     exit 1

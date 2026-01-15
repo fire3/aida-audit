@@ -13,6 +13,9 @@ setup(
             "aida-mcp=aida_mcp.cli:main",
         ],
     },
+    package_data={
+        "aida_mcp": ["static/**/*", "static/*"],
+    },
     include_package_data=True,
     description="AIDA Project MCP Tool",
     author="User",

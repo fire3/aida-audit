@@ -7,7 +7,8 @@ import uvicorn
 from contextlib import asynccontextmanager
 from typing import Optional, List, Union, Dict, Any
 from fastapi import FastAPI, Request, Response, APIRouter, HTTPException, Query, Path
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 # Configure logging
@@ -484,9 +485,41 @@ def dispatch(msg):
 
     return _jsonrpc_error(mid, -32601, f"Method not found: {method}")
 
+# --- Static File Serving (Frontend) ---
+current_dir = os.path.dirname(os.path.abspath(__file__))
+static_dir = os.path.join(current_dir, "static")
+
+if os.path.exists(static_dir):
+    # Mount assets directory if it exists (for efficiency)
+    assets_dir = os.path.join(static_dir, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+    
+    # Catch-all for SPA and root
+    @app.get("/{path:path}")
+    async def serve_frontend(path: str):
+        # 1. Try to serve exact file match
+        full_path = os.path.join(static_dir, path)
+        if os.path.isfile(full_path):
+            return FileResponse(full_path)
+            
+        # 2. If path looks like a file (has extension), return 404
+        # This prevents serving index.html for missing JS/CSS files
+        if "." in os.path.basename(path):
+            raise HTTPException(status_code=404, detail="File not found")
+            
+        # 3. Otherwise serve index.html (SPA routing)
+        index_path = os.path.join(static_dir, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+            
+        raise HTTPException(status_code=404, detail="Not Found")
+else:
+    logger.warning(f"Static directory not found at {static_dir}. Frontend will not be served.")
+
 def main():
     parser = argparse.ArgumentParser(description="AIDA Project MCP server (FastAPI + Uvicorn)")
-    parser.add_argument("--project", default=".", help="export_index.json or directory containing .db files")
+    parser.add_argument("project", nargs="?", default=".", help="export_index.json or directory containing .db files")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--reload", action="store_true", help="Enable auto-reload (debug mode)")
