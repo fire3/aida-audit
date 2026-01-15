@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("mcp_server")
+logger = logging.getLogger("aida_server")
 
 from .project_store import ProjectStore
 from .mcp_service import McpService, McpError
@@ -25,7 +25,7 @@ project_store = None
 async def lifespan(app: FastAPI):
     # Startup
     global service, project_store
-    project_path = os.environ.get("IDA_MCP_PROJECT", ".")
+    project_path = os.environ.get("AIDA_MCP_PROJECT", ".")
     try:
         project_store = ProjectStore(project_path)
         service = McpService(project_store)
@@ -485,14 +485,14 @@ def dispatch(msg):
     return _jsonrpc_error(mid, -32601, f"Method not found: {method}")
 
 def main():
-    parser = argparse.ArgumentParser(description="IDA Project MCP server (FastAPI + Uvicorn)")
+    parser = argparse.ArgumentParser(description="AIDA Project MCP server (FastAPI + Uvicorn)")
     parser.add_argument("--project", default=".", help="export_index.json or directory containing .db files")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--reload", action="store_true", help="Enable auto-reload (debug mode)")
     args = parser.parse_args()
 
-    os.environ["IDA_MCP_PROJECT"] = args.project
+    os.environ["AIDA_MCP_PROJECT"] = args.project
     
     # Check if project path exists
     if not os.path.exists(args.project):

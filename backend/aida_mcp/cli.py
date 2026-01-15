@@ -4,7 +4,7 @@ from . import server_cmd
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: ida-mcp <command> [args]")
+        print("Usage: aida-mcp <command> [args]")
         print("Commands:")
         print("  export  - Export IDA database")
         print("  serve   - Start MCP server")
@@ -14,7 +14,7 @@ def main():
     
     # Check if user is asking for help on the main command
     if command in ("-h", "--help"):
-        print("Usage: ida-mcp <command> [args]")
+        print("Usage: aida-mcp <command> [args]")
         print("Commands:")
         print("  export  - Export IDA database")
         print("  serve   - Start MCP server")
