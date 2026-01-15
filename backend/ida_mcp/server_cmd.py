@@ -14,16 +14,8 @@ from fastapi.middleware.cors import CORSMiddleware
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("mcp_server")
 
-def _ensure_local_imports():
-    here = os.path.dirname(os.path.abspath(__file__))
-    lib_dir = os.path.join(here, "ida-project-mcp")
-    if lib_dir not in sys.path:
-        sys.path.insert(0, lib_dir)
-
-_ensure_local_imports()
-
-from project_store import ProjectStore
-from mcp_service import McpService, McpError
+from .project_store import ProjectStore
+from .mcp_service import McpService, McpError
 
 # Global service instance
 service = None
@@ -507,7 +499,7 @@ def main():
         print(f"Warning: Project path '{args.project}' does not exist.", file=sys.stderr)
 
     uvicorn.run(
-        "mcp_http_server:app",
+        app,
         host=args.host,
         port=args.port,
         reload=args.reload

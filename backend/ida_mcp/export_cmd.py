@@ -14,17 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 # Import Setup
 # =============================================================================
 
-# Ensure local imports work
-current_dir = os.path.dirname(os.path.abspath(__file__))
-lib_dir = os.path.join(current_dir, "ida-project-mcp")
-if lib_dir not in sys.path:
-    sys.path.insert(0, lib_dir)
-
-try:
-    from elf_service import ElfService
-except ImportError:
-    print("Error: Could not import ElfService from ida-project-mcp")
-    sys.exit(1)
+from .elf_service import ElfService
 
 # =============================================================================
 # Shared Utilities & Logging
@@ -324,7 +314,7 @@ class ExportOrchestrator:
         
         # NOTE: We assume ida-export-worker.py is in the same directory as this script
         current_script_dir = os.path.dirname(os.path.abspath(__file__))
-        ida_export_script = os.path.join(current_script_dir, "ida-export-worker.py")
+        ida_export_script = os.path.join(current_script_dir, "ida_export_worker.py")
         
         master_cmd = f"python \"{ida_export_script}\" \"{master_input}\" --output \"{output_db}\" --parallel-master --dump-funcs \"{funcs_json}\" --save-idb \"{analysis_base}\" --perf-json \"{master_perf_json}\" --no-perf-report --fast --plain-log"
             
@@ -406,7 +396,7 @@ class ExportOrchestrator:
             self.logger.log("Warning: No analyzed IDB found from master. Workers will try to open binary directly.", context="ORCHESTRATOR")
             
         current_script_dir = os.path.dirname(os.path.abspath(__file__))
-        ida_export_script = os.path.join(current_script_dir, "ida-export-worker.py")
+        ida_export_script = os.path.join(current_script_dir, "ida_export_worker.py")
         
         worker_cmds = []
         worker_perf_paths = []
@@ -424,7 +414,7 @@ class ExportOrchestrator:
                 except Exception as e:
                     self.logger.log(f"Failed to copy IDB for worker {i}: {e}. Using original input.", context="ORCHESTRATOR")
 
-            cmd = f"python \"{ida_export_script}\" \"{worker_input}\" --output \"{worker_db}\" --parallel-worker \"{chunk_file}\""
+            cmd = f"\"{sys.executable}\" \"{ida_export_script}\" \"{worker_input}\" --output \"{worker_db}\" --parallel-worker \"{chunk_file}\""
             perf_json = os.path.join(temp_dir, f"perf_worker_{i}.json")
             cmd += f" --perf-json \"{perf_json}\" --no-perf-report --plain-log"
             worker_cmds.append(cmd)

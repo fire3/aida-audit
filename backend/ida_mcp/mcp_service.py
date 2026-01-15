@@ -3,7 +3,7 @@ import re
 import inspect
 import traceback
 from typing import Any, Dict, List, Optional, Union, get_type_hints
-from project_store import ProjectStore
+from .project_store import ProjectStore
 
 def mcp_tool(name=None):
     """Decorator to mark a method as an MCP tool."""

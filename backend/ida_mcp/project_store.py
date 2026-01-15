@@ -1,7 +1,7 @@
 import json
 import os
 
-from binary_dbquery import BinaryDbQuery
+from .binary_dbquery import BinaryDbQuery
 
 
 class ProjectStore:

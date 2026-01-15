@@ -5,9 +5,7 @@ import time
 
 # Ensure local modules can be imported
 script_dir = os.path.dirname(os.path.abspath(__file__))
-idalib_dir = os.path.join(script_dir, "ida-project-mcp")
-if idalib_dir not in sys.path:
-    sys.path.insert(0, idalib_dir)
+# idalib_dir check removed as files are local
 
 import ida_utils
 from binary_database import BinaryDatabase
