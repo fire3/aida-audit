@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { binaryApi } from '../api/client';
-import type { BinaryExport } from '../api/client';
+import type { BinaryExport, XrefToItem } from '../api/client';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Search, ChevronLeft, ChevronRight, ArrowRight, Share2 } from 'lucide-react';
@@ -60,7 +60,7 @@ function ExportDetail({ binaryName, exportItem, onNavigate }: ExportDetailProps)
             <div className="p-4 text-muted-foreground text-sm">Loading xrefs...</div>
           ) : (
             <div className="divide-y divide-border">
-              {xrefs?.map((ref: any, idx) => (
+              {xrefs?.map((ref: XrefToItem, idx) => (
                 <div
                   key={`${ref.from_address}-${idx}`}
                   className="p-3 hover:bg-muted/50 cursor-pointer transition-colors group"
@@ -116,16 +116,8 @@ export function ExportsBrowser() {
         }
         return newParams;
       });
-      setPage(0);
     }
-  }, [debouncedSearch, setSearchParams]);
-
-  // Sync input with URL (for back/forward navigation)
-  useEffect(() => {
-    if (queryParam !== searchTerm) {
-      setSearchTerm(queryParam);
-    }
-  }, [queryParam]);
+  }, [debouncedSearch, queryParam, setSearchParams]);
 
   const { data: exports, isLoading } = useQuery({
     queryKey: ['exports', binaryName, debouncedSearch, page],
@@ -135,6 +127,7 @@ export function ExportsBrowser() {
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
+    setPage(0);
   };
 
   return (

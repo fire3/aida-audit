@@ -145,13 +145,35 @@ export interface BinarySegment {
 export interface ResolveAddressResult {
   address: string;
   function?: BinaryFunction;
-  symbol?: any;
-  segment?: any;
-  section?: any;
-  string_ref?: any;
-  data_item?: any;
+  symbol?: unknown;
+  segment?: unknown;
+  section?: unknown;
+  string_ref?: unknown;
+  data_item?: unknown;
   is_code: boolean;
   is_data: boolean;
+}
+
+export interface McpToolProperty {
+  type?: string;
+  description?: string;
+  [key: string]: unknown;
+}
+
+export interface XrefToItem {
+  from_address: string;
+  from_function?: string | null;
+  from_function_name?: string | null;
+  xref_type?: string | null;
+  operand_index?: number | null;
+  [key: string]: unknown;
+}
+
+export interface XrefFromItem {
+  to_address: string;
+  to_function?: string | null;
+  xref_type?: string | null;
+  [key: string]: unknown;
 }
 
 export interface McpTool {
@@ -159,7 +181,7 @@ export interface McpTool {
   description: string;
   inputSchema: {
     type: string;
-    properties: Record<string, any>;
+    properties: Record<string, McpToolProperty>;
     required?: string[];
   };
 }
@@ -170,7 +192,7 @@ export const projectApi = {
   listBinaries: (offset = 0, limit = 50) => 
     apiClient.get<BinarySummary[]>('/project/binaries', { params: { offset, limit } }).then(res => res.data),
   searchExports: (functionName: string, match = 'exact', offset = 0, limit = 50) =>
-    apiClient.get<{ binary: string; export: any }[]>('/project/search/exports', { params: { function_name: functionName, match, offset, limit } }).then(res => res.data),
+    apiClient.get<{ binary: string; export: BinaryExport }[]>('/project/search/exports', { params: { function_name: functionName, match, offset, limit } }).then(res => res.data),
   searchFunctions: (functionName: string, match = 'contains', offset = 0, limit = 50) =>
     apiClient.get<{ binary: string; function: BinaryFunction }[]>('/project/search/functions', { params: { function_name: functionName, match, offset, limit } }).then(res => res.data),
   searchStrings: (query: string, match = 'contains', offset = 0, limit = 50) =>
@@ -199,13 +221,13 @@ export const binaryApi = {
     apiClient.get<FunctionCalleeRef[]>(`/binary/${name}/function/${encodeURIComponent(address)}/callees`, { params: { depth, limit } }).then(res => res.data),
     
   getXrefsTo: (name: string, address: string, offset = 0, limit = 50) =>
-    apiClient.get<unknown[]>(`/binary/${name}/xrefs/to/${encodeURIComponent(address)}`, { params: { offset, limit } }).then(res => res.data),
+    apiClient.get<XrefToItem[]>(`/binary/${name}/xrefs/to/${encodeURIComponent(address)}`, { params: { offset, limit } }).then(res => res.data),
 
   getXrefsFrom: (name: string, address: string, offset = 0, limit = 50) =>
-    apiClient.get<unknown[]>(`/binary/${name}/xrefs/from/${encodeURIComponent(address)}`, { params: { offset, limit } }).then(res => res.data),
+    apiClient.get<XrefFromItem[]>(`/binary/${name}/xrefs/from/${encodeURIComponent(address)}`, { params: { offset, limit } }).then(res => res.data),
 
   getCrossReferences: (name: string, address: string, offset = 0, limit = 50) =>
-    apiClient.get<{ to: unknown[], from: unknown[] }>(`/binary/${name}/xrefs/${encodeURIComponent(address)}`, { params: { offset, limit } }).then(res => res.data),
+    apiClient.get<{ to: XrefToItem[]; from: XrefFromItem[] }>(`/binary/${name}/xrefs/${encodeURIComponent(address)}`, { params: { offset, limit } }).then(res => res.data),
 
   listStrings: (name: string, query?: string, min_length?: number, offset = 0, limit = 50) =>
     apiClient.get<BinaryString[]>(`/binary/${name}/strings`, { params: { query, min_length, offset, limit } }).then(res => res.data),

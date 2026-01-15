@@ -11,31 +11,22 @@ import { FunctionDetail } from '../components/FunctionDetail';
 export function FunctionsBrowser() {
   const { binaryName } = useParams<{ binaryName: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [selectedAddress, setSelectedAddress] = useState<string | null>(searchParams.get('address'));
+  const addressParam = searchParams.get('address');
+  const [selectedAddress, setSelectedAddress] = useState<string | null>(addressParam);
   const [page, setPage] = useState(0);
   const limit = 50;
 
   useEffect(() => {
-    const addr = searchParams.get('address');
-    if (addr && binaryName) {
-      // First, set the address from URL to ensure immediate feedback
-      setSelectedAddress(addr);
-      
-      // Then try to resolve to the function's start address (canonical address)
-      binaryApi.resolveAddress(binaryName, addr)
-        .then((res) => {
-          if (res.function && res.function.address) {
-            // If we found a containing function, update to its start address
-            // This ensures we open the function at its definition, not in the middle
-            setSelectedAddress(res.function.address);
-          }
-        })
-        .catch((err) => {
-          console.error('Failed to resolve address:', err);
-          // Keep the original address if resolution fails
-        });
-    }
-  }, [searchParams, binaryName]);
+    if (!addressParam || !binaryName) return;
+
+    binaryApi.resolveAddress(binaryName, addressParam)
+      .then((res) => {
+        if (res.function?.address) {
+          setSelectedAddress(res.function.address);
+        }
+      })
+      .catch(() => {});
+  }, [addressParam, binaryName]);
 
   const query = searchParams.get('q') || '';
 
@@ -60,6 +51,7 @@ export function FunctionsBrowser() {
       newParams.set('address', addr);
       return newParams;
     });
+    setSelectedAddress(addr);
   };
 
   return (

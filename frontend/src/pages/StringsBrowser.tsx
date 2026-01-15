@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { binaryApi } from '../api/client';
+import type { XrefToItem } from '../api/client';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Search, ChevronLeft, ChevronRight, Quote, ArrowRight, Filter, FileCode } from 'lucide-react';
@@ -9,7 +10,7 @@ import { cn } from '../lib/utils';
 
 interface XrefItemProps {
   binaryName: string;
-  xref: any;
+  xref: XrefToItem;
   onNavigate?: (address: string) => void;
 }
 
@@ -20,7 +21,7 @@ function XrefItem({ binaryName, xref, onNavigate }: XrefItemProps) {
       try {
         // Use new context-aware API with small context (3 lines)
         return await binaryApi.getDisassemblyContext(binaryName, xref.from_address, 3);
-      } catch (e) {
+      } catch {
         return null;
       }
     },
@@ -144,7 +145,7 @@ function StringDetail({ binaryName, address, stringContent, onNavigate }: String
             <div className="p-4 text-muted-foreground text-sm">Loading xrefs...</div>
           ) : (
             <div className="divide-y divide-border">
-              {xrefs?.map((ref: any, idx) => (
+              {xrefs?.map((ref: XrefToItem, idx) => (
                 <XrefItem 
                   key={`${ref.from_address}-${idx}`}
                   binaryName={binaryName}

@@ -46,7 +46,7 @@ export function FunctionDetail({ binaryName, address, onNavigate }: FunctionDeta
       try {
         const pseudo = await binaryApi.getFunctionPseudocode(target.binary, target.export.address);
         return { ...target, pseudocode: pseudo?.pseudo_code };
-      } catch (e) {
+      } catch {
         return { ...target, pseudocode: null };
       }
     },

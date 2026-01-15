@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { binaryApi } from '../api/client';
-import type { BinaryImport } from '../api/client';
+import type { BinaryImport, XrefToItem } from '../api/client';
 import { Button } from '../components/ui/button';
 import { ChevronLeft, ChevronRight, ArrowRight, Import } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -60,7 +60,7 @@ function ImportDetail({ binaryName, importItem, onNavigate }: ImportDetailProps)
             <div className="p-4 text-muted-foreground text-sm">Loading xrefs...</div>
           ) : (
             <div className="divide-y divide-border">
-              {xrefs?.map((ref: any, idx) => (
+              {xrefs?.map((ref: XrefToItem, idx) => (
                 <div
                   key={`${ref.from_address}-${idx}`}
                   className="p-3 hover:bg-muted/50 cursor-pointer transition-colors group"

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { binaryApi } from '../api/client';
-import type { BinarySymbol } from '../api/client';
+import type { BinarySymbol, XrefToItem } from '../api/client';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Search, ChevronLeft, ChevronRight, ArrowRight, Database } from 'lucide-react';
@@ -64,7 +64,7 @@ function SymbolDetail({ binaryName, symbolItem, onNavigate }: SymbolDetailProps)
             <div className="p-4 text-muted-foreground text-sm">Loading xrefs...</div>
           ) : (
             <div className="divide-y divide-border">
-              {xrefs?.map((ref: any, idx) => (
+              {xrefs?.map((ref: XrefToItem, idx) => (
                 <div
                   key={`${ref.from_address}-${idx}`}
                   className="p-3 hover:bg-muted/50 cursor-pointer transition-colors group"
@@ -120,16 +120,8 @@ export function SymbolsBrowser() {
         }
         return newParams;
       });
-      setPage(0);
     }
-  }, [debouncedSearch, setSearchParams]);
-
-  // Sync input with URL
-  useEffect(() => {
-    if (queryParam !== searchTerm) {
-      setSearchTerm(queryParam);
-    }
-  }, [queryParam]);
+  }, [debouncedSearch, queryParam, setSearchParams]);
 
   const { data: symbols, isLoading } = useQuery({
     queryKey: ['symbols', binaryName, debouncedSearch, page],
@@ -148,7 +140,10 @@ export function SymbolsBrowser() {
               <Input
                 placeholder="Search symbols..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setPage(0);
+                }}
                 className="pl-8"
               />
             </div>

@@ -350,7 +350,7 @@ export function Dashboard() {
                         <div className="text-xs font-semibold mb-2 text-muted-foreground uppercase tracking-wider">Parameters</div>
                         <div className="bg-muted p-3 rounded-md text-xs font-mono overflow-x-auto">
                           <ul className="list-disc list-inside space-y-1">
-                            {Object.entries(tool.inputSchema.properties).map(([param, details]: [string, any]) => (
+                            {Object.entries(tool.inputSchema.properties).map(([param, details]) => (
                               <li key={param}>
                                 <span className="font-bold text-foreground">{param}</span>
                                 <span className="text-muted-foreground ml-1">({details.type})</span>
