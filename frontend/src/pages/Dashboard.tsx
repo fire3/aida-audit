@@ -323,7 +323,7 @@ export function Dashboard() {
 }`}
                       </pre>
                       <p className="text-xs text-muted-foreground mt-2">
-                        * Note: Ensure the <code>ida-project-mcp</code> package is installed or in your PYTHONPATH.
+                        * Note: Ensure the <code>aida-mcp</code> package is installed or in your PYTHONPATH.
                       </p>
                     </div>
                   </div>

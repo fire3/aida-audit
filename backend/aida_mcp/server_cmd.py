@@ -446,7 +446,7 @@ def dispatch(msg):
 
     if method == "initialize":
         pv = params.get("protocolVersion") or "2025-06-18"
-        server_info = {"name": "ida-project-mcp", "version": "0.1.0"}
+        server_info = {"name": "aida-mcp", "version": "0.1.0"}
         result = {"protocolVersion": pv, "capabilities": {"tools": {}}, "serverInfo": server_info}
         return {"jsonrpc": "2.0", "id": mid, "result": result}
 
