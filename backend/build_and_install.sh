@@ -88,6 +88,12 @@ build_frontend() {
   rm -rf "$BACKEND_STATIC_DIR"
   mkdir -p "$BACKEND_STATIC_DIR"
   cp -R "$FRONTEND_DIR/dist/." "$BACKEND_STATIC_DIR/"
+
+  if [[ -f "$BACKEND_STATIC_DIR/help.md" ]]; then
+    echo "Verified: help.md copied successfully."
+  else
+    echo "Warning: help.md not found in backend static directory."
+  fi
 }
 
 build_backend() {

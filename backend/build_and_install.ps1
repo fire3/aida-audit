@@ -30,6 +30,12 @@ if (Test-Path $FrontendDir) {
         if (Test-Path $BackendStaticDir) { Remove-Item -Recurse -Force $BackendStaticDir }
         New-Item -ItemType Directory -Force -Path $BackendStaticDir | Out-Null
         Copy-Item -Recurse -Force "$FrontendDir\dist\*" $BackendStaticDir
+
+        if (Test-Path "$BackendStaticDir\help.md") {
+            Write-Host "Verified: help.md copied successfully."
+        } else {
+            Write-Host "Warning: help.md not found in backend static directory."
+        }
     } else {
         Write-Host "Warning: npm not found. Skipping frontend build."
     }

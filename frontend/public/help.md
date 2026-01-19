@@ -1,66 +1,72 @@
 # AIDA-MCP Help
 
-AIDA-MCP 是一个强大的工具，旨在连接 IDA Pro 二进制分析与现代 AI 辅助工作流。它提供了一种无缝的方式从 IDA Pro 导出分析数据，并通过丰富的 Web UI 或 Model Context Protocol (MCP) 进行程序化探索。
+AIDA-MCP is a powerful tool designed to bridge IDA Pro binary analysis with modern AI-assisted workflows. It provides a seamless way to export analysis data from IDA Pro and explore it programmatically via a rich Web UI or the Model Context Protocol (MCP).
 
-## 使用指南
+## User Guide
 
-### 1. 导出分析数据 (Export)
+### 1. Export Analysis Data (Export)
 
-`export` 命令会启动一个无界面的 IDA Pro 实例来分析二进制文件并保存结果。
+The `export` command launches a headless IDA Pro instance to analyze the binary and save the results.
 
 ```bash
 aida-mcp export <target_binary> -o <output_directory>
 ```
 
-**参数说明：**
-*   `<target_binary>`: 目标二进制文件路径（如 `.exe`, `.so`, 固件组件等）。
-*   `-o, --out-dir`: 结果输出目录，用于保存 SQLite 数据库 (`.db`) 和其他文件。
+**Arguments:**
+*   `<target_binary>`: Path to the target binary (e.g., `.exe`, `.so`, firmware components).
+*   `-o, --out-dir`: Output directory for saving the SQLite database (`.db`) and other files.
 
-**高级选项：**
-*   `-s, --scan-dir <dir>`: **批量模式**。递归扫描指定目录以解析依赖关系（在分析固件文件系统时非常有用）。
-*   `-j <n>`: 并行工作线程数（默认：4）。
-*   `--verbose`: 启用详细日志输出。
+**Advanced Options:**
+*   `-s, --scan-dir <dir>`: **Batch Mode**. Recursively scans the specified directory to resolve dependencies (useful when analyzing firmware filesystems).
+*   `-j <n>`: Number of parallel worker threads (default: 4).
+*   `--verbose`: Enable verbose logging output.
 
-**示例：**
+**Examples:**
 ```bash
-# 分析单个二进制文件
+# Analyze a single binary
 aida-mcp export ./bin/httpd -o ./output
 
-# 分析固件根目录下的二进制文件，并解析依赖
+# Analyze a binary within a firmware root and resolve dependencies
 aida-mcp export ./squashfs-root/usr/sbin/httpd -o ./output --scan-dir ./squashfs-root
 ```
 
-### 2. 启动服务 (Serve)
+### 2. Start Service (Serve)
 
-`serve` 命令会同时启动 Web UI 和 MCP 服务器。
+The `serve` command starts both the Web UI and the MCP Server.
 
 ```bash
 aida-mcp serve [project_path]
 ```
 
-**参数说明：**
-*   `[project_path]`: 包含导出 `.db` 文件或 `export_index.json` 的目录路径。默认为当前目录 (`.`)。
+**Arguments:**
+*   `[project_path]`: Directory path containing the exported `.db` files or `export_index.json`. Defaults to the current directory (`.`).
 
-**选项：**
-*   `--host`: 绑定主机地址 (默认: `127.0.0.1`)。
-*   `--port`: 端口号 (默认: `8765`)。
+**Options:**
+*   `--host`: Bind host address (default: `127.0.0.1`).
+*   `--port`: Port number (default: `8765`).
 
-### 3. MCP 客户端配置
+### 3. MCP Client Configuration
 
-要让 Claude 等 AI 助手使用此工具，请配置 `claude_desktop_config.json`:
+To use this tool with AI assistants like Claude, configure your `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
-    "ida-mcp": {
-      "command": "python",
+    "aida-mcp": {
+      "command": "npx",
       "args": [
-        "-m", 
-        "ida_project_mcp.mcp_stdio_server", 
-        "--project", 
-        "C:/path/to/your/project"
+        "-y", 
+        "supergateway", 
+        "--streamableHttp",
+        "http://localhost:8765/mcp"
       ]
     }
   }
 }
+```
+
+To use this tool with AI chat tools like Chatbox, just use streamable http MCP URL:
+
+```
+http://localhost:8765/mcp
 ```
