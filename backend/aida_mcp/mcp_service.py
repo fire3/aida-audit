@@ -235,7 +235,7 @@ class McpService:
 
         Args:
             binary_name: The unique name of the binary.
-            address: The memory address to resolve (hex string like '0x401000' or integer).
+            address: The memory address to resolve. MUST be a string if using hex (e.g., "0x401000").
 
         Returns:
             dict: Contextual information including:
@@ -243,7 +243,14 @@ class McpService:
                 - 'segment': The containing segment.
                 - 'symbol': The nearest symbol.
         """
-        return self._get_binary(binary_name).resolve_address(address)
+        try:
+            return self._get_binary(binary_name).resolve_address(address)
+        except LookupError as e:
+            raise McpError("NOT_FOUND", str(e))
+        except ValueError as e:
+            raise McpError("INVALID_ARGUMENT", str(e))
+        except Exception as e:
+            raise McpError("INTERNAL_ERROR", str(e))
 
     @mcp_tool(name="get_binary_bytes")
     def get_binary_bytes(self, binary_name: str, address: Union[str, int], length: int, format_type: str = None) -> str:
@@ -254,7 +261,7 @@ class McpService:
 
         Args:
             binary_name: The unique name of the binary.
-            address: The starting memory address (hex string like '0x401000' or integer).
+            address: The starting memory address. MUST be a string if using hex (e.g., "0x401000").
             length: The number of bytes to read (must be positive).
             format_type: The output format. Options: 'hex' (default) or 'base64'.
 
@@ -278,13 +285,20 @@ class McpService:
 
         Args:
             binary_name: The unique name of the binary.
-            address: The starting memory address (hex string or integer).
+            address: The starting memory address. MUST be a string if using hex (e.g., "0x401000").
             length: The number of bytes to analyze.
 
         Returns:
             dict: A dictionary containing the 'decoded_value' (if successful) and the 'type' (e.g., 'string', 'pointer').
         """
-        return self._get_binary(binary_name).get_decoded_data(address, length)
+        try:
+            return self._get_binary(binary_name).get_decoded_data(address, length)
+        except LookupError as e:
+            raise McpError("NOT_FOUND", str(e))
+        except ValueError as e:
+            raise McpError("INVALID_ARGUMENT", str(e))
+        except Exception as e:
+            raise McpError("INTERNAL_ERROR", str(e))
 
     @mcp_tool(name="get_binary_disassembly_text")
     def get_binary_disassembly_text(self, binary_name: str, start_address: Union[str, int], end_address: Union[str, int]) -> str:
@@ -295,13 +309,20 @@ class McpService:
 
         Args:
             binary_name: The unique name of the binary.
-            start_address: The starting memory address (hex string or integer).
-            end_address: The ending memory address (hex string or integer).
+            start_address: The starting memory address. MUST be a string if using hex (e.g., "0x401000").
+            end_address: The ending memory address. MUST be a string if using hex (e.g., "0x401050").
 
         Returns:
             str: A text block containing the assembly instructions, one per line.
         """
-        return self._get_binary(binary_name).get_disassembly_text(start_address, end_address)
+        try:
+            return self._get_binary(binary_name).get_disassembly_text(start_address, end_address)
+        except LookupError as e:
+            raise McpError("NOT_FOUND", str(e))
+        except ValueError as e:
+            raise McpError("INVALID_ARGUMENT", str(e))
+        except Exception as e:
+            raise McpError("INTERNAL_ERROR", str(e))
 
     @mcp_tool(name="get_binary_function_disassembly_text")
     def get_binary_function_disassembly_text(self, binary_name: str, function_address: Union[str, int]) -> str:
@@ -312,12 +333,19 @@ class McpService:
 
         Args:
             binary_name: The unique name of the binary.
-            function_address: The entry address of the function (hex string or integer).
+            function_address: The entry address of the function. MUST be a string if using hex (e.g., "0x401000").
 
         Returns:
             str: A text block containing the function's assembly code.
         """
-        return self._get_binary(binary_name).get_function_disassembly_text(function_address)
+        try:
+            return self._get_binary(binary_name).get_function_disassembly_text(function_address)
+        except LookupError as e:
+            raise McpError("NOT_FOUND", str(e))
+        except ValueError as e:
+            raise McpError("INVALID_ARGUMENT", str(e))
+        except Exception as e:
+            raise McpError("INTERNAL_ERROR", str(e))
 
     @mcp_tool(name="get_binary_disassembly_context")
     def get_binary_disassembly_context(self, binary_name: str, address: Union[str, int], context_lines: int = 10) -> str:
@@ -328,13 +356,20 @@ class McpService:
 
         Args:
             binary_name: The unique name of the binary.
-            address: The central memory address (hex string or integer).
+            address: The central memory address. MUST be a string if using hex (e.g., "0x401000").
             context_lines: The number of instructions to show before and after the target address (default: 10).
 
         Returns:
             str: A text block showing the assembly instructions with the target address in the middle.
         """
-        return self._get_binary(binary_name).get_disassembly_context(address, context_lines)
+        try:
+            return self._get_binary(binary_name).get_disassembly_context(address, context_lines)
+        except LookupError as e:
+            raise McpError("NOT_FOUND", str(e))
+        except ValueError as e:
+            raise McpError("INVALID_ARGUMENT", str(e))
+        except Exception as e:
+            raise McpError("INTERNAL_ERROR", str(e))
 
     @mcp_tool(name="list_binary_functions")
     def list_binary_functions(self, binary_name: str, query: str = None, offset: int = 0, limit: int = 50, filters: dict = None) -> List[Dict[str, Any]]:
@@ -386,16 +421,23 @@ class McpService:
 
         Args:
             binary_name: The unique name of the binary.
-            addresses: The function address(es) to query (hex string or integer). Can be a single value or a list.
+            addresses: The function address(es) to query. MUST be a string if using hex (e.g., "0x401000"). Can be a single value or a list.
 
         Returns:
             list: A list of function metadata objects corresponding to the requested addresses.
         """
-        if isinstance(addresses, (str, int)):
-             addresses = self._coerce_json_list(addresses)
-        if not isinstance(addresses, list):
-            addresses = [addresses]
-        return self._get_binary(binary_name).get_functions_by_address(addresses)
+        try:
+            if isinstance(addresses, (str, int)):
+                 addresses = self._coerce_json_list(addresses)
+            if not isinstance(addresses, list):
+                addresses = [addresses]
+            return self._get_binary(binary_name).get_functions_by_address(addresses)
+        except LookupError as e:
+            raise McpError("NOT_FOUND", str(e))
+        except ValueError as e:
+            raise McpError("INVALID_ARGUMENT", str(e))
+        except Exception as e:
+            raise McpError("INTERNAL_ERROR", str(e))
 
     @mcp_tool(name="get_binary_function_pseudocode_by_address")
     def get_binary_function_pseudocode_by_address(self, binary_name: str, addresses: Union[str, int, List[Union[str, int]]], options: dict = None) -> List[Dict[str, Any]]:
@@ -406,17 +448,24 @@ class McpService:
 
         Args:
             binary_name: The unique name of the binary.
-            addresses: The entry address(es) of the function(s) to decompile (hex string or integer).
+            addresses: The entry address(es) of the function(s) to decompile. MUST be a string if using hex (e.g., "0x401000"). Can be a single value or a list.
             options: Decompilation settings (optional).
 
         Returns:
             list: A list of results, each containing the 'pseudocode' string for the requested function.
         """
-        if isinstance(addresses, (str, int)):
-             addresses = self._coerce_json_list(addresses)
-        if not isinstance(addresses, list):
-            addresses = [addresses]
-        return self._get_binary(binary_name).get_pseudocode_by_address(addresses, options)
+        try:
+            if isinstance(addresses, (str, int)):
+                 addresses = self._coerce_json_list(addresses)
+            if not isinstance(addresses, list):
+                addresses = [addresses]
+            return self._get_binary(binary_name).get_pseudocode_by_address(addresses, options)
+        except LookupError as e:
+            raise McpError("NOT_FOUND", str(e))
+        except ValueError as e:
+            raise McpError("INVALID_ARGUMENT", str(e))
+        except Exception as e:
+            raise McpError("INTERNAL_ERROR", str(e))
 
     @mcp_tool(name="get_binary_function_callees")
     def get_binary_function_callees(self, binary_name: str, function_address: Union[str, int], depth: int = None, limit: int = None) -> List[Dict[str, Any]]:
@@ -427,14 +476,21 @@ class McpService:
 
         Args:
             binary_name: The unique name of the binary.
-            function_address: The entry address of the caller function (hex string or integer).
+            function_address: The entry address of the caller function. MUST be a string if using hex (e.g., "0x401000").
             depth: The depth of the call graph to traverse (default: 1, immediate callees).
             limit: The maximum number of callees to return.
 
         Returns:
             list: A list of called functions, including their addresses and names.
         """
-        return self._get_binary(binary_name).get_callees(function_address, depth, limit)
+        try:
+            return self._get_binary(binary_name).get_callees(function_address, depth, limit)
+        except LookupError as e:
+            raise McpError("NOT_FOUND", str(e))
+        except ValueError as e:
+            raise McpError("INVALID_ARGUMENT", str(e))
+        except Exception as e:
+            raise McpError("INTERNAL_ERROR", str(e))
 
     @mcp_tool(name="get_binary_function_callers")
     def get_binary_function_callers(self, binary_name: str, function_address: Union[str, int], depth: int = None, limit: int = None) -> List[Dict[str, Any]]:
@@ -445,14 +501,21 @@ class McpService:
 
         Args:
             binary_name: The unique name of the binary.
-            function_address: The entry address of the target function (hex string or integer).
+            function_address: The entry address of the target function. MUST be a string if using hex (e.g., "0x401000").
             depth: The depth of the call graph to traverse (default: 1, immediate callers).
             limit: The maximum number of callers to return.
 
         Returns:
             list: A list of calling functions (call sites), including their addresses and names.
         """
-        return self._get_binary(binary_name).get_callers(function_address, depth, limit)
+        try:
+            return self._get_binary(binary_name).get_callers(function_address, depth, limit)
+        except LookupError as e:
+            raise McpError("NOT_FOUND", str(e))
+        except ValueError as e:
+            raise McpError("INVALID_ARGUMENT", str(e))
+        except Exception as e:
+            raise McpError("INTERNAL_ERROR", str(e))
 
     def get_binary_cross_references_to_address(self, binary_name: str, address: Union[str, int], offset: int = 0, limit: int = 50, filters: dict = None) -> List[Dict[str, Any]]:
         """Get cross references to an address.
@@ -492,7 +555,7 @@ class McpService:
 
         Args:
             binary_name: The unique name of the binary.
-            address: The memory address to analyze (hex string or integer).
+            address: The memory address to analyze. MUST be a string if using hex (e.g., "0x401000").
             offset: Pagination offset for the results list (default: 0).
             limit: Max number of xrefs to return per direction (max 50).
             filters: Optional filters (e.g., type='code').
@@ -500,10 +563,17 @@ class McpService:
         Returns:
             dict: An object with 'to' (incoming references) and 'from' (outgoing references) lists.
         """
-        return {
-            "to": self.get_binary_cross_references_to_address(binary_name, address, offset, limit, filters),
-            "from": self.get_binary_cross_references_from_address(binary_name, address, offset, limit)
-        }
+        try:
+            return {
+                "to": self.get_binary_cross_references_to_address(binary_name, address, offset, limit, filters),
+                "from": self.get_binary_cross_references_from_address(binary_name, address, offset, limit)
+            }
+        except LookupError as e:
+            raise McpError("NOT_FOUND", str(e))
+        except ValueError as e:
+            raise McpError("INVALID_ARGUMENT", str(e))
+        except Exception as e:
+            raise McpError("INTERNAL_ERROR", str(e))
 
 
     @mcp_tool(name="list_binary_strings")
