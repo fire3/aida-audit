@@ -13,30 +13,58 @@ AIDA-MCP is a powerful tool designed to bridge the gap between IDA Pro binary an
 
 ### Prerequisites
 
-*   **Python 3.8+**
-*   **IDA Pro**: Required for the `export` command (to run the analysis).
+*   **Python 3.9+**
+*   **IDA Pro**: Required for the `aida-mcp export` command (to run the analysis).
 *   **Node.js**: Required only if you plan to build the frontend from source (optional).
 
-### Automatic Build & Install (Recommended)
+### Install IDA Pro lib (Required)
 
-We provide a PowerShell script that builds the frontend, packages the backend, and installs the tool into your Python environment.
+To make the `aida-mcp export` command work properly, you need to install the IDA Pro Python library.
+
+1.  Ensure IDA Pro is installed and the environment is configured.
+2.  Navigate to the `idalib/python` subdirectory under your IDA Pro installation directory (e.g., `C:\Program Files\IDA Professional 9.2\`).
+3.  In this directory, you should find an `idapro` folder, along with `setup.py` and `py-activate-lidalib.py` files.
+4.  Run the following command in this directory:
+    ```bash
+    pip install .
+    ```
+5.  After installation, run `python py-activate-lidalib.py` to activate the IDA Pro Python library.
+
+### Install Node.js (Optional)
+
+If you plan to build and install `aida-mcp` from source, you need to install Node.js.
+
+1.  Download and install the latest version of Node.js.
+2.  Verify the installation:
+    ```bash
+    node -v
+    npm -v
+    ```
+
+### Source Build & Install
+
+We provide scripts to automatically build the frontend, package the backend, and install the tool into your Python environment.
 
 1.  Navigate to the `backend` directory:
     ```powershell
     cd backend
     ```
-2.  Run the build and install script:
+2.  For Windows, run the build and install script:
     ```powershell
     .\build_and_install.ps1
     ```
+    For Linux/MacOS, run the build and install script:
+    ```bash
+    ./build_and_install.sh
+    ```
 
-This script will:
+This script will automatically:
 *   Build the React frontend.
 *   Copy the frontend assets to the backend package.
 *   Build the Python wheel.
 *   Install `aida-mcp` using `pip`.
 
-### Manual Installation
+### PIP Installation
 
 If you only need the backend or want to install from a pre-built wheel:
 
@@ -57,11 +85,11 @@ aida-mcp export <target_binary> -o <output_directory>
 ```
 
 **Arguments:**
-*   `<target_binary>`: Path to the binary file (e.g., `.exe`, `.so`, firmware component).
+*   `<target_binary>`: Path to the target binary file (e.g., `.exe`, `.so`, firmware component).
 *   `-o, --out-dir`: Directory where the SQLite database (`.db`) and other artifacts will be saved.
 
 **Advanced Options:**
-*   `--scan-dir <dir>`: **Bulk Mode**. Recursively scans the specified directory for dependencies (useful for analyzing firmware file systems).
+*   `-s, --scan-dir <dir>`: **Bulk Mode**. Recursively scans the specified directory for dependencies (useful for analyzing firmware file systems).
 *   `-j <n>`: Number of parallel workers (default: 4).
 *   `--verbose`: Enable detailed logging.
 
@@ -83,7 +111,7 @@ aida-mcp serve [project_path]
 ```
 
 **Arguments:**
-*   `[project_path]`: (Optional) Path to the directory containing your exported `.db` files or `export_index.json`. Defaults to the current directory (`.`).
+*   `[project_path]`: Path to the directory containing exported `.db` files or `export_index.json`. Defaults to the current directory (`.`).
 
 **Options:**
 *   `--host`: Host address to bind to (default: `127.0.0.1`).
@@ -92,6 +120,9 @@ aida-mcp serve [project_path]
 **Accessing the UI:**
 Once the server is running, open your browser and navigate to:
 **http://localhost:8765**
+
+**MCP Server Address:**
+**http://localhost:8765/mcp**
 
 ## Development
 
