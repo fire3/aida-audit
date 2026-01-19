@@ -1,15 +1,18 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { projectApi } from '../api/client';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
-import { FileCode, Activity, Database, Search, List as ListIcon, Code, HelpCircle } from 'lucide-react';
+import { FileCode, Activity, Database, Search, List as ListIcon, Code, HelpCircle, Info, Hammer } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cn } from '../lib/utils';
+import { McpToolsTab } from '../components/McpToolsTab';
+import { HelpTab } from '../components/HelpTab';
+import { AboutTab } from '../components/AboutTab';
 
 export function Dashboard() {
-  const [activeTab, setActiveTab] = useState<'binaries' | 'functions' | 'strings' | 'about'>('binaries');
+  const [activeTab, setActiveTab] = useState<'binaries' | 'functions' | 'strings' | 'mcp_tools' | 'help' | 'about'>('binaries');
 
   // Overview
   const { data: overview, isLoading: isOverviewLoading } = useQuery({
@@ -56,13 +59,6 @@ export function Dashboard() {
     if (strQuery) setTriggerStrSearch(p => p + 1);
   };
 
-  // MCP Tools
-  const { data: mcpTools, isLoading: isMcpToolsLoading } = useQuery({
-    queryKey: ['mcpTools'],
-    queryFn: projectApi.getMcpTools,
-    enabled: activeTab === 'about',
-  });
-
   if (isOverviewLoading) {
     return <div>Loading...</div>;
   }
@@ -104,7 +100,7 @@ export function Dashboard() {
 
       {/* Main Content Area */}
       <div>
-        <div className="flex space-x-1 border-b mb-4">
+        <div className="flex space-x-1 border-b mb-4 overflow-x-auto">
           <Button 
             variant={activeTab === 'binaries' ? 'default' : 'ghost'} 
             onClick={() => setActiveTab('binaries')}
@@ -127,11 +123,25 @@ export function Dashboard() {
             <Search className="mr-2 h-4 w-4"/> Search Strings
           </Button>
           <Button 
+            variant={activeTab === 'mcp_tools' ? 'default' : 'ghost'} 
+            onClick={() => setActiveTab('mcp_tools')}
+            className={cn("rounded-b-none", activeTab === 'mcp_tools' ? "bg-muted text-primary hover:bg-muted" : "hover:bg-muted/50")}
+          >
+            <Hammer className="mr-2 h-4 w-4"/> MCP Tools
+          </Button>
+          <Button 
+            variant={activeTab === 'help' ? 'default' : 'ghost'} 
+            onClick={() => setActiveTab('help')}
+            className={cn("rounded-b-none", activeTab === 'help' ? "bg-muted text-primary hover:bg-muted" : "hover:bg-muted/50")}
+          >
+            <HelpCircle className="mr-2 h-4 w-4"/> Help
+          </Button>
+          <Button 
             variant={activeTab === 'about' ? 'default' : 'ghost'} 
             onClick={() => setActiveTab('about')}
             className={cn("rounded-b-none", activeTab === 'about' ? "bg-muted text-primary hover:bg-muted" : "hover:bg-muted/50")}
           >
-            <HelpCircle className="mr-2 h-4 w-4"/> About & Help
+            <Info className="mr-2 h-4 w-4"/> About
           </Button>
         </div>
 
@@ -268,109 +278,19 @@ export function Dashboard() {
           </div>
         )}
 
-        {/* About & Help Tab */}
-        {activeTab === 'about' && (
-          <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>About IDA Project MCP Service</CardTitle>
-                <CardDescription>
-                  This service exposes static analysis data from your IDA Pro projects through the Model Context Protocol (MCP) compatible interface.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p>
-                  The service allows LLM agents (like Claude) to inspect binary analysis results, including functions, strings, cross-references, and disassembly.
-                </p>
-                
-                <div className="bg-muted p-4 rounded-md">
-                  <h3 className="font-semibold mb-2 flex items-center gap-2">
-                    <Activity className="h-4 w-4" />
-                    Getting Started
-                  </h3>
-                  <div className="space-y-4 text-sm">
-                    <div>
-                      <div className="font-medium mb-1">1. Export Analysis Data</div>
-                      <p className="text-muted-foreground">
-                        Use the <code>ida_exporter.py</code> script within IDA Pro to export your binary analysis database.
-                      </p>
-                    </div>
-                    <div>
-                      <div className="font-medium mb-1">2. Configure Server</div>
-                      <p className="text-muted-foreground">
-                        Set the <code>IDA_MCP_PROJECT</code> environment variable to your exported project directory.
-                      </p>
-                    </div>
-                    <div>
-                      <div className="font-medium mb-1">3. Connect MCP Client</div>
-                      <p className="text-muted-foreground mb-2">
-                        Configure your MCP client (e.g., Claude Desktop) to connect to this server.
-                        Below is an example configuration for <code>claude_desktop_config.json</code>:
-                      </p>
-                      <pre className="bg-background p-2 rounded border text-xs overflow-auto font-mono">
-{`{
-  "mcpServers": {
-    "ida-mcp": {
-      "command": "python",
-      "args": [
-        "-m", 
-        "ida_project_mcp.mcp_stdio_server", 
-        "--project", 
-        "C:/path/to/your/project"
-      ]
-    }
-  }
-}`}
-                      </pre>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        * Note: Ensure the <code>aida-mcp</code> package is installed or in your PYTHONPATH.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+        {/* MCP Tools Tab */}
+        {activeTab === 'mcp_tools' && (
+          <McpToolsTab />
+        )}
 
-            <div>
-              <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-                <Code className="h-5 w-5" />
-                Available Tools
-              </h2>
-              {isMcpToolsLoading ? (
-                <div className="py-8 text-center text-muted-foreground">Loading available tools...</div>
-              ) : (
-                <div className="grid gap-4 md:grid-cols-2">
-                  {mcpTools?.map((tool) => (
-                    <Card key={tool.name} className="flex flex-col">
-                      <CardHeader className="pb-2">
-                        <CardTitle className="font-mono text-base text-primary">{tool.name}</CardTitle>
-                        <CardDescription className="text-sm mt-1 whitespace-pre-wrap">{tool.description}</CardDescription>
-                      </CardHeader>
-                      <CardContent className="flex-1">
-                        <div className="text-xs font-semibold mb-2 text-muted-foreground uppercase tracking-wider">Parameters</div>
-                        <div className="bg-muted p-3 rounded-md text-xs font-mono overflow-x-auto">
-                          <ul className="list-disc list-inside space-y-1">
-                            {Object.entries(tool.inputSchema.properties).map(([param, details]) => (
-                              <li key={param}>
-                                <span className="font-bold text-foreground">{param}</span>
-                                <span className="text-muted-foreground ml-1">({details.type})</span>
-                                {tool.inputSchema.required?.includes(param) && (
-                                  <span className="ml-2 text-red-500 text-[10px] uppercase font-bold">Required</span>
-                                )}
-                              </li>
-                            ))}
-                            {Object.keys(tool.inputSchema.properties).length === 0 && (
-                              <li className="text-muted-foreground italic">No parameters required</li>
-                            )}
-                          </ul>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+        {/* Help Tab */}
+        {activeTab === 'help' && (
+          <HelpTab />
+        )}
+
+        {/* About Tab */}
+        {activeTab === 'about' && (
+          <AboutTab />
         )}
       </div>
     </div>
