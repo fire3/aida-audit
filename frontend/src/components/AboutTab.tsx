@@ -6,7 +6,7 @@ export function AboutTab() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>About IDA Project MCP Service</CardTitle>
+          <CardTitle>About AIDA MCP Service</CardTitle>
           <CardDescription>
             This service exposes static analysis data from your IDA Pro projects through the Model Context Protocol (MCP) compatible interface.
           </CardDescription>

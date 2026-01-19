@@ -518,7 +518,7 @@ else:
     logger.warning(f"Static directory not found at {static_dir}. Frontend will not be served.")
 
 def main():
-    parser = argparse.ArgumentParser(description="AIDA Project MCP server (FastAPI + Uvicorn)")
+    parser = argparse.ArgumentParser(description="AIDA MCP server (FastAPI + Uvicorn)")
     parser.add_argument("project", nargs="?", default=".", help="export_index.json or directory containing .db files")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)

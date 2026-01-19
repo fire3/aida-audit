@@ -17,6 +17,6 @@ setup(
         "aida_mcp": ["static/**/*", "static/*"],
     },
     include_package_data=True,
-    description="AIDA Project MCP Tool",
+    description="AIDA MCP Tool",
     author="User",
 )

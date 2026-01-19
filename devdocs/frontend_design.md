@@ -1,7 +1,7 @@
-# Frontend Web Design for IDA Project MCP
+# Frontend Web Design for AIDA MCP
 
 ## 1. Overview
-The goal is to design a modern, web-based frontend for the IDA Project MCP system. This frontend will consume the REST APIs provided by the `mcp-http-server` to allow users to browse, search, and analyze reverse engineering artifacts (binaries, functions, disassembly, pseudocode, etc.) exported from IDA Pro.
+The goal is to design a modern, web-based frontend for the AIDA MCP system. This frontend will consume the REST APIs provided by the `mcp-http-server` to allow users to browse, search, and analyze reverse engineering artifacts (binaries, functions, disassembly, pseudocode, etc.) exported from IDA Pro.
 
 ## 2. Architecture & Tech Stack
 

@@ -5,9 +5,9 @@ license: MIT
 compatibility: opencode
 ---
 
-# IDA Project MCP 逆向分析技能指南 (Reverse Engineering Skills Guide)
+# AIDA MCP 逆向分析技能指南 (Reverse Engineering Skills Guide)
 
-本文档旨在指导用户（以及 AI 模型）如何利用 IDA Project MCP 提供的工具集高效地进行逆向分析。我们将分析流程分解为常见的“技能模式”，每种模式对应一组特定的工具调用序列。
+本文档旨在指导用户（以及 AI 模型）如何利用 AIDA MCP 提供的工具集高效地进行逆向分析。我们将分析流程分解为常见的“技能模式”，每种模式对应一组特定的工具调用序列。
 
 ## 1. 核心概念 (Core Concepts)
 

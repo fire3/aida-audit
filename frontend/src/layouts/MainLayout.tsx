@@ -10,7 +10,7 @@ export function MainLayout() {
             <Link to="/" className="mr-6 flex items-center space-x-2">
               <Layers className="h-6 w-6" />
               <span className="hidden font-bold sm:inline-block">
-                IDA Project MCP
+                AIDA MCP
               </span>
             </Link>
           </div>

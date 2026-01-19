@@ -1,6 +1,6 @@
-# AIDA Project MCP Backend
+# AIDA MCP Backend
 
-This is the backend tool for AIDA Project MCP. It provides functionality to export IDA Pro databases and serve them via MCP (Model Context Protocol).
+This is the backend tool for AIDA MCP. It provides functionality to export IDA Pro databases and serve them via MCP (Model Context Protocol).
 
 ## Features
 
