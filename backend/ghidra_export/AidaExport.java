@@ -15,10 +15,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.zip.CRC32;
 
+import ghidra.app.decompiler.DecompInterface;
+import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.data.DataType;
+import ghidra.program.model.listing.CodeUnit;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
@@ -26,6 +29,8 @@ import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.listing.Listing;
 import ghidra.program.model.mem.Memory;
 import ghidra.program.model.mem.MemoryBlock;
+import ghidra.program.model.symbol.Reference;
+import ghidra.program.model.symbol.ReferenceType;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolIterator;
 import ghidra.program.model.symbol.SymbolTable;
@@ -47,6 +52,8 @@ public class AidaExport extends GhidraScript {
         writeSymbols(outDir);
         writeFunctions(outDir);
         writeStrings(outDir);
+        writePseudocode(outDir);
+        writeXrefs(outDir);
     }
 
     private void writeMetadata(File outDir) throws Exception {
@@ -265,6 +272,68 @@ public class AidaExport extends GhidraScript {
                 row.put("string", text);
                 row.put("section_name", sectionName);
                 writeJsonLine(w, row);
+            }
+        }
+    }
+
+    private void writePseudocode(File outDir) throws Exception {
+        File outFile = new File(outDir, "pseudocode.jsonl");
+        DecompInterface ifc = new DecompInterface();
+        ifc.setSimplificationStyle("decompile");
+        if (!ifc.openProgram(currentProgram)) {
+            return;
+        }
+        try (BufferedWriter w = writer(outFile)) {
+            FunctionIterator it = currentProgram.getFunctionManager().getFunctions(true);
+            while (it.hasNext()) {
+                Function f = it.next();
+                DecompileResults res = ifc.decompileFunction(f, 30, monitor);
+                if (res == null || !res.decompileCompleted() || res.getDecompiledFunction() == null) {
+                    continue;
+                }
+                String content = res.getDecompiledFunction().getC();
+                if (content == null) {
+                    continue;
+                }
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("function_va", f.getEntryPoint().getOffset());
+                row.put("content", content);
+                writeJsonLine(w, row);
+            }
+        } finally {
+            ifc.dispose();
+        }
+    }
+
+    private void writeXrefs(File outDir) throws Exception {
+        Listing listing = currentProgram.getListing();
+        FunctionManager fm = currentProgram.getFunctionManager();
+        File outFile = new File(outDir, "xrefs.jsonl");
+        try (BufferedWriter w = writer(outFile)) {
+            for (CodeUnit cu : listing.getCodeUnits(true)) {
+                Address from = cu.getAddress();
+                Reference[] refs = cu.getReferencesFrom();
+                if (refs == null || refs.length == 0) {
+                    continue;
+                }
+                Function fromFunc = fm.getFunctionContaining(from);
+                Long fromFuncVa = fromFunc != null ? fromFunc.getEntryPoint().getOffset() : null;
+                for (Reference ref : refs) {
+                    Address to = ref.getToAddress();
+                    if (to == null) {
+                        continue;
+                    }
+                    Function toFunc = fm.getFunctionContaining(to);
+                    Long toFuncVa = toFunc != null ? toFunc.getEntryPoint().getOffset() : null;
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("from_va", from.getOffset());
+                    row.put("to_va", to.getOffset());
+                    row.put("from_function_va", fromFuncVa);
+                    row.put("to_function_va", toFuncVa);
+                    row.put("xref_type", xrefType(ref));
+                    row.put("operand_index", ref.getOperandIndex());
+                    writeJsonLine(w, row);
+                }
             }
         }
     }
@@ -503,6 +572,29 @@ public class AidaExport extends GhidraScript {
             }
         }
         return count;
+    }
+
+    private String xrefType(Reference ref) {
+        ReferenceType rt = ref.getReferenceType();
+        if (rt != null) {
+            if (rt.isCall()) {
+                return "call";
+            }
+            if (rt.isJump()) {
+                return "jmp";
+            }
+            if (rt.isRead()) {
+                return "data_read";
+            }
+            if (rt.isWrite()) {
+                return "data_write";
+            }
+        }
+        String name = rt != null ? rt.getName() : null;
+        if (name != null && name.toLowerCase().contains("offset")) {
+            return "offset";
+        }
+        return "unknown";
     }
 
     private int countExports() {

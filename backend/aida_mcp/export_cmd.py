@@ -553,12 +553,24 @@ class ExportOrchestrator:
         self.logger.log(f"Output : {output_db}", context="ORCHESTRATOR")
 
         temp_dir = export_root or tempfile.mkdtemp(prefix="ghidra_export_")
+        json_dir = None
         try:
             json_dir = self._run_ghidra_headless(input_path, temp_dir, ghidra_home)
             if not json_dir:
                 return False
             return import_ghidra_export(json_dir, output_db, self.logger)
         finally:
+            if json_dir and os.path.exists(json_dir):
+                try:
+                    shutil.rmtree(json_dir)
+                except Exception:
+                    pass
+                if export_root and os.path.isdir(export_root):
+                    try:
+                        if not os.listdir(export_root):
+                            shutil.rmtree(export_root)
+                    except Exception:
+                        pass
             if cleanup_export_root:
                 try:
                     shutil.rmtree(temp_dir)

@@ -162,5 +162,33 @@ def import_ghidra_export(export_dir, output_db, logger=None):
             )
         db.insert_strings(rows)
 
+    pseudocode = _load_json_lines(os.path.join(export_dir, "pseudocode.jsonl"))
+    if pseudocode:
+        rows = []
+        for s in pseudocode:
+            rows.append(
+                (
+                    _to_int(s.get("function_va")),
+                    s.get("content"),
+                )
+            )
+        db.insert_pseudocode(rows)
+
+    xrefs = _load_json_lines(os.path.join(export_dir, "xrefs.jsonl"))
+    if xrefs:
+        rows = []
+        for s in xrefs:
+            rows.append(
+                (
+                    _to_int(s.get("from_va")),
+                    _to_int(s.get("to_va")),
+                    _to_int(s.get("from_function_va")),
+                    _to_int(s.get("to_function_va")),
+                    s.get("xref_type"),
+                    _to_int(s.get("operand_index")),
+                )
+            )
+        db.insert_xrefs(rows)
+
     db.close()
     return True
