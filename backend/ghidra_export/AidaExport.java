@@ -30,7 +30,7 @@ import ghidra.program.model.listing.Listing;
 import ghidra.program.model.mem.Memory;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.symbol.Reference;
-import ghidra.program.model.symbol.ReferenceType;
+import ghidra.program.model.symbol.RefType;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolIterator;
 import ghidra.program.model.symbol.SymbolTable;
@@ -575,7 +575,7 @@ public class AidaExport extends GhidraScript {
     }
 
     private String xrefType(Reference ref) {
-        ReferenceType rt = ref.getReferenceType();
+        RefType rt = ref.getReferenceType();
         if (rt != null) {
             if (rt.isCall()) {
                 return "call";
