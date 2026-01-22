@@ -219,7 +219,7 @@ class ExportOrchestrator:
         cmd = (
             f"\"{headless}\" \"{project_dir}\" \"{project_name}\" "
             f"-import \"{input_path}\" -scriptPath \"{script_dir}\" "
-            f"-postScript AidaExport.java \"{json_dir}\" -deleteProject -overwrite"
+            f"-postScript AidaExport.java \"{json_dir}\" -overwrite"
         )
         res = self.run_command(cmd, stream_output=True, context="GHIDRA")
         if not res["ok"]:
@@ -530,7 +530,7 @@ class ExportOrchestrator:
         )
 
         export_root = None
-        cleanup_export_root = True
+        cleanup_export_root = False
         if output_is_dir:
             if os.path.isfile(output_db):
                 self.logger.log(f"Error: Output path is a file, not a directory: {output_db}", context="ERROR")
@@ -541,6 +541,10 @@ class ExportOrchestrator:
             input_path = copied_bin
             output_db = os.path.join(out_dir, f"{os.path.basename(input_path)}.db")
             export_root = os.path.join(out_dir, "ghidra_export")
+            _safe_makedirs(export_root)
+        else:
+            export_base = os.path.splitext(os.path.basename(output_db))[0]
+            export_root = os.path.join(os.path.dirname(output_db), f"{export_base}.ghidra_export")
             _safe_makedirs(export_root)
 
         if os.path.exists(output_db):
