@@ -521,6 +521,29 @@ class ExportOrchestrator:
         output_db = os.path.abspath(output_db)
         self.logger.set_binary(os.path.basename(input_path))
 
+        output_is_dir = (
+            os.path.isdir(output_db)
+            or output_db.endswith(os.sep)
+            or output_db.endswith("/")
+            or output_db.endswith("\\")
+            or (not os.path.splitext(output_db)[1] and not output_db.lower().endswith(".db"))
+        )
+
+        export_root = None
+        cleanup_export_root = True
+        if output_is_dir:
+            if os.path.isfile(output_db):
+                self.logger.log(f"Error: Output path is a file, not a directory: {output_db}", context="ERROR")
+                return False
+            out_dir = output_db
+            _safe_makedirs(out_dir)
+            copied_bin = _copy_to_out_dir(input_path, out_dir)
+            input_path = copied_bin
+            output_db = os.path.join(out_dir, f"{os.path.basename(input_path)}.db")
+            export_root = os.path.join(out_dir, "ghidra_export")
+            _safe_makedirs(export_root)
+            cleanup_export_root = False
+
         if os.path.exists(output_db):
             self.logger.log(f"Target database already exists: {output_db}", context="ORCHESTRATOR")
             self.logger.log("Skipping export.", context="ORCHESTRATOR")
@@ -529,17 +552,18 @@ class ExportOrchestrator:
         self.logger.log(f"Input  : {input_path}", context="ORCHESTRATOR")
         self.logger.log(f"Output : {output_db}", context="ORCHESTRATOR")
 
-        temp_dir = tempfile.mkdtemp(prefix="ghidra_export_")
+        temp_dir = export_root or tempfile.mkdtemp(prefix="ghidra_export_")
         try:
             json_dir = self._run_ghidra_headless(input_path, temp_dir, ghidra_home)
             if not json_dir:
                 return False
             return import_ghidra_export(json_dir, output_db, self.logger)
         finally:
-            try:
-                shutil.rmtree(temp_dir)
-            except Exception:
-                pass
+            if cleanup_export_root:
+                try:
+                    shutil.rmtree(temp_dir)
+                except Exception:
+                    pass
 
     def process_directory_ghidra(self, scan_dir, out_dir, target_binary, ghidra_home=None):
         scan_dir = os.path.abspath(scan_dir)
