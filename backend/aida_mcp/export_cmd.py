@@ -542,7 +542,6 @@ class ExportOrchestrator:
             output_db = os.path.join(out_dir, f"{os.path.basename(input_path)}.db")
             export_root = os.path.join(out_dir, "ghidra_export")
             _safe_makedirs(export_root)
-            cleanup_export_root = False
 
         if os.path.exists(output_db):
             self.logger.log(f"Target database already exists: {output_db}", context="ORCHESTRATOR")
