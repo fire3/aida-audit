@@ -49,6 +49,25 @@ Or manually:
    pip install dist/aida_mcp-0.1.0-py3-none-any.whl
    ```
 
+## Development (No Install)
+
+Use this section when you want to run and test the backend directly from source without installing a wheel.
+
+1. Open a terminal and go to the `backend` directory:
+   ```bash
+   cd backend
+   ```
+2. Run commands directly with Python module execution:
+   ```bash
+   python -m aida_mcp.cli export <path_to_binary> -o <output_db_path>
+   python -m aida_mcp.cli serve [path_to_project_or_db]
+   ```
+3. If you want to use Ghidra for export, set `GHIDRA_HOME` or pass `--ghidra-home`:
+   ```bash
+   python -m aida_mcp.cli export <path_to_binary> -o <output_db_path> --backend ghidra --ghidra-home <path_to_ghidra>
+   ```
+4. If you want to use IDA for export, ensure your Python environment can import IDA's Python API as noted below in the Export Command section.
+
 ## Usage
 
 After installation, the `aida-mcp` command will be available in your Python scripts directory.

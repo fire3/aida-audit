@@ -8,6 +8,7 @@ import subprocess
 import shutil
 import sqlite3
 import threading
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 
 # =============================================================================
@@ -15,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 # =============================================================================
 
 from .elf_service import ElfService
+from .ghidra_importer import import_ghidra_export
 
 # =============================================================================
 # Shared Utilities & Logging
@@ -181,6 +183,48 @@ class ExportOrchestrator:
             
         self.logger.log(f"Done ({duration:.2f}s).", context=context)
         return {"ok": True, "duration": duration, "returncode": returncode, "stdout": result_stdout, "stderr": result_stderr}
+
+    def _resolve_ghidra_home(self, ghidra_home):
+        if ghidra_home:
+            return os.path.abspath(ghidra_home)
+        env_home = os.environ.get("GHIDRA_HOME")
+        if env_home:
+            return os.path.abspath(env_home)
+        return None
+
+    def _get_ghidra_headless(self, ghidra_home):
+        if not ghidra_home:
+            return None
+        cand_bat = os.path.join(ghidra_home, "support", "analyzeHeadless.bat")
+        if os.path.exists(cand_bat):
+            return cand_bat
+        cand = os.path.join(ghidra_home, "support", "analyzeHeadless")
+        if os.path.exists(cand):
+            return cand
+        return None
+
+    def _run_ghidra_headless(self, input_path, export_dir, ghidra_home):
+        ghidra_home = self._resolve_ghidra_home(ghidra_home)
+        headless = self._get_ghidra_headless(ghidra_home)
+        if not headless:
+            raise FileNotFoundError("Ghidra headless analyzer not found")
+        script_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ghidra_export"))
+        if not os.path.isdir(script_dir):
+            raise FileNotFoundError(f"Ghidra script directory not found: {script_dir}")
+        project_dir = os.path.join(export_dir, "project")
+        os.makedirs(project_dir, exist_ok=True)
+        project_name = "aida_mcp"
+        json_dir = os.path.join(export_dir, "json")
+        os.makedirs(json_dir, exist_ok=True)
+        cmd = (
+            f"\"{headless}\" \"{project_dir}\" \"{project_name}\" "
+            f"-import \"{input_path}\" -scriptPath \"{script_dir}\" "
+            f"-postScript AidaExport.java \"{json_dir}\" -deleteProject -overwrite"
+        )
+        res = self.run_command(cmd, stream_output=True, context="GHIDRA")
+        if not res["ok"]:
+            return None
+        return json_dir
 
     def merge_databases(self, main_db, worker_dbs):
         self.logger.log(f"Merging {len(worker_dbs)} worker databases into {main_db}...", context="MERGE")
@@ -465,6 +509,136 @@ class ExportOrchestrator:
             "worker_perf_paths": worker_perf_paths
         }
 
+    def process_single_file_ghidra(self, input_path, output_db, ghidra_home=None):
+        input_path = os.path.abspath(input_path)
+        if not os.path.exists(input_path):
+            self.logger.log(f"Error: Input file '{input_path}' not found.", context="ERROR")
+            return False
+
+        if not output_db:
+            output_db = os.path.splitext(input_path)[0] + ".db"
+
+        output_db = os.path.abspath(output_db)
+        self.logger.set_binary(os.path.basename(input_path))
+
+        if os.path.exists(output_db):
+            self.logger.log(f"Target database already exists: {output_db}", context="ORCHESTRATOR")
+            self.logger.log("Skipping export.", context="ORCHESTRATOR")
+            return True
+
+        self.logger.log(f"Input  : {input_path}", context="ORCHESTRATOR")
+        self.logger.log(f"Output : {output_db}", context="ORCHESTRATOR")
+
+        temp_dir = tempfile.mkdtemp(prefix="ghidra_export_")
+        try:
+            json_dir = self._run_ghidra_headless(input_path, temp_dir, ghidra_home)
+            if not json_dir:
+                return False
+            return import_ghidra_export(json_dir, output_db, self.logger)
+        finally:
+            try:
+                shutil.rmtree(temp_dir)
+            except Exception:
+                pass
+
+    def process_directory_ghidra(self, scan_dir, out_dir, target_binary, ghidra_home=None):
+        scan_dir = os.path.abspath(scan_dir)
+        out_dir = os.path.abspath(out_dir)
+
+        _safe_makedirs(out_dir)
+
+        plan = []
+
+        if not target_binary:
+            self.logger.log("Error: target_binary is required for directory processing.", context="ERROR")
+            return
+
+        target_path = os.path.abspath(target_binary)
+        if not os.path.exists(target_path):
+            raise FileNotFoundError(target_path)
+        if not _is_within_dir(target_path, scan_dir):
+            raise ValueError("target_binary must be within scan_dir")
+
+        self.logger.log(f"Resolving dependencies for {target_path} in {scan_dir}...", context="BUNDLE")
+        resolved = ElfService.resolve_recursive_dependencies(scan_dir, target_path)
+
+        plan.append({"role": "main", "name": os.path.basename(target_path), "path": target_path})
+        for r in resolved:
+            if r.get("path"):
+                plan.append({"role": "dep", "name": r["name"], "path": r["path"]})
+            else:
+                plan.append({"role": "dep_missing", "name": r["name"], "path": None})
+
+        if not plan:
+            self.logger.log("No files found to export.", context="BUNDLE")
+            return
+
+        index = {
+            "created_at": int(time.time()),
+            "target": {"name": None, "db": None},
+            "dependencies": [],
+            "standalone": []
+        }
+
+        if target_binary:
+            index["target"]["name"] = os.path.basename(target_binary)
+
+        for item in plan:
+            if not item.get("path"):
+                if item["role"] == "dep_missing":
+                    index["dependencies"].append({"name": item["name"], "db": None, "idb": None})
+                continue
+
+            src_path = os.path.abspath(item["path"])
+            name = os.path.basename(src_path)
+
+            try:
+                out_bin = _copy_to_out_dir(src_path, out_dir)
+                self.logger.log(f"Copied {name} -> {out_bin}", context="BUNDLE")
+
+                try:
+                    file_hash = _sha256_prefix(src_path)
+                except Exception as e:
+                    self.logger.log(f"Error hashing {src_path}: {e}. Using fallback name.", context="BUNDLE")
+                    file_hash = "nohash"
+
+                db_name = f"{name}.{file_hash}.db"
+                out_db = os.path.join(out_dir, db_name)
+
+                self.logger.log(f"Exporting {name} -> {out_db}", context="BUNDLE")
+
+                success = self.process_single_file_ghidra(
+                    input_path=out_bin,
+                    output_db=out_db,
+                    ghidra_home=ghidra_home,
+                )
+
+                status = "ok" if success else "failed"
+
+                entry = {
+                    "name": item["name"],
+                    "db": os.path.basename(out_db) if out_db and status == "ok" else None,
+                    "idb": None
+                }
+
+                if item["role"] == "main":
+                    index["target"]["db"] = entry["db"]
+                    index["target"]["idb"] = entry["idb"]
+                elif item["role"] in ("dep", "dep_missing"):
+                    index["dependencies"].append(entry)
+                else:
+                    index["standalone"].append(entry)
+
+            except Exception as e:
+                self.logger.log(f"Failed to process {name}: {e}", context="ERROR")
+                continue
+
+        index_path = os.path.join(out_dir, "export_index.json")
+        with open(index_path, "w", encoding="utf-8") as f:
+            json.dump(index, f, ensure_ascii=False, indent=2)
+        self.logger.log(f"Index saved to {index_path}", context="BUNDLE")
+        return index_path
+
     def process_single_file(self, input_path, output_db, save_idb=None):
         input_path = os.path.abspath(input_path)
         if not os.path.exists(input_path):
@@ -677,7 +851,7 @@ class ExportOrchestrator:
 # =============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="Unified IDA Pro Export Script")
+    parser = argparse.ArgumentParser(description="Unified Export Script")
     
     # New arguments structure
     parser.add_argument("target", help="Path to input binary file")
@@ -686,6 +860,8 @@ def main():
     parser.add_argument("-j", "--workers", type=int, default=4, help="Number of parallel workers (default: 4)")
     parser.add_argument("-p", "--perf-summary", action="store_true", help="Show performance summary")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+    parser.add_argument("--backend", choices=["ida", "ghidra"], default="ida", help="Export backend (ida or ghidra)")
+    parser.add_argument("--ghidra-home", help="Ghidra installation directory (optional, defaults to GHIDRA_HOME)")
 
     args = parser.parse_args()
     
@@ -714,11 +890,19 @@ def main():
 
         print(f"Mode: Bulk (Target: {target_path}, Scan: {scan_dir})")
         try:
-            orchestrator.process_directory(
-                scan_dir=scan_dir,
-                out_dir=args.output,
-                target_binary=target_path
-            )
+            if args.backend == "ghidra":
+                orchestrator.process_directory_ghidra(
+                    scan_dir=scan_dir,
+                    out_dir=args.output,
+                    target_binary=target_path,
+                    ghidra_home=args.ghidra_home,
+                )
+            else:
+                orchestrator.process_directory(
+                    scan_dir=scan_dir,
+                    out_dir=args.output,
+                    target_binary=target_path
+                )
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
@@ -730,11 +914,18 @@ def main():
             sys.exit(1)
             
         print(f"Mode: Single (Target: {target_path})")
-        success = orchestrator.process_single_file(
-            input_path=target_path,
-            output_db=args.output,
-            save_idb=None # Default to None (temp dir) for single mode
-        )
+        if args.backend == "ghidra":
+            success = orchestrator.process_single_file_ghidra(
+                input_path=target_path,
+                output_db=args.output,
+                ghidra_home=args.ghidra_home,
+            )
+        else:
+            success = orchestrator.process_single_file(
+                input_path=target_path,
+                output_db=args.output,
+                save_idb=None # Default to None (temp dir) for single mode
+            )
         sys.exit(0 if success else 1)
 
 if __name__ == "__main__":
