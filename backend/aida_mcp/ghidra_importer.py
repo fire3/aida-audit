@@ -162,6 +162,19 @@ def import_ghidra_export(export_dir, output_db, logger=None):
             )
         db.insert_strings(rows)
 
+    disasm_chunks = _load_json_lines(os.path.join(export_dir, "disasm_chunks.jsonl"))
+    if disasm_chunks:
+        rows = []
+        for s in disasm_chunks:
+            rows.append(
+                (
+                    _to_int(s.get("start_va")),
+                    _to_int(s.get("end_va")),
+                    s.get("content"),
+                )
+            )
+        db.insert_disasm_chunks(rows)
+
     pseudocode = _load_json_lines(os.path.join(export_dir, "pseudocode.jsonl"))
     if pseudocode:
         rows = []
@@ -189,6 +202,20 @@ def import_ghidra_export(export_dir, output_db, logger=None):
                 )
             )
         db.insert_xrefs(rows)
+
+    call_edges = _load_json_lines(os.path.join(export_dir, "call_edges.jsonl"))
+    if call_edges:
+        rows = []
+        for s in call_edges:
+            rows.append(
+                (
+                    _to_int(s.get("caller_function_va")),
+                    _to_int(s.get("callee_function_va")),
+                    _to_int(s.get("call_site_va")),
+                    s.get("call_type"),
+                )
+            )
+        db.insert_call_edges(rows)
 
     db.close()
     return True

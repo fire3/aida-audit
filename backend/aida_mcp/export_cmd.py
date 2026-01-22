@@ -560,18 +560,7 @@ class ExportOrchestrator:
                 return False
             return import_ghidra_export(json_dir, output_db, self.logger)
         finally:
-            if json_dir and os.path.exists(json_dir):
-                try:
-                    shutil.rmtree(json_dir)
-                except Exception:
-                    pass
-                if export_root and os.path.isdir(export_root):
-                    try:
-                        if not os.listdir(export_root):
-                            shutil.rmtree(export_root)
-                    except Exception:
-                        pass
-            if cleanup_export_root:
+            if cleanup_export_root and not (json_dir and os.path.exists(json_dir)):
                 try:
                     shutil.rmtree(temp_dir)
                 except Exception:

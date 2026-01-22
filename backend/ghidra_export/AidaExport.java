@@ -26,6 +26,8 @@ import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.FunctionManager;
+import ghidra.program.model.listing.Instruction;
+import ghidra.program.model.listing.InstructionIterator;
 import ghidra.program.model.listing.Listing;
 import ghidra.program.model.mem.Memory;
 import ghidra.program.model.mem.MemoryBlock;
@@ -51,9 +53,11 @@ public class AidaExport extends GhidraScript {
         writeExports(outDir);
         writeSymbols(outDir);
         writeFunctions(outDir);
+        writeDisasmChunks(outDir);
         writeStrings(outDir);
         writePseudocode(outDir);
         writeXrefs(outDir);
+        writeCallEdges(outDir);
     }
 
     private void writeMetadata(File outDir) throws Exception {
@@ -305,6 +309,49 @@ public class AidaExport extends GhidraScript {
         }
     }
 
+    private void writeDisasmChunks(File outDir) throws Exception {
+        Listing listing = currentProgram.getListing();
+        File outFile = new File(outDir, "disasm_chunks.jsonl");
+        int chunkSize = 100;
+        int lineCount = 0;
+        long chunkStart = 0;
+        long chunkEnd = 0;
+        StringBuilder buf = new StringBuilder();
+        InstructionIterator it = listing.getInstructions(true);
+        try (BufferedWriter w = writer(outFile)) {
+            while (it.hasNext()) {
+                Instruction insn = it.next();
+                String text = insn.toString();
+                if (text == null || text.isEmpty()) {
+                    continue;
+                }
+                long addr = insn.getAddress().getOffset();
+                if (lineCount == 0) {
+                    chunkStart = addr;
+                }
+                buf.append("0x").append(Long.toHexString(addr)).append(": ").append(text).append("\n");
+                chunkEnd = addr + insn.getLength();
+                lineCount += 1;
+                if (lineCount >= chunkSize) {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("start_va", chunkStart);
+                    row.put("end_va", chunkEnd);
+                    row.put("content", buf.toString().trim());
+                    writeJsonLine(w, row);
+                    buf.setLength(0);
+                    lineCount = 0;
+                }
+            }
+            if (lineCount > 0) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("start_va", chunkStart);
+                row.put("end_va", chunkEnd);
+                row.put("content", buf.toString().trim());
+                writeJsonLine(w, row);
+            }
+        }
+    }
+
     private void writeXrefs(File outDir) throws Exception {
         Listing listing = currentProgram.getListing();
         FunctionManager fm = currentProgram.getFunctionManager();
@@ -333,6 +380,49 @@ public class AidaExport extends GhidraScript {
                     row.put("xref_type", xrefType(ref));
                     row.put("operand_index", ref.getOperandIndex());
                     writeJsonLine(w, row);
+                }
+            }
+        }
+    }
+
+    private void writeCallEdges(File outDir) throws Exception {
+        Listing listing = currentProgram.getListing();
+        FunctionManager fm = currentProgram.getFunctionManager();
+        File outFile = new File(outDir, "call_edges.jsonl");
+        try (BufferedWriter w = writer(outFile)) {
+            FunctionIterator fit = fm.getFunctions(true);
+            while (fit.hasNext()) {
+                Function func = fit.next();
+                InstructionIterator it = listing.getInstructions(func.getBody(), true);
+                while (it.hasNext()) {
+                    Instruction insn = it.next();
+                    Reference[] refs = insn.getReferencesFrom();
+                    if (refs == null || refs.length == 0) {
+                        continue;
+                    }
+                    for (Reference ref : refs) {
+                        RefType rt = ref.getReferenceType();
+                        if (rt == null || (!rt.isCall() && !rt.isJump())) {
+                            continue;
+                        }
+                        Address to = ref.getToAddress();
+                        if (to == null) {
+                            continue;
+                        }
+                        Function callee = fm.getFunctionContaining(to);
+                        if (callee == null) {
+                            continue;
+                        }
+                        if (rt.isJump() && callee.getEntryPoint().equals(func.getEntryPoint())) {
+                            continue;
+                        }
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        row.put("caller_function_va", func.getEntryPoint().getOffset());
+                        row.put("callee_function_va", callee.getEntryPoint().getOffset());
+                        row.put("call_site_va", insn.getAddress().getOffset());
+                        row.put("call_type", "direct");
+                        writeJsonLine(w, row);
+                    }
                 }
             }
         }
