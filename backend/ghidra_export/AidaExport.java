@@ -480,13 +480,14 @@ public class AidaExport extends GhidraScript {
 
     private String symbolKind(Symbol s) {
         SymbolType t = s.getSymbolType();
-        if (t == SymbolType.FUNCTION) {
+        String name = t != null ? t.toString().toLowerCase() : "unknown";
+        if (name.contains("function")) {
             return "function";
         }
-        if (t == SymbolType.LABEL) {
+        if (name.contains("label")) {
             return "label";
         }
-        if (t == SymbolType.DATA) {
+        if (name.contains("data")) {
             return "data";
         }
         return "unknown";
