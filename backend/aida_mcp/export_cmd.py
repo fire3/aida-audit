@@ -208,9 +208,9 @@ class ExportOrchestrator:
         headless = self._get_ghidra_headless(ghidra_home)
         if not headless:
             raise FileNotFoundError("Ghidra headless analyzer not found")
-        script_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ghidra_export"))
+        script_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "ghidra_export"))
         if not os.path.isdir(script_dir):
-            raise FileNotFoundError(f"Ghidra script directory not found: {script_dir}")
+            raise FileNotFoundError("Ghidra script directory not found")
         project_dir = os.path.join(export_dir, "project")
         os.makedirs(project_dir, exist_ok=True)
         project_name = "aida_mcp"

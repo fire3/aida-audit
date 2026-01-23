@@ -1,2 +1,2 @@
 recursive-include aida_mcp/static *
-recursive-include ghidra_export *
+recursive-include aida_mcp/ghidra_export *

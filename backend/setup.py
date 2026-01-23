@@ -14,11 +14,8 @@ setup(
         ],
     },
     package_data={
-        "aida_mcp": ["static/**/*", "static/*"],
+        "aida_mcp": ["static/**/*", "static/*", "ghidra_export/**/*", "ghidra_export/*"],
     },
-    data_files=[
-        ("ghidra_export", ["ghidra_export/AidaExport.java"]),
-    ],
     include_package_data=True,
     description="AIDA MCP Tool",
     author="User",
