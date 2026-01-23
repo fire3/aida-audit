@@ -3,6 +3,7 @@ import mmap
 import os
 import re
 import sqlite3
+import struct
 
 
 def _clamp_limit(limit, default=50, max_limit=500):
@@ -40,6 +41,99 @@ def _parse_address(address):
     if not s:
         raise ValueError("address_invalid")
     return int(s, 16)
+
+
+def _parse_int_value(value):
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if not s:
+            raise ValueError("value_invalid")
+        if s.startswith("-0x"):
+            return -int(s[3:], 16)
+        if s.startswith("0x"):
+            return int(s[2:], 16)
+        return int(s, 10)
+    raise ValueError("value_invalid")
+
+
+def _read_elf_segments(path):
+    with open(path, "rb") as f:
+        ident = f.read(16)
+        if len(ident) < 16 or ident[:4] != b"\x7fELF":
+            return None
+        ei_class = ident[4]
+        ei_data = ident[5]
+        if ei_class not in (1, 2) or ei_data not in (1, 2):
+            return None
+        endian = "<" if ei_data == 1 else ">"
+        if ei_class == 1:
+            hdr = f.read(36)
+            if len(hdr) < 36:
+                return None
+            (
+                _e_type,
+                _e_machine,
+                _e_version,
+                _e_entry,
+                e_phoff,
+                _e_shoff,
+                _e_flags,
+                _e_ehsize,
+                e_phentsize,
+                e_phnum,
+                _e_shentsize,
+                _e_shnum,
+                _e_shstrndx,
+            ) = struct.unpack(endian + "HHIIIIIHHHHHH", hdr)
+        else:
+            hdr = f.read(48)
+            if len(hdr) < 48:
+                return None
+            (
+                _e_type,
+                _e_machine,
+                _e_version,
+                _e_entry,
+                e_phoff,
+                _e_shoff,
+                _e_flags,
+                _e_ehsize,
+                e_phentsize,
+                e_phnum,
+                _e_shentsize,
+                _e_shnum,
+                _e_shstrndx,
+            ) = struct.unpack(endian + "HHIQQQIHHHHHH", hdr)
+        if not e_phoff or not e_phnum or not e_phentsize:
+            return []
+        f.seek(e_phoff, os.SEEK_SET)
+        segs = []
+        for _ in range(int(e_phnum)):
+            ph = f.read(int(e_phentsize))
+            if len(ph) < int(e_phentsize):
+                break
+            if ei_class == 1:
+                p_type, p_offset, p_vaddr, _p_paddr, p_filesz, _p_memsz, _p_flags, _p_align = struct.unpack(
+                    endian + "IIIIIIII", ph[:32]
+                )
+            else:
+                p_type, _p_flags, p_offset, p_vaddr, _p_paddr, p_filesz, _p_memsz, _p_align = struct.unpack(
+                    endian + "IIQQQQQQ", ph[:56]
+                )
+            if p_type == 1 and p_filesz:
+                segs.append((int(p_offset), int(p_filesz), int(p_vaddr)))
+        return segs
+
+
+def _file_offset_to_va_elf(segments, file_off):
+    if not segments:
+        return None
+    for off, size, vaddr in segments:
+        if file_off >= off and file_off < off + size:
+            return vaddr + (file_off - off)
+    return None
 
 
 def _format_address(value):
@@ -1044,6 +1138,9 @@ class BinaryDbQuery:
             raise ValueError("pattern_invalid")
         offset = _clamp_offset(offset)
         limit = _clamp_limit(limit, default=50, max_limit=500)
+        segments = _read_elf_segments(self.binary_path)
+        if segments is None:
+            raise RuntimeError("elf_parse_failed")
         tokens = [t for t in pattern.strip().split() if t]
         pat = []
         mask = []
@@ -1062,11 +1159,12 @@ class BinaryDbQuery:
         mask_b = bytes(mask)
 
         results = []
+        matched = 0
         with open(self.binary_path, "rb") as f:
             mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
             try:
                 i = 0
-                while i + len(pat_b) <= len(mm) and len(results) < offset + limit:
+                while i + len(pat_b) <= len(mm) and len(results) < limit:
                     window = mm[i : i + len(pat_b)]
                     ok = True
                     for j in range(len(pat_b)):
@@ -1074,52 +1172,75 @@ class BinaryDbQuery:
                             ok = False
                             break
                     if ok:
-                        if len(results) >= offset:
-                            va = self._file_offset_to_va(i)
-                            results.append(_format_address(va) if va is not None else None)
-                        else:
-                            results.append(None)
+                        va = _file_offset_to_va_elf(segments, i)
+                        if va is not None:
+                            if matched >= offset:
+                                results.append(_format_address(va))
+                            matched += 1
                         i += 1
                     else:
                         i += 1
             finally:
                 mm.close()
-        results = [r for r in results if r is not None]
         return results[:limit]
 
     def search_immediates(self, value, width=None, offset=None, limit=None):
-        if not self._table_exists("disasm_chunks"):
-            return []
         offset = _clamp_offset(offset)
         limit = _clamp_limit(limit, default=50, max_limit=500)
-        if isinstance(value, str):
-            needle = value.strip().lower()
-        else:
-            try:
-                needle = hex(int(value)).lower()
-            except Exception:
-                needle = str(value)
+        if not (self.binary_path and os.path.exists(self.binary_path)):
+            raise RuntimeError("binary_path_missing")
+        segments = _read_elf_segments(self.binary_path)
+        if segments is None:
+            raise RuntimeError("elf_parse_failed")
+        v = _parse_int_value(value)
+        widths = [width] if width is not None else [1, 2, 4, 8]
+        widths = [int(w) for w in widths if int(w) in (1, 2, 4, 8)]
+        if not widths:
+            raise ValueError("width_invalid")
 
         hits = []
-        rows = self._fetchall("SELECT content FROM disasm_chunks ORDER BY start_va ASC")
-        for r in rows:
-            content = r["content"] or ""
-            for line in content.splitlines():
-                if needle not in line.lower():
-                    continue
-                m = re.match(r"^\s*(0x[0-9a-fA-F]+)\s*:\s*(.*)$", line)
-                if not m:
-                    continue
-                try:
-                    va = _parse_address(m.group(1))
-                except Exception:
-                    continue
-                hits.append(
-                    {
-                        "address": _format_address(va),
-                        "function_address": (self.get_function_containing(va) or {}).get("address"),
-                        "instruction": m.group(2),
-                    }
-                )
-        return hits[offset : offset + limit]
+        matched = 0
+        with open(self.binary_path, "rb") as f:
+            mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+            try:
+                raw_hits = []
+                for w in widths:
+                    try:
+                        if v < 0:
+                            b = int(v).to_bytes(w, byteorder="little", signed=True)
+                        else:
+                            b = int(v).to_bytes(w, byteorder="little", signed=False)
+                    except Exception:
+                        continue
+                    start = 0
+                    while True:
+                        idx = mm.find(b, start)
+                        if idx == -1:
+                            break
+                        raw_hits.append((idx, w))
+                        start = idx + 1
+                raw_hits.sort(key=lambda x: x[0])
+                for file_off, w in raw_hits:
+                    va = _file_offset_to_va_elf(segments, file_off)
+                    if va is None:
+                        continue
+                    if matched >= offset:
+                        hits.append(
+                            {
+                                "address": _format_address(va),
+                                "file_offset": file_off,
+                                "width": w,
+                                "value": hex(int(v) & ((1 << (w * 8)) - 1)) if v >= 0 else hex(int(v)),
+                                "function_address": None,
+                                "instruction": None,
+                            }
+                        )
+                        if len(hits) >= limit:
+                            break
+                    matched += 1
+                    if len(hits) >= limit:
+                        break
+            finally:
+                mm.close()
+        return hits
 
