@@ -15,6 +15,8 @@ AIDA-MCP is a powerful tool designed to bridge the gap between IDA Pro binary an
 
 *   **Python 3.9+**
 *   **IDA Pro**: Required for the `aida-mcp export` command (to run the analysis).
+*   **Ghidra**: Required when exporting with the Ghidra backend.
+*   **JDK**: Required for running Ghidra (skip if your Ghidra bundle includes a JDK).
 *   **Node.js**: Required only if you plan to build the frontend from source (optional).
 
 ### Install IDA Pro lib (Required)
@@ -39,6 +41,19 @@ If you plan to build and install `aida-mcp` from source, you need to install Nod
     ```bash
     node -v
     npm -v
+    ```
+
+### Install Ghidra and JDK (Required for the Ghidra backend)
+
+1.  Install a JDK (if your Ghidra bundle does not include one).
+2.  Download and extract Ghidra.
+3.  Set `GHIDRA_HOME` to the Ghidra root directory (it must contain `support/analyzeHeadless(.bat)`).
+4.  Verify the path:
+    ```bash
+    # Windows
+    %GHIDRA_HOME%\support\analyzeHeadless.bat
+    # Linux/macOS
+    $GHIDRA_HOME/support/analyzeHeadless
     ```
 
 ### Source Build & Install
@@ -92,6 +107,8 @@ aida-mcp export <target_binary> -o <output_directory>
 *   `-s, --scan-dir <dir>`: **Bulk Mode**. Recursively scans the specified directory for dependencies (useful for analyzing firmware file systems).
 *   `-j <n>`: Number of parallel workers (default: 4).
 *   `--verbose`: Enable detailed logging.
+*   `--backend <ida|ghidra>`: Choose the export backend (default: `ida`).
+*   `--ghidra-home <dir>`: Ghidra install directory (optional, overrides `GHIDRA_HOME`).
 
 **Example:**
 ```bash
@@ -100,6 +117,12 @@ aida-mcp export ./bin/httpd -o ./output
 
 # Analyze a binary within a firmware root, resolving dependencies
 aida-mcp export ./squashfs-root/usr/sbin/httpd -o ./output --scan-dir ./squashfs-root
+
+# Export with the Ghidra backend (using GHIDRA_HOME)
+aida-mcp export ./bin/httpd -o ./output --backend ghidra
+
+# Export with the Ghidra backend (explicit path)
+aida-mcp export ./bin/httpd -o ./output --backend ghidra --ghidra-home <path_to_ghidra>
 ```
 
 ### 2. Start the Server (`serve`)
