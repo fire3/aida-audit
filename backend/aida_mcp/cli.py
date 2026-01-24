@@ -2,6 +2,7 @@ import sys
 import os
 import json
 import argparse
+import re
 from . import export_cmd
 from . import server_cmd
 
@@ -40,6 +41,21 @@ def _build_stdio_config(project, python_cmd, server_name):
         }
     }
 
+def _build_opencode_stdio_config(project, python_cmd, server_name):
+    command = python_cmd
+    if os.name == "nt" and " " in command:
+        command = "python"
+    return {
+        "$schema": "https://opencode.ai/config.json",
+        "mcp": {
+            server_name: {
+                "type": "local",
+                "command": [command, "-m", "aida_mcp.mcp_stdio_server", "--project", project],
+                "enabled": True,
+            }
+        }
+    }
+
 def _build_http_config(url, server_name):
     return {
         "mcpServers": {
@@ -49,9 +65,27 @@ def _build_http_config(url, server_name):
         }
     }
 
+def _build_opencode_http_config(url, server_name):
+    return {
+        "$schema": "https://opencode.ai/config.json",
+        "mcp": {
+            server_name: {
+                "type": "remote",
+                "url": url,
+                "enabled": True,
+            }
+        }
+    }
+
 def _read_json(path):
     with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        content = f.read()
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        # Simple fallback to remove trailing commas which are common in JSONC
+        content = re.sub(r',(\s*[}\]])', r'\1', content)
+        return json.loads(content)
 
 def _write_json(path, payload):
     with open(path, "w", encoding="utf-8") as f:
@@ -78,6 +112,23 @@ def _merge_config(existing, payload):
             key = _pick_server_name(servers)
         servers[key] = value
     existing["mcpServers"] = servers
+    return existing
+
+def _merge_opencode_config(existing, payload):
+    if not isinstance(existing, dict):
+        existing = {}
+    
+    if "$schema" not in existing:
+        existing["$schema"] = "https://opencode.ai/config.json"
+        
+    servers = existing.get("mcp")
+    if not isinstance(servers, dict):
+        servers = {}
+    for key, value in payload.get("mcp", {}).items():
+        if key in servers:
+            key = _pick_server_name(servers)
+        servers[key] = value
+    existing["mcp"] = servers
     return existing
 
 def _config_roots():
@@ -120,6 +171,12 @@ def _candidate_paths(client):
         home = os.path.expanduser("~")
         if home:
             paths.append(os.path.join(home, "trae", "user", "mcp.json"))
+    
+    if client == "opencode":
+        home = os.path.expanduser("~")
+        if home:
+            paths.append(os.path.join(home, ".config", "opencode", "opencode.json"))
+
     for root in roots:
         for name in names:
             paths.extend([
@@ -127,6 +184,7 @@ def _candidate_paths(client):
                 os.path.join(root, name, "mcp_servers.json"),
                 os.path.join(root, name, "config.json"),
                 os.path.join(root, f".{name}", "mcp.json"),
+                os.path.join(root, name, "opencode.json"),
             ])
     return paths
 
@@ -147,6 +205,12 @@ def _default_config_path(client):
         home = os.path.expanduser("~")
         if home:
             return os.path.join(home, "trae", "user", "mcp.json")
+    
+    if client == "opencode":
+        home = os.path.expanduser("~")
+        if home:
+             return os.path.join(home, ".config", "opencode", "opencode.json")
+
     return os.path.join(base, name, "mcp.json")
 
 def install_main():
@@ -173,25 +237,40 @@ def install_main():
     else:
         clients = ["opencode", "roo-code", "trae", "claude-code", "cline"]
 
+    def get_payload(client):
+        is_opencode = (client == "opencode")
+        if args.transport == "stdio":
+            if is_opencode:
+                return _build_opencode_stdio_config(os.path.abspath(args.project), args.python_cmd, "aida-mcp")
+            else:
+                return _build_stdio_config(os.path.abspath(args.project), args.python_cmd, "aida-mcp")
+        else:
+            if is_opencode:
+                return _build_opencode_http_config(args.url, "aida-mcp")
+            else:
+                return _build_http_config(args.url, "aida-mcp")
+
+    def merge(client, existing, payload):
+        if client == "opencode":
+            return _merge_opencode_config(existing, payload)
+        else:
+            return _merge_config(existing, payload)
+
     output = args.output
     if output == "-":
-        if args.transport == "stdio":
-            payload = _build_stdio_config(os.path.abspath(args.project), args.python_cmd, "aida-mcp")
-        else:
-            payload = _build_http_config(args.url, "aida-mcp")
+        target_client = clients[0] if clients else "claude-code"
+        payload = get_payload(target_client)
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
 
     if output != "auto":
-        if args.transport == "stdio":
-            payload = _build_stdio_config(os.path.abspath(args.project), args.python_cmd, "aida-mcp")
-        else:
-            payload = _build_http_config(args.url, "aida-mcp")
         output_is_file = output.lower().endswith(".json")
         if output_is_file and len(clients) > 1:
             raise SystemExit("Output is a file but multiple clients were selected")
 
         if output_is_file:
+            target_client = clients[0] if clients else "claude-code"
+            payload = get_payload(target_client)
             _write_json(output, payload)
             print(output)
             print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -201,19 +280,18 @@ def install_main():
         for client in clients:
             filename = f"mcp_{client}.json"
             path = os.path.join(output, filename)
+            payload = get_payload(client)
             _write_json(path, payload)
             print(f"{client}: {path}")
         return
 
     for client in clients:
         existing_path = _find_existing_config(client)
-        if args.transport == "stdio":
-            payload = _build_stdio_config(os.path.abspath(args.project), args.python_cmd, "aida-mcp")
-        else:
-            payload = _build_http_config(args.url, "aida-mcp")
+        payload = get_payload(client)
+        
         if existing_path:
             existing = _read_json(existing_path)
-            merged = _merge_config(existing, payload)
+            merged = merge(client, existing, payload)
             _write_json(existing_path, merged)
             print(f"{client}: {existing_path}")
         else:
