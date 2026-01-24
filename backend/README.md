@@ -102,6 +102,19 @@ Options:
 - `--host`: Host to bind to (default: 127.0.0.1).
 - `--port`: Port to bind to (default: 8765).
 
+### Install Command
+
+Generates MCP client configuration files.
+
+```bash
+aida-mcp install --client <client_name>
+```
+
+Options:
+- `--client`: Client name (`opencode`, `claude-code`, `trae`, etc.).
+- `--transport`: `stdio` or `http` (default: `stdio`).
+- `--output`: Output path or `-` for stdout (default: `auto`).
+
 ## Directory Structure
 
 - `aida_mcp/`: Source code package.
