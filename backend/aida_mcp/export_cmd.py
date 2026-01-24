@@ -9,6 +9,7 @@ import shutil
 import sqlite3
 import threading
 import tempfile
+import platform
 from concurrent.futures import ThreadPoolExecutor
 
 # =============================================================================
@@ -195,12 +196,16 @@ class ExportOrchestrator:
     def _get_ghidra_headless(self, ghidra_home):
         if not ghidra_home:
             return None
-        cand_bat = os.path.join(ghidra_home, "support", "analyzeHeadless.bat")
-        if os.path.exists(cand_bat):
-            return cand_bat
-        cand = os.path.join(ghidra_home, "support", "analyzeHeadless")
-        if os.path.exists(cand):
-            return cand
+        
+        system = platform.system()
+        if system == "Windows":
+            cand = os.path.join(ghidra_home, "support", "analyzeHeadless.bat")
+            if os.path.exists(cand):
+                return cand
+        else:
+            cand = os.path.join(ghidra_home, "support", "analyzeHeadless")
+            if os.path.exists(cand):
+                return cand
         return None
 
     def _run_ghidra_headless(self, input_path, export_dir, ghidra_home):
