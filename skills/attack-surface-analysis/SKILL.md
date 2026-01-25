@@ -165,7 +165,7 @@ All attack surface analysis reports must follow this Markdown format:
 | `SRC-1` | `Network` | `recv` | `[Function] @ [Address]` | `[buffer,len]` | `[who controls it, checks]` |
 | `SRC-2` | `IPC/RPC` | `Named pipe` | `[Function] @ [Address]` | `[message,len]` | `[authn/authz, framing]` |
 
-## 4. Candidate Exploit Chains (Required)
+## 4. Candidate Exploit Chains (Optional)
 List each chain as: `Source → Parser/Transform → Validation → Sink`, and include at least one evidence snippet per stage.
 
 Example:
@@ -178,8 +178,7 @@ Example:
 *   **Location**: `[Function Name] @ [Address]`
 *   **Description**: Detailed explanation of the vulnerability.
 *   **Evidence**:
-    > [Relevant code snippet or pseudocode]
-*   **Recommendation**: How to fix it (e.g., "Replace strcpy with strncpy").
+    > [Relevant pseudocode, do not make assumptions]
 
 ### Finding #2: ...
 
