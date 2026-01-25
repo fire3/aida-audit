@@ -153,12 +153,12 @@ aida-mcp serve [project_path]
 **MCP服务器地址:**
 **http://localhost:8765/mcp**
 
-### 3. 安装 MCP 配置 (`install`)
+### 3. 安装 MCP 配置 (`config`)
 
-`install` 命令用于生成或更新各种 MCP 客户端（如 OpenCode, Claude Code, Trae）的配置文件。
+`config` 命令用于生成或更新各种 MCP 客户端（如 OpenCode, Claude Code, Trae）的配置文件。
 
 ```bash
-aida-mcp install --client <client_name>
+aida-mcp config --client <client_name>
 ```
 
 **选项：**
@@ -175,11 +175,11 @@ aida-mcp install --client <client_name>
 **示例：**
 ```bash
 # 为 OpenCode 安装配置 (stdio 模式)
-aida-mcp install --client opencode
+aida-mcp config --client opencode
 
 # 为 Claude Code 安装配置 (使用 HTTP 传输)
-aida-mcp install --client claude-code --transport http
+aida-mcp config --client claude-code --transport http
 
 # 将配置打印到标准输出
-aida-mcp install --client trae --output -
+aida-mcp config --client trae --output -
 ```
