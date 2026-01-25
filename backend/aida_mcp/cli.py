@@ -320,11 +320,11 @@ def main():
         export_cmd.main()
     elif command == "serve":
         server_cmd.main()
-    elif command == "install":
-        install_main()
+    elif command == "config":
+        config_main()
     else:
         print(f"Unknown command: {command}")
-        print("Available commands: export, serve, install")
+        print("Available commands: export, serve, config")
         sys.exit(1)
 
 if __name__ == "__main__":

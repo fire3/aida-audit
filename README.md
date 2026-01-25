@@ -154,12 +154,12 @@ Once the server is running, open your browser and navigate to:
 **MCP Server Address:**
 **http://localhost:8765/mcp**
 
-### 3. Install MCP Configuration (`install`)
+### 3. Install MCP Configuration (`config`)
 
-The `install` command generates or updates the configuration file for various MCP clients (e.g., OpenCode, Claude Code, Trae).
+The `config` command generates or updates the configuration file for various MCP clients (e.g., OpenCode, Claude Code, Trae).
 
 ```bash
-aida-mcp install --client <client_name>
+aida-mcp config --client <client_name>
 ```
 
 **Options:**
