@@ -59,12 +59,12 @@ Use this section when you want to run and test the backend directly from source 
    ```
 2. Run commands directly with Python module execution:
    ```bash
-   python -m aida_mcp.cli export <path_to_binary> -o <output_db_path>
+   python -m aida_mcp.cli export <path_to_binary> -o <output_directory>
    python -m aida_mcp.cli serve [path_to_project_or_db]
    ```
 3. If you want to use Ghidra for export, set `GHIDRA_HOME` or pass `--ghidra-home`:
    ```bash
-   python -m aida_mcp.cli export <path_to_binary> -o <output_db_path> --backend ghidra --ghidra-home <path_to_ghidra>
+   python -m aida_mcp.cli export <path_to_binary> -o <output_directory> --backend ghidra --ghidra-home <path_to_ghidra>
    ```
 4. If you want to use IDA for export, ensure your Python environment can import IDA's Python API as noted below in the Export Command section.
 
@@ -74,16 +74,17 @@ After installation, the `aida-mcp` command will be available in your Python scri
 
 ### Export Command
 
-Analyzes a binary and exports it to a database file.
+Analyzes a binary and exports it to a database in the output directory.
 
 ```bash
-aida-mcp export <path_to_binary> -o <output_db_path>
+aida-mcp export <path_to_binary> -o <output_directory>
 ```
 
 Options:
 - `--scan-dir <dir>`: Enable bulk mode to scan for dependencies in the given directory.
 - `-j <workers>`: Number of parallel workers (default: 4).
 - `--verbose`: Enable verbose output.
+- `--export-c`: Export the decompiled C file alongside the database.
 
 **Note**: This command requires a Python environment that can access IDA Pro's Python API. If you are using the system Python, ensure `PYTHONPATH` includes IDA's python directory, or run this tool using `idapyswitch` configured python.
 
@@ -92,11 +93,11 @@ Options:
 Starts the MCP HTTP server.
 
 ```bash
-aida-mcp serve [path_to_project_or_db]
+aida-mcp serve [path_to_project_dir]
 ```
 
 Arguments:
-- `project`: Path to the exported project directory or database file (optional, default: current directory).
+- `project`: Path to the exported project directory (optional, default: current directory).
 
 Options:
 - `--host`: Host to bind to (default: 127.0.0.1).

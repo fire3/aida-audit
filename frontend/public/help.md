@@ -20,6 +20,7 @@ aida-mcp export <target_binary> -o <output_directory>
 *   `-s, --scan-dir <dir>`: **Batch Mode**. Recursively scans the specified directory to resolve dependencies (useful when analyzing firmware filesystems).
 *   `-j <n>`: Number of parallel worker threads (default: 4).
 *   `--verbose`: Enable verbose logging output.
+*   `--export-c`: Export the decompiled C file alongside the database.
 
 **Examples:**
 ```bash
@@ -28,6 +29,12 @@ aida-mcp export ./bin/httpd -o ./output
 
 # Analyze a binary within a firmware root and resolve dependencies
 aida-mcp export ./squashfs-root/usr/sbin/httpd -o ./output --scan-dir ./squashfs-root
+
+# Export decompiled C output
+aida-mcp export ./bin/httpd -o ./output --export-c
+
+# Export multiple targets via wildcard
+aida-mcp export ./lib/uams/uams_* -o ./output
 ```
 
 ### 2. Start Service (Serve)
@@ -39,7 +46,7 @@ aida-mcp serve [project_path]
 ```
 
 **Arguments:**
-*   `[project_path]`: Directory path containing the exported `.db` files or `export_index.json`. Defaults to the current directory (`.`).
+*   `[project_path]`: Directory path containing the exported `.db` files. Defaults to the current directory (`.`).
 
 **Options:**
 *   `--host`: Bind host address (default: `127.0.0.1`).

@@ -5,8 +5,10 @@ setup(
     version="0.1.0",
     packages=find_packages(),
     install_requires=[
-        "fastapi",
-        "uvicorn",
+        "fastapi>=0.95,<1.0",
+        "uvicorn>=0.22,<0.41",
+        "h11>=0.13,<0.15",
+        "rich<14",
     ],
     entry_points={
         "console_scripts": [

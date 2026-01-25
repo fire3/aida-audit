@@ -123,7 +123,8 @@ install_backend() {
 
   echo "Installation complete."
   echo "You can now use the 'aida-mcp' command."
-  echo "  Example: aida-mcp export mybinary.exe -o mybinary.db"
+  echo "  Example: aida-mcp export mybinary.exe -o ./output"
+  echo "  Example: aida-mcp export mybinary.exe -o ./output --export-c"
   echo "  Example: aida-mcp serve ."
 }
 

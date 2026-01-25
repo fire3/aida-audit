@@ -109,6 +109,7 @@ aida-mcp export <target_binary> -o <output_directory>
 *   `--verbose`: Enable detailed logging.
 *   `--backend <ida|ghidra>`: Choose the export backend (default: `ida`).
 *   `--ghidra-home <dir>`: Ghidra install directory (optional, overrides `GHIDRA_HOME`).
+*   `--export-c`: Export the decompiled C file alongside the database.
 
 **Example:**
 ```bash
@@ -123,6 +124,12 @@ aida-mcp export ./bin/httpd -o ./output --backend ghidra
 
 # Export with the Ghidra backend (explicit path)
 aida-mcp export ./bin/httpd -o ./output --backend ghidra --ghidra-home <path_to_ghidra>
+
+# Export decompiled C output
+aida-mcp export ./bin/httpd -o ./output --export-c
+
+# Export multiple targets via wildcard
+aida-mcp export ./lib/uams/uams_* -o ./output
 ```
 
 ### 2. Start the Server (`serve`)
@@ -134,7 +141,7 @@ aida-mcp serve [project_path]
 ```
 
 **Arguments:**
-*   `[project_path]`: Path to the directory containing exported `.db` files or `export_index.json`. Defaults to the current directory (`.`).
+*   `[project_path]`: Path to the directory containing exported `.db` files. Defaults to the current directory (`.`).
 
 **Options:**
 *   `--host`: Host address to bind to (default: `127.0.0.1`).

@@ -854,7 +854,7 @@ def main():
     
     # New arguments structure
     parser.add_argument("target", nargs="+", help="Path to input binary file")
-    parser.add_argument("-o", "--output", required=True, help="Output path (DB file for single mode, Directory for bulk mode)")
+    parser.add_argument("-o", "--output", required=True, help="Output directory")
     parser.add_argument("-s", "--scan-dir", help="Directory to scan for dependencies (enables Bulk Mode)")
     parser.add_argument("-j", "--workers", type=int, default=4, help="Number of parallel workers (default: 4)")
     parser.add_argument("-p", "--perf-summary", action="store_true", help="Show performance summary")

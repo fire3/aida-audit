@@ -108,6 +108,7 @@ aida-mcp export <target_binary> -o <output_directory>
 *   `--verbose`: 启用详细日志输出。
 *   `--backend <ida|ghidra>`: 选择导出后端（默认：`ida`）。
 *   `--ghidra-home <dir>`: Ghidra 安装目录（可选，优先级高于 `GHIDRA_HOME`）。
+*   `--export-c`: 同时导出反编译的 C 文件。
 
 **示例：**
 ```bash
@@ -122,6 +123,12 @@ aida-mcp export ./bin/httpd -o ./output --backend ghidra
 
 # 使用 Ghidra 后端导出（显式指定 Ghidra 目录）
 aida-mcp export ./bin/httpd -o ./output --backend ghidra --ghidra-home <path_to_ghidra>
+
+# 导出反编译 C 文件
+aida-mcp export ./bin/httpd -o ./output --export-c
+
+# 使用通配符导出多个目标
+aida-mcp export ./lib/uams/uams_* -o ./output
 ```
 
 ### 2. 启动服务 (`serve`)
@@ -133,7 +140,7 @@ aida-mcp serve [project_path]
 ```
 
 **参数说明：**
-*   `[project_path]`: 包含导出 `.db` 文件或 `export_index.json` 的目录路径。默认为当前目录 (`.`)。
+*   `[project_path]`: 包含导出 `.db` 文件的目录路径。默认为当前目录 (`.`)。
 
 **选项：**
 *   `--host`: 绑定主机地址 (默认: `127.0.0.1`)。

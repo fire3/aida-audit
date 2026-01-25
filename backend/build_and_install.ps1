@@ -63,7 +63,8 @@ if ($whl) {
     python -m pip install --force-reinstall "$($whl.FullName)"
     Write-Host "Installation complete."
     Write-Host "You can now use the 'aida-mcp' command."
-    Write-Host "  Example: aida-mcp export mybinary.exe -o mybinary.db"
+    Write-Host "  Example: aida-mcp export mybinary.exe -o ./output"
+    Write-Host "  Example: aida-mcp export mybinary.exe -o ./output --export-c"
     Write-Host "  Example: aida-mcp serve ."
 } else {
     Write-Host "Error: No wheel file found."
