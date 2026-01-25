@@ -5,87 +5,87 @@ license: MIT
 compatibility: opencode
 ---
 
-# AIDA MCP 逆向分析技能指南 (Reverse Engineering Skills Guide)
+# AIDA MCP Reverse Engineering Skills Guide
 
-本文档旨在指导用户（以及 AI 模型）如何利用 AIDA MCP 提供的工具集高效地进行逆向分析。我们将分析流程分解为常见的“技能模式”，每种模式对应一组特定的工具调用序列。
+This document aims to guide users (and AI models) on how to efficiently perform reverse engineering using the toolset provided by AIDA MCP. We decompose the analysis process into common "Skill Patterns", where each pattern corresponds to a specific sequence of tool calls.
 
-## 1. 核心概念 (Core Concepts)
+## 1. Core Concepts
 
-- **Binary Name (binary_name)**: 这里的 binary_name 通常指 IDA 数据库的文件名（不带后缀，或视具体加载情况而定），例如 `chilli`。在使用所有针对特定二进制的工具时都需要提供此参数。
-- **Address**: 地址通常支持 十六进制字符串 (如 `"0x401000"`) 或 整数 (如 `4198400`)。
-- **Context**: 分析不是孤立的，通常需要结合反汇编 (Disassembly)、伪代码 (Pseudocode) 和 引用关系 (Xrefs) 来理解。
+- **Binary Name (binary_name)**: The `binary_name` here usually refers to the filename of the IDA database (without extension, or depending on the specific loading context), for example, `chilli`. This parameter is required when using all tools specific to a binary.
+- **Address**: Addresses typically support Hexadecimal Strings (e.g., `"0x401000"`) or Integers (e.g., `4198400`).
+- **Context**: Analysis is not isolated; it usually requires combining Disassembly, Pseudocode, and Cross-References (Xrefs) to understand.
 
-## 2. 技能模式 (Skill Patterns)
+## 2. Skill Patterns
 
-### 2.1 探索与概览 (Exploration & Overview)
+### 2.1 Exploration & Overview
 
-**场景**: 刚开始分析一个新的二进制文件，需要了解其基本结构、导出的功能以及引用的外部库。
+**Scenario**: Starting to analyze a new binary file and needing to understand its basic structure, exported functions, and referenced external libraries.
 
-*   **列出所有二进制文件**: `get_project_binaries()`
-    *   *用途*: 确定当前有哪些分析目标可用。
-*   **查看导出函数 (Public API)**: `list_binary_exports(binary_name)`
-    *   *用途*: 了解该模块对外提供了什么功能（如果是 DLL/SO）。
-*   **查看导入函数 (Dependencies)**: `list_binary_imports(binary_name)`
-    *   *用途*: 了解该模块依赖哪些外部功能（如网络 `socket`, 文件 `CreateFile`, 加密 `Crypt` 等）。
-*   **浏览内部函数**: `list_binary_functions(binary_name, limit=20)`
-    *   *用途*: 获取函数列表，可以配合 `offset` 分页浏览。
+*   **List all binary files**: `get_project_binaries()`
+    *   *Purpose*: Determine what analysis targets are currently available.
+*   **View Exported Functions (Public API)**: `list_binary_exports(binary_name)`
+    *   *Purpose*: Understand what functionality this module provides externally (if it is a DLL/SO).
+*   **View Imported Functions (Dependencies)**: `list_binary_imports(binary_name)`
+    *   *Purpose*: Understand what external functionality this module depends on (e.g., network `socket`, file `CreateFile`, encryption `Crypt`, etc.).
+*   **Browse Internal Functions**: `list_binary_functions(binary_name, limit=20)`
+    *   *Purpose*: Get a list of functions, can be used with `offset` for pagination.
 
-### 2.2 字符串追踪 (String Analysis)
+### 2.2 String Analysis
 
-**场景**: 发现程序输出了特定的错误信息或日志，或者界面上显示了特定文本，希望找到处理这些文本的代码逻辑。
+**Scenario**: The program outputs specific error messages or logs, or specific text is displayed on the interface, and you want to find the code logic that handles this text.
 
-1.  **搜索字符串**: `search_strings(search_string="Error", match="contains")`
-    *   *用途*: 在所有二进制中查找该字符串。如果知道在哪个 binary，也可以用 `search_string_symbol_in_binary`。
-    *   *输出*: 得到字符串的 `address` (例如 `0x4050A0`)。
-2.  **查找引用 (Xrefs)**: `get_string_xrefs(binary_name, string_address="0x4050A0")`
-    *   *用途*: 找到是谁使用了这个字符串。
-    *   *输出*: 得到引用该字符串的代码地址列表 (例如 `0x401200`).
-3.  **定位代码**: `get_disassembly_context(binary_name, address="0x401200")`
-    *   *用途*: 查看引用位置的汇编代码上下文，分析逻辑。
+1.  **Search Strings**: `search_strings(search_string="Error", match="contains")`
+    *   *Purpose*: Search for the string in all binaries. If the binary is known, `search_string_symbol_in_binary` can also be used.
+    *   *Output*: Get the `address` of the string (e.g., `0x4050A0`).
+2.  **Find References (Xrefs)**: `get_string_xrefs(binary_name, string_address="0x4050A0")`
+    *   *Purpose*: Find who uses this string.
+    *   *Output*: Get a list of code addresses referencing this string (e.g., `0x401200`).
+3.  **Locate Code**: `get_disassembly_context(binary_name, address="0x401200")`
+    *   *Purpose*: View the assembly code context at the reference location to analyze the logic.
 
-### 2.3 深入函数分析 (Deep Function Analysis)
+### 2.3 Deep Function Analysis
 
-**场景**: 已经定位到一个感兴趣的函数地址（例如通过字符串追踪或导出表），需要彻底理解其行为。
+**Scenario**: You have located an interesting function address (e.g., via string tracing or the export table) and need to thoroughly understand its behavior.
 
-**重要原则**: 优先使用伪代码进行逻辑分析，只有在伪代码不准确或需要查看底层细节时，才使用反汇编。
+**Important Principle**: Prioritize using pseudocode for logic analysis. Use disassembly only when pseudocode is inaccurate or when low-level details are needed.
 
-1.  **首选伪代码 (Pseudocode First)**: `get_binary_function_pseudocode_by_address(binary_name, function_address)`
-    *   *用途*: 阅读类似 C 语言的高级代码。这是理解函数逻辑、变量流向和控制结构的最快且最有效的方式。**务必先调用此工具。**
-2.  **辅助分析 (Deep Dive)**: 结合引用关系理解函数上下文。
-    *   **谁调用了我? (Callers)**: `get_binary_function_callers(binary_name, function_address)` -> 了解触发条件和参数来源。
-    *   **我调用了谁? (Callees)**: `get_binary_function_callees(binary_name, function_address)` -> 了解该函数依赖的子功能。
-3.  **查看反汇编 (Disassembly as Fallback)**: `get_binary_disassembly_context(binary_name, address)`
-    *   *用途*: 仅当伪代码存在歧义、丢失细节，或者需要检查特定指令（如加密指令、花指令）时使用。
-    *   *注意*: 不要一开始就阅读大量反汇编代码，效率极低。
+1.  **Pseudocode First**: `get_binary_function_pseudocode_by_address(binary_name, function_address)`
+    *   *Purpose*: Read high-level code similar to C. This is the fastest and most effective way to understand function logic, variable flow, and control structures. **Be sure to call this tool first.**
+2.  **Auxiliary Analysis (Deep Dive)**: Combine references to understand function context.
+    *   **Who calls me? (Callers)**: `get_binary_function_callers(binary_name, function_address)` -> Understand trigger conditions and parameter sources.
+    *   **Who do I call? (Callees)**: `get_binary_function_callees(binary_name, function_address)` -> Understand the sub-functionality this function depends on.
+3.  **View Disassembly (Disassembly as Fallback)**: `get_binary_disassembly_context(binary_name, address)`
+    *   *Purpose*: Use only when pseudocode is ambiguous, missing details, or when specific instructions (such as encryption instructions, obfuscated instructions) need to be checked.
+    *   *Note*: Do not read large amounts of disassembly code from the start; it is extremely inefficient.
 
-### 2.4 API 行为审计 (API Auditing)
+### 2.4 API Auditing
 
-**场景**: 怀疑程序有恶意行为（如网络回连、文件窃取），希望审计敏感 API 的调用。
+**Scenario**: Suspecting malicious behavior in the program (e.g., network callback, file theft) and wishing to audit calls to sensitive APIs.
 
-1.  **查找敏感导入**: `list_binary_imports(binary_name)` -> 筛选如 `InternetOpen`, `CreateFile`, `RegOpenKey` 等。
-2.  **查找 API 引用**: `get_binary_cross_references(binary_name, address=IMPORT_ADDRESS)`
-    *   *注意*: 导入函数的地址通常在 `.idata` 段。
-3.  **分析调用点**:
-    *   **步骤 A (推荐)**: 获取引用点所在函数的伪代码 `get_binary_function_pseudocode_by_address`，查看 API 是如何被调用的。
-    *   **步骤 B (备选)**: 如果只需要看参数传递，使用 `get_binary_disassembly_context(binary_name, address=XREF_ADDRESS)` 查看调用前的指令（如 `PUSH` 或寄存器赋值）。
+1.  **Find Sensitive Imports**: `list_binary_imports(binary_name)` -> Filter for `InternetOpen`, `CreateFile`, `RegOpenKey`, etc.
+2.  **Find API References**: `get_binary_cross_references(binary_name, address=IMPORT_ADDRESS)`
+    *   *Note*: The address of imported functions is usually in the `.idata` section.
+3.  **Analyze Call Sites**:
+    *   **Step A (Recommended)**: Get the pseudocode of the function where the reference is located using `get_binary_function_pseudocode_by_address` to see how the API is called.
+    *   **Step B (Alternative)**: If you only need to see parameter passing, use `get_binary_disassembly_context(binary_name, address=XREF_ADDRESS)` to view instructions before the call (e.g., `PUSH` or register assignment).
 
-### 2.5 算法与常量识别 (Algorithm & Constant Identification)
+### 2.5 Algorithm & Constant Identification
 
-**场景**: 识别加密算法或特定协议。
+**Scenario**: Identifying encryption algorithms or specific protocols.
 
-1.  **搜索魔数/常量**: `search_immediates_in_binary(binary_name, value="0x67452301")` (MD5 常量)
-    *   *用途*: 快速定位加密算法的核心变换函数。这是定位标准算法（AES, DES, MD5, SHA等）最有效的方法。
-2.  **搜索字节特征**: `search_bytes_pattern_in_binary(binary_name, pattern="55 8B EC")`
-    *   *用途*: 查找特定的指令序列或文件头。
-3.  **多二进制搜索**: 如果不确定在哪个模块，使用 `search_functions_in_project` 或 `search_exported_function_in_project` 进行跨模块搜索。
+1.  **Search Magic Numbers/Constants**: `search_immediates_in_binary(binary_name, value="0x67452301")` (MD5 Constant)
+    *   *Purpose*: Quickly locate the core transformation functions of encryption algorithms. This is the most effective way to locate standard algorithms (AES, DES, MD5, SHA, etc.).
+2.  **Search Byte Patterns**: `search_bytes_pattern_in_binary(binary_name, pattern="55 8B EC")`
+    *   *Purpose*: Find specific instruction sequences or file headers.
+3.  **Multi-Binary Search**: If unsure which module it is in, use `search_functions_in_project` or `search_exported_function_in_project` for cross-module searching.
 
-## 3. 常见问题与最佳实践 (FAQ & Best Practices)
+## 3. FAQ & Best Practices
 
 *   **Pseudocode vs Disassembly**:
-    *   **Golden Rule**: 始终以伪代码 (`get_binary_function_pseudocode_by_address`) 为主。
-    *   **Why?**: 伪代码抽象了堆栈平衡、寄存器分配等底层细节，直接展示业务逻辑。
-    *   **When Disassembly?**: 仅在处理混淆代码、内联汇编或编译器优化导致的伪代码错误时，才查阅反汇编。
+    *   **Golden Rule**: Always prioritize pseudocode (`get_binary_function_pseudocode_by_address`).
+    *   **Why?**: Pseudocode abstracts away low-level details like stack balancing and register allocation, directly showing business logic.
+    *   **When Disassembly?**: Consult disassembly only when dealing with obfuscated code, inline assembly, or pseudocode errors caused by compiler optimizations.
 *   **Context Window**:
-    *   `get_binary_disassembly_context` 默认返回目标地址前后的代码行。如果需要看更长的代码，建议使用伪代码工具。
+    *   `get_binary_disassembly_context` returns lines of code before and after the target address by default. If you need to see longer code, it is recommended to use the pseudocode tool.
 *   **Address Format**:
-    *   工具能够智能处理 hex 字符串（带 `0x`）和十进制整数。建议统一使用 hex 字符串以保持一致性。
+    *   Tools can intelligently handle hex strings (with `0x`) and decimal integers. It is recommended to consistently use hex strings.
