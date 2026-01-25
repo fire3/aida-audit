@@ -1,4 +1,5 @@
 import os
+import re
 
 from .binary_dbquery import BinaryDbQuery
 
@@ -50,12 +51,26 @@ class ProjectStore:
                                  binary_path = cand
         except Exception:
             pass
-            
+
+        display_name = rec.get("display_name")
+        if binary_path:
+            display_name = os.path.basename(binary_path)
+        else:
+            base_name = os.path.basename(db_path)
+            if not display_name or display_name == base_name:
+                m = re.match(r"^(?P<name>.+)\.[0-9a-fA-F]{8}\.db$", base_name)
+                if m:
+                    display_name = m.group("name")
+                elif base_name.lower().endswith(".db"):
+                    display_name = base_name[:-3]
+                else:
+                    display_name = base_name
+
         q = BinaryDbQuery(
             db_path=db_path,
             binary_path=binary_path,
             binary_id=os.path.basename(db_path),
-            display_name=rec.get("display_name"),
+            display_name=display_name,
         )
         meta = {}
         try:
