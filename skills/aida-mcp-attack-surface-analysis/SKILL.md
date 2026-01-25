@@ -1,5 +1,5 @@
 ---
-name: attack-surface-analysis
+name: aida-mcp-attack-surface-analysis
 description: Guide for Attack Surface Analysis using AIDA MCP
 license: MIT
 compatibility: opencode

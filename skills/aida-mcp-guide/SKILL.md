@@ -1,5 +1,5 @@
 ---
-name: aida-mcp
+name: aida-mcp-guide
 description: Analysis Skill Guide for AIDA MCP
 license: MIT
 compatibility: opencode
