@@ -1,4 +1,3 @@
-import json
 import os
 
 from .binary_dbquery import BinaryDbQuery
@@ -6,7 +5,10 @@ from .binary_dbquery import BinaryDbQuery
 
 class ProjectStore:
     def __init__(self, project_path):
-        self.project_path = os.path.abspath(project_path) if project_path else os.getcwd()
+        resolved_path = os.path.abspath(project_path) if project_path else os.getcwd()
+        if os.path.isfile(resolved_path) and os.path.basename(resolved_path).lower() == "export_index.json":
+            resolved_path = os.path.dirname(resolved_path)
+        self.project_path = resolved_path
         self.project_id = os.path.basename(self.project_path.rstrip("\\/")) or "default"
         self._binaries = {}
         self._binary_order = []
@@ -21,37 +23,8 @@ class ProjectStore:
                 pass
 
     def _load(self):
-        index_path = self._resolve_index_path(self.project_path)
-        if index_path:
-            base_dir = os.path.dirname(index_path)
-            with open(index_path, "r", encoding="utf-8") as f:
-                idx = json.load(f)
-            
-            # Process target
-            target = idx.get("target")
-            if target and target.get("db"):
-                db_rel = target.get("db")
-                db_full = os.path.join(base_dir, db_rel)
-                rec = {
-                    "db": db_full,
-                    "display_name": target.get("name"),
-                    "role": "main",
-                }
-                self._add_binary(rec)
-
-            # Process dependencies
-            dependencies = idx.get("dependencies") or []
-            for item in dependencies:
-                db_rel = item.get("db")
-                if not db_rel:
-                    continue
-                db_full = os.path.join(base_dir, db_rel)
-                rec = {
-                    "db": db_full,
-                    "display_name": item.get("name"),
-                    "role": "dep",
-                }
-                self._add_binary(rec)
+        if os.path.isfile(self.project_path) and self.project_path.lower().endswith(".db"):
+            self._add_binary({"db": self.project_path, "display_name": os.path.basename(self.project_path), "role": None})
             return
 
         if os.path.isdir(self.project_path):

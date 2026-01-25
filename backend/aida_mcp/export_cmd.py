@@ -4,6 +4,7 @@ import json
 import time
 import hashlib
 import argparse
+import glob
 import subprocess
 import shutil
 import sqlite3
@@ -16,7 +17,6 @@ from concurrent.futures import ThreadPoolExecutor
 # Import Setup
 # =============================================================================
 
-from .elf_service import ElfService
 from .ghidra_importer import import_ghidra_export
 
 # =============================================================================
@@ -116,6 +116,23 @@ def _copy_to_out_dir(src_path, out_dir):
              raise OSError(f"Copy failed or resulted in empty file: {dst_path}")
              
     return dst_path
+
+def _make_db_name(src_path):
+    name = os.path.basename(src_path)
+    try:
+        file_hash = _sha256_prefix(src_path)
+    except Exception:
+        file_hash = "nohash"
+    return f"{name}.{file_hash}.db"
+
+def _expand_targets(target_value):
+    if not target_value:
+        return []
+    if glob.has_magic(target_value):
+        matches = [p for p in glob.glob(target_value, recursive=True) if os.path.isfile(p)]
+        uniq = sorted(set(matches))
+        return uniq
+    return [target_value]
 
 def _detect_idb_path(binary_path):
     for ext in (".i64", ".idb"):
@@ -580,8 +597,6 @@ class ExportOrchestrator:
 
         _safe_makedirs(out_dir)
 
-        plan = []
-
         if not target_binary:
             self.logger.log("Error: target_binary is required for directory processing.", context="ERROR")
             return
@@ -592,85 +607,28 @@ class ExportOrchestrator:
         if not _is_within_dir(target_path, scan_dir):
             raise ValueError("target_binary must be within scan_dir")
 
-        self.logger.log(f"Resolving dependencies for {target_path} in {scan_dir}...", context="BUNDLE")
-        resolved = ElfService.resolve_recursive_dependencies(scan_dir, target_path)
+        src_path = os.path.abspath(target_path)
+        name = os.path.basename(src_path)
 
-        plan.append({"role": "main", "name": os.path.basename(target_path), "path": target_path})
-        for r in resolved:
-            if r.get("path"):
-                plan.append({"role": "dep", "name": r["name"], "path": r["path"]})
-            else:
-                plan.append({"role": "dep_missing", "name": r["name"], "path": None})
+        try:
+            out_bin = _copy_to_out_dir(src_path, out_dir)
+            self.logger.log(f"Copied {name} -> {out_bin}", context="BUNDLE")
 
-        if not plan:
-            self.logger.log("No files found to export.", context="BUNDLE")
-            return
+            db_name = _make_db_name(src_path)
+            out_db = os.path.join(out_dir, db_name)
 
-        index = {
-            "created_at": int(time.time()),
-            "target": {"name": None, "db": None},
-            "dependencies": [],
-            "standalone": []
-        }
+            self.logger.log(f"Exporting {name} -> {out_db}", context="BUNDLE")
 
-        if target_binary:
-            index["target"]["name"] = os.path.basename(target_binary)
+            success = self.process_single_file_ghidra(
+                input_path=out_bin,
+                output_db=out_db,
+                ghidra_home=ghidra_home,
+            )
 
-        for item in plan:
-            if not item.get("path"):
-                if item["role"] == "dep_missing":
-                    index["dependencies"].append({"name": item["name"], "db": None, "idb": None})
-                continue
-
-            src_path = os.path.abspath(item["path"])
-            name = os.path.basename(src_path)
-
-            try:
-                out_bin = _copy_to_out_dir(src_path, out_dir)
-                self.logger.log(f"Copied {name} -> {out_bin}", context="BUNDLE")
-
-                try:
-                    file_hash = _sha256_prefix(src_path)
-                except Exception as e:
-                    self.logger.log(f"Error hashing {src_path}: {e}. Using fallback name.", context="BUNDLE")
-                    file_hash = "nohash"
-
-                db_name = f"{name}.{file_hash}.db"
-                out_db = os.path.join(out_dir, db_name)
-
-                self.logger.log(f"Exporting {name} -> {out_db}", context="BUNDLE")
-
-                success = self.process_single_file_ghidra(
-                    input_path=out_bin,
-                    output_db=out_db,
-                    ghidra_home=ghidra_home,
-                )
-
-                status = "ok" if success else "failed"
-
-                entry = {
-                    "name": item["name"],
-                    "db": os.path.basename(out_db) if out_db and status == "ok" else None,
-                    "idb": None
-                }
-
-                if item["role"] == "main":
-                    index["target"]["db"] = entry["db"]
-                    index["target"]["idb"] = entry["idb"]
-                elif item["role"] in ("dep", "dep_missing"):
-                    index["dependencies"].append(entry)
-                else:
-                    index["standalone"].append(entry)
-
-            except Exception as e:
-                self.logger.log(f"Failed to process {name}: {e}", context="ERROR")
-                continue
-
-        index_path = os.path.join(out_dir, "export_index.json")
-        with open(index_path, "w", encoding="utf-8") as f:
-            json.dump(index, f, ensure_ascii=False, indent=2)
-        self.logger.log(f"Index saved to {index_path}", context="BUNDLE")
-        return index_path
+            return out_db if success else None
+        except Exception as e:
+            self.logger.log(f"Failed to process {name}: {e}", context="ERROR")
+            return None
 
     def process_single_file(self, input_path, output_db, save_idb=None):
         input_path = os.path.abspath(input_path)
@@ -779,8 +737,6 @@ class ExportOrchestrator:
         
         _safe_makedirs(out_dir)
 
-        plan = []
-        
         if not target_binary:
             self.logger.log("Error: target_binary is required for directory processing.", context="ERROR")
             return
@@ -792,92 +748,25 @@ class ExportOrchestrator:
         if not _is_within_dir(target_path, scan_dir):
             raise ValueError("target_binary must be within scan_dir")
             
-        self.logger.log(f"Resolving dependencies for {target_path} in {scan_dir}...", context="BUNDLE")
-        resolved = ElfService.resolve_recursive_dependencies(scan_dir, target_path)
-        
-        plan.append({"role": "main", "name": os.path.basename(target_path), "path": target_path})
-        for r in resolved:
-            if r.get("path"):
-                plan.append({"role": "dep", "name": r["name"], "path": r["path"]})
-            else:
-                plan.append({"role": "dep_missing", "name": r["name"], "path": None})
+        name = os.path.basename(target_path)
+        try:
+            out_bin = _copy_to_out_dir(target_path, out_dir)
+            self.logger.log(f"Copied {name} -> {out_bin}", context="BUNDLE")
 
-        if not plan:
-            self.logger.log("No files found to export.", context="BUNDLE")
-            return
-
-        index = {
-            "created_at": int(time.time()),
-            "target": {"name": None, "db": None},
-            "dependencies": [],
-            "standalone": []
-        }
-        
-        if target_binary:
-             index["target"]["name"] = os.path.basename(target_binary)
-
-        for item in plan:
-            if not item.get("path"):
-                if item["role"] == "dep_missing":
-                    index["dependencies"].append({"name": item["name"], "db": None, "idb": None})
-                continue
-
-            src_path = os.path.abspath(item["path"])
-            name = os.path.basename(src_path)
+            db_name = _make_db_name(target_path)
+            out_db = os.path.join(out_dir, db_name)
             
-            try:
-                # Copy binary to output dir
-                out_bin = _copy_to_out_dir(src_path, out_dir)
-                self.logger.log(f"Copied {name} -> {out_bin}", context="BUNDLE")
-
-                # Calculate hash for DB name
-                # Handle potential errors reading the source file (e.g. symlinks on Windows)
-                try:
-                    file_hash = _sha256_prefix(src_path)
-                except Exception as e:
-                    self.logger.log(f"Error hashing {src_path}: {e}. Using fallback name.", context="BUNDLE")
-                    file_hash = "nohash"
-
-                db_name = f"{name}.{file_hash}.db"
-                out_db = os.path.join(out_dir, db_name)
-                
-                self.logger.log(f"Exporting {name} -> {out_db}", context="BUNDLE")
-                
-                # Call single file process directly
-                # We set save_idb to the binary path (so it saves .i64 next to the binary in out_dir)
-                success = self.process_single_file(
-                    input_path=out_bin,
-                    output_db=out_db,
-                    save_idb=out_bin, # This will create .i64 next to the copied binary
-                )
-                
-                status = "ok" if success else "failed"
-                out_idb = _detect_idb_path(out_bin) if status == "ok" else None
-
-                entry = {
-                    "name": item["name"],
-                    "db": os.path.basename(out_db) if out_db and status == "ok" else None,
-                    "idb": os.path.basename(out_idb) if out_idb else None
-                }
-
-                if item["role"] == "main":
-                    index["target"]["db"] = entry["db"]
-                    index["target"]["idb"] = entry["idb"]
-                elif item["role"] in ("dep", "dep_missing"):
-                    index["dependencies"].append(entry)
-                else:
-                    index["standalone"].append(entry)
-                    
-            except Exception as e:
-                self.logger.log(f"Failed to process {name}: {e}", context="ERROR")
-                # Continue with next file
-                continue
-
-        index_path = os.path.join(out_dir, "export_index.json")
-        with open(index_path, "w", encoding="utf-8") as f:
-            json.dump(index, f, ensure_ascii=False, indent=2)
-        self.logger.log(f"Index saved to {index_path}", context="BUNDLE")
-        return index_path
+            self.logger.log(f"Exporting {name} -> {out_db}", context="BUNDLE")
+            
+            success = self.process_single_file(
+                input_path=out_bin,
+                output_db=out_db,
+                save_idb=None,
+            )
+            return out_db if success else None
+        except Exception as e:
+            self.logger.log(f"Failed to process {name}: {e}", context="ERROR")
+            return None
 
 # =============================================================================
 # Main Entry Point
@@ -898,9 +787,15 @@ def main():
 
     args = parser.parse_args()
     
-    target_path = os.path.abspath(args.target)
-    if not os.path.exists(target_path):
-        print(f"Error: Target path '{target_path}' does not exist.")
+    target_values = _expand_targets(args.target)
+    if not target_values:
+        print(f"Error: Target path '{args.target}' does not exist.")
+        sys.exit(1)
+
+    target_paths = [os.path.abspath(t) for t in target_values]
+    missing = [t for t in target_paths if not os.path.exists(t)]
+    if missing:
+        print(f"Error: Target path '{missing[0]}' does not exist.")
         sys.exit(1)
 
     orchestrator = ExportOrchestrator(
@@ -916,50 +811,71 @@ def main():
         if not os.path.isdir(scan_dir):
             print(f"Error: Scan directory '{scan_dir}' does not exist or is not a directory.")
             sys.exit(1)
-        
-        if not _is_within_dir(target_path, scan_dir):
-            print(f"Error: Target binary '{target_path}' must be within scan directory '{scan_dir}' for bulk mode.")
-            sys.exit(1)
 
-        print(f"Mode: Bulk (Target: {target_path}, Scan: {scan_dir})")
+        for target_path in target_paths:
+            if not _is_within_dir(target_path, scan_dir):
+                print(f"Error: Target binary '{target_path}' must be within scan directory '{scan_dir}' for bulk mode.")
+                sys.exit(1)
+
+        print(f"Mode: Bulk (Targets: {len(target_paths)}, Scan: {scan_dir})")
         try:
-            if args.backend == "ghidra":
-                orchestrator.process_directory_ghidra(
-                    scan_dir=scan_dir,
-                    out_dir=args.output,
-                    target_binary=target_path,
-                    ghidra_home=args.ghidra_home,
-                )
-            else:
-                orchestrator.process_directory(
-                    scan_dir=scan_dir,
-                    out_dir=args.output,
-                    target_binary=target_path
-                )
+            for target_path in target_paths:
+                if args.backend == "ghidra":
+                    orchestrator.process_directory_ghidra(
+                        scan_dir=scan_dir,
+                        out_dir=args.output,
+                        target_binary=target_path,
+                        ghidra_home=args.ghidra_home,
+                    )
+                else:
+                    orchestrator.process_directory(
+                        scan_dir=scan_dir,
+                        out_dir=args.output,
+                        target_binary=target_path
+                    )
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
             
     else:
         # Single Mode
-        if os.path.isdir(target_path):
-            print(f"Error: Target '{target_path}' is a directory. For directory scanning, use --scan-dir.")
+        output_path = os.path.abspath(args.output)
+        multi_targets = len(target_paths) > 1
+        if multi_targets and output_path.lower().endswith(".db"):
+            print("Error: Output path must be a directory when exporting multiple targets.")
             sys.exit(1)
-            
-        print(f"Mode: Single (Target: {target_path})")
-        if args.backend == "ghidra":
-            success = orchestrator.process_single_file_ghidra(
-                input_path=target_path,
-                output_db=args.output,
-                ghidra_home=args.ghidra_home,
-            )
+
+        if os.path.isdir(output_path) or multi_targets or output_path.endswith(os.sep):
+            _safe_makedirs(output_path)
+            output_is_dir = True
         else:
-            success = orchestrator.process_single_file(
-                input_path=target_path,
-                output_db=args.output,
-                save_idb=None # Default to None (temp dir) for single mode
-            )
-        sys.exit(0 if success else 1)
+            output_is_dir = False
+
+        print(f"Mode: Single (Targets: {len(target_paths)})")
+        all_ok = True
+        for target_path in target_paths:
+            if os.path.isdir(target_path):
+                print(f"Error: Target '{target_path}' is a directory. For directory scanning, use --scan-dir.")
+                sys.exit(1)
+
+            output_db = output_path
+            if output_is_dir:
+                output_db = os.path.join(output_path, _make_db_name(target_path))
+
+            if args.backend == "ghidra":
+                success = orchestrator.process_single_file_ghidra(
+                    input_path=target_path,
+                    output_db=output_db,
+                    ghidra_home=args.ghidra_home,
+                )
+            else:
+                success = orchestrator.process_single_file(
+                    input_path=target_path,
+                    output_db=output_db,
+                    save_idb=None
+                )
+            all_ok = all_ok and bool(success)
+        sys.exit(0 if all_ok else 1)
 
 if __name__ == "__main__":
     main()
