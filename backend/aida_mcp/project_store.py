@@ -5,10 +5,7 @@ from .binary_dbquery import BinaryDbQuery
 
 class ProjectStore:
     def __init__(self, project_path):
-        resolved_path = os.path.abspath(project_path) if project_path else os.getcwd()
-        if os.path.isfile(resolved_path) and os.path.basename(resolved_path).lower() == "export_index.json":
-            resolved_path = os.path.dirname(resolved_path)
-        self.project_path = resolved_path
+        self.project_path = os.path.abspath(project_path) if project_path else os.getcwd()
         self.project_id = os.path.basename(self.project_path.rstrip("\\/")) or "default"
         self._binaries = {}
         self._binary_order = []
@@ -32,17 +29,6 @@ class ProjectStore:
                 if fn.lower().endswith(".db"):
                     db_path = os.path.join(self.project_path, fn)
                     self._add_binary({"db": db_path, "display_name": fn, "role": None})
-
-    def _resolve_index_path(self, project_path):
-        if not project_path:
-            return None
-        if os.path.isfile(project_path) and os.path.basename(project_path).lower() == "export_index.json":
-            return project_path
-        if os.path.isdir(project_path):
-            cand = os.path.join(project_path, "export_index.json")
-            if os.path.exists(cand):
-                return cand
-        return None
 
     def _add_binary(self, rec):
         db_path = os.path.abspath(rec["db"])

@@ -804,6 +804,12 @@ def main():
         show_perf_summary=args.perf_summary
     )
 
+    output_dir = os.path.abspath(args.output)
+    if output_dir.lower().endswith(".db"):
+        print("Error: Output path must be a directory.")
+        sys.exit(1)
+    _safe_makedirs(output_dir)
+
     # Determine mode based on arguments
     if args.scan_dir:
         # Bulk Mode
@@ -823,14 +829,14 @@ def main():
                 if args.backend == "ghidra":
                     orchestrator.process_directory_ghidra(
                         scan_dir=scan_dir,
-                        out_dir=args.output,
+                        out_dir=output_dir,
                         target_binary=target_path,
                         ghidra_home=args.ghidra_home,
                     )
                 else:
                     orchestrator.process_directory(
                         scan_dir=scan_dir,
-                        out_dir=args.output,
+                        out_dir=output_dir,
                         target_binary=target_path
                     )
         except Exception as e:
@@ -839,18 +845,6 @@ def main():
             
     else:
         # Single Mode
-        output_path = os.path.abspath(args.output)
-        multi_targets = len(target_paths) > 1
-        if multi_targets and output_path.lower().endswith(".db"):
-            print("Error: Output path must be a directory when exporting multiple targets.")
-            sys.exit(1)
-
-        if os.path.isdir(output_path) or multi_targets or output_path.endswith(os.sep):
-            _safe_makedirs(output_path)
-            output_is_dir = True
-        else:
-            output_is_dir = False
-
         print(f"Mode: Single (Targets: {len(target_paths)})")
         all_ok = True
         for target_path in target_paths:
@@ -858,9 +852,7 @@ def main():
                 print(f"Error: Target '{target_path}' is a directory. For directory scanning, use --scan-dir.")
                 sys.exit(1)
 
-            output_db = output_path
-            if output_is_dir:
-                output_db = os.path.join(output_path, _make_db_name(target_path))
+            output_db = os.path.join(output_dir, _make_db_name(target_path))
 
             if args.backend == "ghidra":
                 success = orchestrator.process_single_file_ghidra(
