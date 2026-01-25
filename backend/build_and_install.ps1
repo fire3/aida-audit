@@ -60,7 +60,7 @@ Write-Host "Installing package..."
 $whl = Get-ChildItem "dist\*.whl" | Select-Object -First 1
 if ($whl) {
     Write-Host "Found wheel: $($whl.FullName)"
-    python -m pip install --force-reinstall "$($whl.FullName)"
+    python -m pip install "$($whl.FullName)"
     Write-Host "Installation complete."
     Write-Host "You can now use the 'aida-mcp' command."
     Write-Host "  Example: aida-mcp export mybinary.exe -o ./output"
