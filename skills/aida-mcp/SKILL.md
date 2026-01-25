@@ -1,6 +1,6 @@
 ---
-name: reverse-engineering 
-description: 基于MCP服务的逆向分析技能指南
+name: aida-mcp
+description: Analysis Skill Guide for AIDA MCP
 license: MIT
 compatibility: opencode
 ---
