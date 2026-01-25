@@ -215,7 +215,7 @@ def _default_config_path(client):
 
 def install_main():
     parser = argparse.ArgumentParser(description="Generate MCP client config files")
-    parser.add_argument("--client", action="append", default=[])
+    parser.add_argument("--client", action="append", default=[], help="Supported clients: opencode, roo-code, trae, claude-code, cline")
     parser.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     parser.add_argument("--project", default=".")
     parser.add_argument("--python", dest="python_cmd", default=sys.executable)
