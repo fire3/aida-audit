@@ -5,6 +5,7 @@ import time
 import hashlib
 import argparse
 import glob
+import re
 import subprocess
 import shutil
 import sqlite3
@@ -133,6 +134,82 @@ def _expand_targets(target_value):
         uniq = sorted(set(matches))
         return uniq
     return [target_value]
+
+def _get_binary_name_from_db(db_path):
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='metadata_json' LIMIT 1")
+        if cur.fetchone():
+            row = conn.execute("SELECT content FROM metadata_json WHERE id=1").fetchone()
+            content = row["content"] if row else None
+            if content:
+                meta = json.loads(content) if isinstance(content, str) else content
+                if isinstance(meta, dict) and meta.get("binary_name"):
+                    return os.path.basename(str(meta.get("binary_name")))
+        cur = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='metadata' LIMIT 1")
+        if cur.fetchone():
+            row = conn.execute("SELECT value FROM metadata WHERE key='binary_name' LIMIT 1").fetchone()
+            if row and row["value"]:
+                return os.path.basename(str(row["value"]))
+    except Exception:
+        return None
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    return None
+
+def _derive_name_from_db_filename(db_path):
+    base_name = os.path.basename(db_path)
+    if base_name.lower().endswith(".db"):
+        base_name = base_name[:-3]
+    m = re.match(r"^(?P<name>.+)\.[0-9a-fA-F]{8}$", base_name)
+    if m:
+        return m.group("name")
+    return base_name
+
+def _write_decompiled_c(db_path, logger=None):
+    if not db_path or not os.path.exists(db_path):
+        return False
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pseudocode' LIMIT 1")
+        if not cur.fetchone():
+            return False
+        rows = conn.execute(
+            "SELECT f.start_va as start_va, p.content as content "
+            "FROM pseudocode p LEFT JOIN functions f ON f.function_va = p.function_va "
+            "ORDER BY f.start_va ASC"
+        ).fetchall()
+        if not rows:
+            return False
+        name = _get_binary_name_from_db(db_path) or _derive_name_from_db_filename(db_path)
+        out_path = os.path.join(os.path.dirname(db_path), f"{name}.c")
+        with open(out_path, "w", encoding="utf-8") as f:
+            first = True
+            for r in rows:
+                content = r["content"] or ""
+                if not content.strip():
+                    continue
+                if not first:
+                    f.write("\n\n")
+                f.write(content.rstrip() + "\n")
+                first = False
+        if logger:
+            logger.log(f"C file saved to {out_path}", context="EXPORT")
+        return True
+    except Exception as e:
+        if logger:
+            logger.log(f"Failed to export C file: {e}", context="ERROR")
+        return False
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 def _detect_idb_path(binary_path):
     for ext in (".i64", ".idb"):
@@ -784,6 +861,7 @@ def main():
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument("--backend", choices=["ida", "ghidra"], default="ida", help="Export backend (ida or ghidra)")
     parser.add_argument("--ghidra-home", help="Ghidra installation directory (optional, defaults to GHIDRA_HOME)")
+    parser.add_argument("--export-c", action="store_true", help="Export decompiled C file")
 
     args = parser.parse_args()
     
@@ -829,18 +907,22 @@ def main():
         try:
             for target_path in target_paths:
                 if args.backend == "ghidra":
-                    orchestrator.process_directory_ghidra(
+                    out_db = orchestrator.process_directory_ghidra(
                         scan_dir=scan_dir,
                         out_dir=output_dir,
                         target_binary=target_path,
                         ghidra_home=args.ghidra_home,
                     )
+                    if args.export_c and out_db:
+                        _write_decompiled_c(out_db, orchestrator.logger)
                 else:
-                    orchestrator.process_directory(
+                    out_db = orchestrator.process_directory(
                         scan_dir=scan_dir,
                         out_dir=output_dir,
                         target_binary=target_path
                     )
+                    if args.export_c and out_db:
+                        _write_decompiled_c(out_db, orchestrator.logger)
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
@@ -868,6 +950,8 @@ def main():
                     output_db=output_db,
                     save_idb=None
                 )
+            if args.export_c and success:
+                _write_decompiled_c(output_db, orchestrator.logger)
             all_ok = all_ok and bool(success)
         sys.exit(0 if all_ok else 1)
 
