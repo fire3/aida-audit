@@ -195,8 +195,11 @@ aida-mcp workspace --init <workspace_dir>
 
 **工作区内容：**
 *   `<workspace_dir>/project/`：放置导出的 `.db` 文件。
-*   `<workspace_dir>/skills/`：从包内复制的内置 skill。
-*   `<workspace_dir>/mcp_<client>.json`：指定客户端的配置文件。
+*   `<workspace_dir>/opencode.json`：OpenCode 项目配置（包含 MCP 服务器）。
+*   `<workspace_dir>/.opencode/skills/`：OpenCode 兼容 skills。
+*   `<workspace_dir>/.claude/skills/`：Claude 兼容 skills。
+*   `<workspace_dir>/.mcp.json`：Claude Code 项目 MCP 配置。
+*   `<workspace_dir>/mcp_<client>.json`：其他客户端的兜底配置。
 
 **选项：**
 *   `--client`：目标客户端（默认：opencode, roo-code, trae, claude-code, cline）。

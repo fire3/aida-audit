@@ -196,8 +196,11 @@ aida-mcp workspace --init <workspace_dir>
 
 **What it creates:**
 *   `<workspace_dir>/project/`: Place your exported `.db` files here.
-*   `<workspace_dir>/skills/`: Built-in skills copied from the package.
-*   `<workspace_dir>/mcp_<client>.json`: Client configs for the selected clients.
+*   `<workspace_dir>/opencode.json`: OpenCode project config with MCP servers.
+*   `<workspace_dir>/.opencode/skills/`: OpenCode-compatible skills.
+*   `<workspace_dir>/.claude/skills/`: Claude-compatible skills.
+*   `<workspace_dir>/.mcp.json`: Claude Code project MCP config.
+*   `<workspace_dir>/mcp_<client>.json`: Fallback configs for other clients.
 
 **Options:**
 *   `--client`: Target clients (default: opencode, roo-code, trae, claude-code, cline).

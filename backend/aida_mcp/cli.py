@@ -344,9 +344,11 @@ def workspace_main():
 
     workspace_root = os.path.abspath(args.init)
     project_root = os.path.join(workspace_root, "project")
-    skills_root = os.path.join(workspace_root, "skills")
+    opencode_skills_root = os.path.join(workspace_root, ".opencode", "skills")
+    claude_skills_root = os.path.join(workspace_root, ".claude", "skills")
     os.makedirs(project_root, exist_ok=True)
-    os.makedirs(skills_root, exist_ok=True)
+    os.makedirs(opencode_skills_root, exist_ok=True)
+    os.makedirs(claude_skills_root, exist_ok=True)
 
     clients = _parse_clients(args.client)
 
@@ -355,25 +357,30 @@ def workspace_main():
         if args.transport == "stdio":
             if is_opencode:
                 return _build_opencode_stdio_config(project_root, args.python_cmd, "aida-mcp")
-            else:
-                return _build_stdio_config(project_root, args.python_cmd, "aida-mcp")
-        else:
-            if is_opencode:
-                return _build_opencode_http_config(args.url, "aida-mcp")
-            else:
-                return _build_http_config(args.url, "aida-mcp")
+            return _build_stdio_config(project_root, args.python_cmd, "aida-mcp")
+        if is_opencode:
+            return _build_opencode_http_config(args.url, "aida-mcp")
+        return _build_http_config(args.url, "aida-mcp")
 
     for client in clients:
-        filename = f"mcp_{client}.json"
-        path = os.path.join(workspace_root, filename)
         payload = get_payload(client)
+        if client == "opencode":
+            path = os.path.join(workspace_root, "opencode.json")
+        elif client == "claude-code":
+            path = os.path.join(workspace_root, ".mcp.json")
+        else:
+            filename = f"mcp_{client}.json"
+            path = os.path.join(workspace_root, filename)
         _write_json(path, payload)
         print(f"{client}: {path}")
 
     skills_source = _resolve_skills_root()
-    copied = _copy_skills(skills_source, skills_root)
+    copied = []
     if skills_source:
-        print(f"skills: {skills_root}")
+        copied.extend(_copy_skills(skills_source, opencode_skills_root))
+        copied.extend(_copy_skills(skills_source, claude_skills_root))
+        print(f"skills: {opencode_skills_root}")
+        print(f"skills: {claude_skills_root}")
     else:
         print("skills: not found")
 
