@@ -17,9 +17,9 @@ if [[ -z "${PYTHON_BIN}" ]]; then
 fi
 
 FRONTEND_DIR="${FRONTEND_DIR:-"$SCRIPT_DIR/../frontend"}"
-BACKEND_STATIC_DIR="${BACKEND_STATIC_DIR:-"$SCRIPT_DIR/aida_mcp/static"}"
+BACKEND_STATIC_DIR="${BACKEND_STATIC_DIR:-"$SCRIPT_DIR/aida_cli/static"}"
 SKILLS_DIR="${SKILLS_DIR:-"$SCRIPT_DIR/../skills"}"
-BACKEND_SKILLS_DIR="${BACKEND_SKILLS_DIR:-"$SCRIPT_DIR/aida_mcp/skills"}"
+BACKEND_SKILLS_DIR="${BACKEND_SKILLS_DIR:-"$SCRIPT_DIR/aida_cli/skills"}"
 FRONTEND_MODE="${FRONTEND_MODE:-auto}"
 
 build_frontend() {
@@ -100,7 +100,7 @@ build_frontend() {
 
 build_backend() {
   echo "Cleaning up previous builds..."
-  rm -rf dist build aida_mcp.egg-info
+  rm -rf dist build aida_cli.egg-info
 
   if [[ -d "$SKILLS_DIR" ]]; then
     echo "Copying skills into backend package..."
@@ -130,14 +130,14 @@ install_backend() {
 
   local whl="${wheels[0]}"
   echo "Found wheel: $whl"
-  "$PYTHON_BIN" -m pip uninstall -y "aida-mcp"
+  "$PYTHON_BIN" -m pip uninstall -y "aida-cli"
   "$PYTHON_BIN" -m pip install "$whl"
 
   echo "Installation complete."
-  echo "You can now use the 'aida-mcp' command."
-  echo "  Example: aida-mcp export mybinary.exe -o ./output"
-  echo "  Example: aida-mcp export mybinary.exe -o ./output --export-c"
-  echo "  Example: aida-mcp serve ."
+  echo "You can now use the 'aida-cli' command."
+  echo "  Example: aida-cli export mybinary.exe -o ./output"
+  echo "  Example: aida-cli export mybinary.exe -o ./output --export-c"
+  echo "  Example: aida-cli serve ."
 }
 
 build_frontend

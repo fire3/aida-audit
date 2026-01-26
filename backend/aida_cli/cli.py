@@ -8,7 +8,7 @@ from . import export_cmd
 from . import server_cmd
 
 def _print_main_help():
-    print("Usage: aida-mcp <command> [args]")
+    print("Usage: aida-cli <command> [args]")
     print("Commands:")
     print("  export  - Export IDA database")
     print("  serve   - Start MCP server")
@@ -24,7 +24,7 @@ def _build_opencode_stdio_config(project, python_cmd, server_name):
         "mcp": {
             server_name: {
                 "type": "local",
-                "command": [command, "-m", "aida_mcp.mcp_stdio_server", "--project", project],
+                "command": [command, "-m", "aida_cli.mcp_stdio_server", "--project", project],
                 "enabled": True,
             }
         }
@@ -58,7 +58,7 @@ def _write_json(path, payload):
         f.write("\n")
 
 def _pick_server_name(existing):
-    base = "aida-mcp"
+    base = "aida-cli"
     if base not in existing:
         return base
     idx = 2
@@ -142,8 +142,8 @@ def install_main():
 
     def get_payload():
         if args.transport == "stdio":
-            return _build_opencode_stdio_config(os.path.abspath(args.project), args.python_cmd, "aida-mcp")
-        return _build_opencode_http_config(args.url, "aida-mcp")
+            return _build_opencode_stdio_config(os.path.abspath(args.project), args.python_cmd, "aida-cli")
+        return _build_opencode_http_config(args.url, "aida-cli")
 
     output = args.output
     if output == "-":
@@ -223,8 +223,8 @@ def workspace_main():
 
     def get_payload():
         if args.transport == "stdio":
-            return _build_opencode_stdio_config(project_root, args.python_cmd, "aida-mcp")
-        return _build_opencode_http_config(args.url, "aida-mcp")
+            return _build_opencode_stdio_config(project_root, args.python_cmd, "aida-cli")
+        return _build_opencode_http_config(args.url, "aida-cli")
 
     payload = get_payload()
     path = os.path.join(workspace_root, "opencode.json")

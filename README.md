@@ -1,6 +1,6 @@
-# AIDA-MCP
+# AIDA-CLI
 
-AIDA-MCP is a powerful tool designed to bridge the gap between IDA Pro binary analysis and modern AI-assisted workflows. It provides a seamless way to export analysis data from IDA Pro and explore it through a rich Web UI or programmatically via the Model Context Protocol (MCP).
+AIDA-CLI is a powerful tool designed to bridge the gap between IDA Pro binary analysis and modern AI-assisted workflows. It provides a seamless way to export analysis data from IDA Pro and explore it through a rich Web UI or programmatically via the Model Context Protocol (MCP).
 
 ## Features
 
@@ -14,14 +14,14 @@ AIDA-MCP is a powerful tool designed to bridge the gap between IDA Pro binary an
 ### Prerequisites
 
 *   **Python 3.9+**
-*   **IDA Pro**: Required for the `aida-mcp export` command (to run the analysis).
+*   **IDA Pro**: Required for the `aida-cli export` command (to run the analysis).
 *   **Ghidra**: Required when exporting with the Ghidra backend.
 *   **JDK**: Required for running Ghidra (skip if your Ghidra bundle includes a JDK).
 *   **Node.js**: Required only if you plan to build the frontend from source (optional).
 
 ### Install IDA Pro lib (Required)
 
-To make the `aida-mcp export` command work properly, you need to install the IDA Pro Python library.
+To make the `aida-cli export` command work properly, you need to install the IDA Pro Python library.
 
 1.  Ensure IDA Pro is installed and the environment is configured.
 2.  Navigate to the `idalib/python` subdirectory under your IDA Pro installation directory (e.g., `C:\Program Files\IDA Professional 9.2\`).
@@ -34,7 +34,7 @@ To make the `aida-mcp export` command work properly, you need to install the IDA
 
 ### Install Node.js (Optional)
 
-If you plan to build and install `aida-mcp` from source, you need to install Node.js.
+If you plan to build and install `aida-cli` from source, you need to install Node.js.
 
 1.  Download and install the latest version of Node.js.
 2.  Verify the installation:
@@ -78,26 +78,26 @@ This script will automatically:
 *   Copy the frontend assets to the backend package.
 *   Copy the built-in skills into the backend package.
 *   Build the Python wheel.
-*   Install `aida-mcp` using `pip`.
+*   Install `aida-cli` using `pip`.
 
 ### PIP Installation
 
 If you only need the backend or want to install from a pre-built wheel:
 
 ```bash
-pip install aida-mcp
+pip install aida-cli
 ```
 
 ## Usage
 
-Once installed, the `aida-mcp` command is available in your terminal.
+Once installed, the `aida-cli` command is available in your terminal.
 
 ### 1. Export Analysis Data (`export`)
 
 The `export` command runs a headless IDA Pro instance to analyze a binary and save the results.
 
 ```bash
-aida-mcp export <target_binary> -o <output_directory>
+aida-cli export <target_binary> -o <output_directory>
 ```
 
 **Arguments:**
@@ -115,22 +115,22 @@ aida-mcp export <target_binary> -o <output_directory>
 **Example:**
 ```bash
 # Analyze a single binary
-aida-mcp export ./bin/httpd -o ./output
+aida-cli export ./bin/httpd -o ./output
 
 # Analyze a binary within a firmware root, resolving dependencies
-aida-mcp export ./squashfs-root/usr/sbin/httpd -o ./output --scan-dir ./squashfs-root
+aida-cli export ./squashfs-root/usr/sbin/httpd -o ./output --scan-dir ./squashfs-root
 
 # Export with the Ghidra backend (using GHIDRA_HOME)
-aida-mcp export ./bin/httpd -o ./output --backend ghidra
+aida-cli export ./bin/httpd -o ./output --backend ghidra
 
 # Export with the Ghidra backend (explicit path)
-aida-mcp export ./bin/httpd -o ./output --backend ghidra --ghidra-home <path_to_ghidra>
+aida-cli export ./bin/httpd -o ./output --backend ghidra --ghidra-home <path_to_ghidra>
 
 # Export decompiled C output
-aida-mcp export ./bin/httpd -o ./output --export-c
+aida-cli export ./bin/httpd -o ./output --export-c
 
 # Export multiple targets via wildcard
-aida-mcp export ./lib/uams/uams_* -o ./output
+aida-cli export ./lib/uams/uams_* -o ./output
 ```
 
 ### 2. Start the Server (`serve`)
@@ -138,7 +138,7 @@ aida-mcp export ./lib/uams/uams_* -o ./output
 The `serve` command launches the Web UI and the MCP server.
 
 ```bash
-aida-mcp serve [project_path]
+aida-cli serve [project_path]
 ```
 
 **Arguments:**
@@ -160,13 +160,13 @@ Once the server is running, open your browser and navigate to:
 The `install` command generates or updates the OpenCode configuration file. The `config` command is an alias.
 
 ```bash
-aida-mcp install
+aida-cli install
 ```
 
 **Options:**
 *   `--transport`: The transport mode. Choices: `stdio` (default), `http`.
     *   `stdio`: Starts a local python process.
-    *   `http`: Connects to a running server (requires `aida-mcp serve` to be running).
+    *   `http`: Connects to a running server (requires `aida-cli serve` to be running).
 *   `--url`: The URL for the HTTP transport (default: `http://127.0.0.1:8765/mcp`).
 *   `--output`: Output path.
     *   `auto` (default): Tries to locate the client's configuration file and merge the config.
@@ -176,10 +176,10 @@ aida-mcp install
 **Examples:**
 ```bash
 # Install for OpenCode (stdio mode)
-aida-mcp install
+aida-cli install
 
 # Print configuration to stdout
-aida-mcp install --output -
+aida-cli install --output -
 ```
 
 ### 4. Initialize Workspace (`workspace`)
@@ -187,7 +187,7 @@ aida-mcp install --output -
 The `workspace` command creates a local workspace directory with MCP client configs and skills.
 
 ```bash
-aida-mcp workspace --init <workspace_dir>
+aida-cli workspace --init <workspace_dir>
 ```
 
 **What it creates:**
@@ -207,5 +207,5 @@ aida-mcp workspace --init <workspace_dir>
 *   `devdocs/`: Design documentation and API specifications.
 
 ### Running in Development Mode
-1.  **Backend**: `cd backend && uvicorn aida_mcp.server_cmd:app --reload`
+1.  **Backend**: `cd backend && uvicorn aida-cli.server_cmd:app --reload`
 2.  **Frontend**: `cd frontend && npm run dev`

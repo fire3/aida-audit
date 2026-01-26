@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="aida-mcp",
+    name="aida-cli",
     version="0.1.0",
     packages=find_packages(),
     install_requires=[
@@ -12,11 +12,11 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "aida-mcp=aida_mcp.cli:main",
+            "aida-cli=aida_cli.cli:main",
         ],
     },
     package_data={
-        "aida_mcp": [
+        "aida_cli": [
             "static/**/*",
             "static/*",
             "ghidra_export/**/*",

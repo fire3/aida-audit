@@ -312,7 +312,7 @@ class ExportOrchestrator:
             raise FileNotFoundError("Ghidra script directory not found")
         project_dir = os.path.join(export_dir, "project")
         os.makedirs(project_dir, exist_ok=True)
-        project_name = "aida_mcp"
+        project_name = "aida-cli"
         json_dir = os.path.join(export_dir, "json")
         os.makedirs(json_dir, exist_ok=True)
         cmd = (

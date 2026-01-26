@@ -46,7 +46,7 @@ Or manually:
    ```
 2. Install the generated wheel:
    ```bash
-   pip install dist/aida_mcp-0.1.0-py3-none-any.whl
+   pip install dist/aida-cli-0.1.0-py3-none-any.whl
    ```
 
 ## Development (No Install)
@@ -59,25 +59,25 @@ Use this section when you want to run and test the backend directly from source 
    ```
 2. Run commands directly with Python module execution:
    ```bash
-   python -m aida_mcp.cli export <path_to_binary> -o <output_directory>
-   python -m aida_mcp.cli serve [path_to_project_or_db]
+   python -m aida-cli.cli export <path_to_binary> -o <output_directory>
+   python -m aida-cli.cli serve [path_to_project_or_db]
    ```
 3. If you want to use Ghidra for export, set `GHIDRA_HOME` or pass `--ghidra-home`:
    ```bash
-   python -m aida_mcp.cli export <path_to_binary> -o <output_directory> --backend ghidra --ghidra-home <path_to_ghidra>
+   python -m aida-cli.cli export <path_to_binary> -o <output_directory> --backend ghidra --ghidra-home <path_to_ghidra>
    ```
 4. If you want to use IDA for export, ensure your Python environment can import IDA's Python API as noted below in the Export Command section.
 
 ## Usage
 
-After installation, the `aida-mcp` command will be available in your Python scripts directory.
+After installation, the `aida-cli` command will be available in your Python scripts directory.
 
 ### Export Command
 
 Analyzes a binary and exports it to a database in the output directory.
 
 ```bash
-aida-mcp export <path_to_binary> -o <output_directory>
+aida-cli export <path_to_binary> -o <output_directory>
 ```
 
 Options:
@@ -93,7 +93,7 @@ Options:
 Starts the MCP HTTP server.
 
 ```bash
-aida-mcp serve [path_to_project_dir]
+aida-cli serve [path_to_project_dir]
 ```
 
 Arguments:
@@ -108,7 +108,7 @@ Options:
 Generates MCP client configuration files.
 
 ```bash
-aida-mcp install
+aida-cli install
 ```
 
 Options:
@@ -117,5 +117,5 @@ Options:
 
 ## Directory Structure
 
-- `aida_mcp/`: Source code package.
+- `aida-cli/`: Source code package.
 - `setup.py`: Packaging configuration.

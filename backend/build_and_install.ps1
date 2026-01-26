@@ -2,9 +2,9 @@
 
 # --- Frontend Build ---
 $FrontendDir = "..\frontend"
-$BackendStaticDir = "aida_mcp\static"
+$BackendStaticDir = "aida_cli\static"
 $SkillsDir = "..\skills"
-$BackendSkillsDir = "aida_mcp\skills"
+$BackendSkillsDir = "aida_cli\skills"
 
 if (Test-Path $FrontendDir) {
     Write-Host "Found frontend directory. Building frontend..."
@@ -49,7 +49,7 @@ if (Test-Path $FrontendDir) {
 Write-Host "Cleaning up previous builds..."
 if (Test-Path "dist") { Remove-Item -Recurse -Force "dist" }
 if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
-if (Test-Path "aida_mcp.egg-info") { Remove-Item -Recurse -Force "aida_mcp.egg-info" }
+if (Test-Path "aida_cli.egg-info") { Remove-Item -Recurse -Force "aida_cli.egg-info" }
 
 if (Test-Path $SkillsDir) {
     Write-Host "Copying skills into backend package..."
@@ -71,13 +71,13 @@ Write-Host "Installing package..."
 $whl = Get-ChildItem "dist\*.whl" | Select-Object -First 1
 if ($whl) {
     Write-Host "Found wheel: $($whl.FullName)"
-    python -m pip uninstall -y "aida-mcp"
+    python -m pip uninstall -y "aida-cli"
     python -m pip install "$($whl.FullName)"
     Write-Host "Installation complete."
-    Write-Host "You can now use the 'aida-mcp' command."
-    Write-Host "  Example: aida-mcp export mybinary.exe -o ./output"
-    Write-Host "  Example: aida-mcp export mybinary.exe -o ./output --export-c"
-    Write-Host "  Example: aida-mcp serve ."
+    Write-Host "You can now use the 'aida-cli' command."
+    Write-Host "  Example: aida-cli export mybinary.exe -o ./output"
+    Write-Host "  Example: aida-cli export mybinary.exe -o ./output --export-c"
+    Write-Host "  Example: aida-cli serve ."
 } else {
     Write-Host "Error: No wheel file found."
     exit 1

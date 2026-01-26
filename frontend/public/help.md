@@ -1,6 +1,6 @@
-# AIDA-MCP Help
+# AIDA-CLI Help
 
-AIDA-MCP is a powerful tool designed to bridge IDA Pro binary analysis with modern AI-assisted workflows. It provides a seamless way to export analysis data from IDA Pro and explore it programmatically via a rich Web UI or the Model Context Protocol (MCP).
+AIDA-CLI is a powerful tool designed to bridge IDA Pro binary analysis with modern AI-assisted workflows. It provides a seamless way to export analysis data from IDA Pro and explore it programmatically via a rich Web UI or the Model Context Protocol (MCP).
 
 ## User Guide
 
@@ -9,7 +9,7 @@ AIDA-MCP is a powerful tool designed to bridge IDA Pro binary analysis with mode
 The `export` command launches a headless IDA Pro instance to analyze the binary and save the results.
 
 ```bash
-aida-mcp export <target_binary> -o <output_directory>
+aida-cli export <target_binary> -o <output_directory>
 ```
 
 **Arguments:**
@@ -25,16 +25,16 @@ aida-mcp export <target_binary> -o <output_directory>
 **Examples:**
 ```bash
 # Analyze a single binary
-aida-mcp export ./bin/httpd -o ./output
+aida-cli export ./bin/httpd -o ./output
 
 # Analyze a binary within a firmware root and resolve dependencies
-aida-mcp export ./squashfs-root/usr/sbin/httpd -o ./output --scan-dir ./squashfs-root
+aida-cli export ./squashfs-root/usr/sbin/httpd -o ./output --scan-dir ./squashfs-root
 
 # Export decompiled C output
-aida-mcp export ./bin/httpd -o ./output --export-c
+aida-cli export ./bin/httpd -o ./output --export-c
 
 # Export multiple targets via wildcard
-aida-mcp export ./lib/uams/uams_* -o ./output
+aida-cli export ./lib/uams/uams_* -o ./output
 ```
 
 ### 2. Start Service (Serve)
@@ -42,7 +42,7 @@ aida-mcp export ./lib/uams/uams_* -o ./output
 The `serve` command starts both the Web UI and the MCP Server.
 
 ```bash
-aida-mcp serve [project_path]
+aida-cli serve [project_path]
 ```
 
 **Arguments:**
@@ -60,7 +60,7 @@ Configure OpenCode by adding an MCP server entry to your `opencode.json`:
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "aida-mcp": {
+    "aida-cli": {
       "type": "remote",
       "url": "http://localhost:8765/mcp",
       "enabled": true

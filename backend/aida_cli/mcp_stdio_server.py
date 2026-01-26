@@ -8,14 +8,14 @@ from typing import Any
 # Ensure we can import local modules if run as script
 if __name__ == "__main__" and __package__ is None:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    __package__ = "aida_mcp"
+    __package__ = "aida_cli"
 
 from .project_store import ProjectStore
 from .mcp_service import McpService
 
 # Configure logging to stderr (so stdout is clean for JSON-RPC)
 logging.basicConfig(stream=sys.stderr, level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("aida-mcp-server")
+logger = logging.getLogger("aida-cli-server")
 
 def main():
     parser = argparse.ArgumentParser()
@@ -70,7 +70,7 @@ def handle_request(request: dict, service: McpService):
                     "tools": {}
                 },
                 "serverInfo": {
-                    "name": "aida-mcp-server",
+                    "name": "aida-cli-server",
                     "version": "0.1.0"
                 }
             }

@@ -1,3 +1,3 @@
-recursive-include aida_mcp/static *
-recursive-include aida_mcp/ghidra_export *
-recursive-include aida_mcp/skills *
+recursive-include aida_cli/static *
+recursive-include aida_cli/ghidra_export *
+recursive-include aida_cli/skills *
