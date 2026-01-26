@@ -3,6 +3,7 @@ import json
 import logging
 import argparse
 import os
+import traceback
 from typing import Any
 
 # Ensure we can import local modules if run as script
@@ -11,7 +12,7 @@ if __name__ == "__main__" and __package__ is None:
     __package__ = "aida_cli"
 
 from .project_store import ProjectStore
-from .mcp_service import McpService
+from .mcp_service import McpService, McpError
 
 # Configure logging to stderr (so stdout is clean for JSON-RPC)
 logging.basicConfig(stream=sys.stderr, level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -51,7 +52,32 @@ def main():
     except KeyboardInterrupt:
         logger.info("Server stopping...")
 
+def _jsonrpc_error(id_value, code, message, data=None):
+    err = {"code": int(code), "message": str(message)}
+    if data is not None:
+        err["data"] = data
+    return {"jsonrpc": "2.0", "id": id_value, "error": err}
+
+def _tool_result(payload, is_error=False):
+    text = json.dumps(payload, ensure_ascii=False)
+    return {"content": [{"type": "text", "text": text}], "isError": bool(is_error)}
+
+def _ok(data):
+    return {"ok": True, "data": data}
+
+def _err(code, message, details=None):
+    e = {"code": str(code), "message": str(message)}
+    if details is not None:
+        e["details"] = details
+    return {"ok": False, "error": e}
+
 def handle_request(request: dict, service: McpService):
+    if not isinstance(request, dict) or request.get("jsonrpc") != "2.0":
+        response = _jsonrpc_error(None, -32600, "Invalid Request")
+        print(json.dumps(response))
+        sys.stdout.flush()
+        return
+
     msg_type = request.get("method")
     msg_id = request.get("id")
     
@@ -60,58 +86,52 @@ def handle_request(request: dict, service: McpService):
         # Handle notifications if needed
         return
 
-    response = {"jsonrpc": "2.0", "id": msg_id}
-
     try:
         if msg_type == "initialize":
-            response["result"] = {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {
-                    "tools": {}
-                },
-                "serverInfo": {
-                    "name": "aida-cli-server",
-                    "version": "0.1.0"
-                }
-            }
+            params = request.get("params") or {}
+            pv = params.get("protocolVersion") or "2025-06-18"
+            server_info = {"name": "aida-cli", "version": "0.1.0"}
+            result = {"protocolVersion": pv, "capabilities": {"tools": {}}, "serverInfo": server_info}
+            response = {"jsonrpc": "2.0", "id": msg_id, "result": result}
         elif msg_type == "tools/list":
-            tools = service.get_tools_metadata()
-            response["result"] = {
-                "tools": tools
-            }
+            tools = [
+                {"name": t["name"], "description": t["description"], "inputSchema": t["inputSchema"]}
+                for t in service.get_tools()
+            ]
+            response = {"jsonrpc": "2.0", "id": msg_id, "result": {"tools": tools}}
         elif msg_type == "tools/call":
             params = request.get("params", {})
             name = params.get("name")
-            args = params.get("arguments", {})
-            
-            # Find tool
-            tools = service.get_tools()
-            tool = next((t for t in tools if t["name"] == name), None)
-            
-            if tool:
-                result = tool["handler"](**args)
-                # Ensure result is text for MCP content
-                content_text = json.dumps(result, indent=2) if not isinstance(result, str) else result
-                response["result"] = {
-                    "content": [{
-                        "type": "text",
-                        "text": content_text
-                    }]
-                }
+            arguments = params.get("arguments") or {}
+            if not name:
+                response = _jsonrpc_error(msg_id, -32602, "Invalid params: name required")
             else:
-                response["error"] = {"code": -32601, "message": f"Tool not found: {name}"}
+                tools = service.get_tools()
+                handler = next((t["handler"] for t in tools if t["name"] == name), None)
+                if not handler:
+                    response = {"jsonrpc": "2.0", "id": msg_id, "result": _tool_result(_err("NOT_FOUND", f"tool_not_found: {name}"), is_error=True)}
+                else:
+                    try:
+                        res = handler(arguments)
+                        response = {"jsonrpc": "2.0", "id": msg_id, "result": _tool_result(_ok(res))}
+                    except McpError as e:
+                        response = {"jsonrpc": "2.0", "id": msg_id, "result": _tool_result(_err(e.code, e.message, e.details), is_error=True)}
+                    except Exception as e:
+                        response = {"jsonrpc": "2.0", "id": msg_id, "result": _tool_result(
+                            _err("INTERNAL_ERROR", "tool_exception", {"error": str(e), "traceback": traceback.format_exc()}),
+                            is_error=True,
+                        )}
         elif msg_type == "notifications/initialized":
-            # Handled, no response
             return
         elif msg_type == "ping":
-            response["result"] = {}
+            response = {"jsonrpc": "2.0", "id": msg_id, "result": {}}
         else:
             if msg_id is not None:
-                 response["error"] = {"code": -32601, "message": f"Method not found: {msg_type}"}
+                 response = _jsonrpc_error(msg_id, -32601, f"Method not found: {msg_type}")
     except Exception as e:
         logger.exception(f"Error processing {msg_type}")
         if msg_id is not None:
-            response["error"] = {"code": -32000, "message": str(e)}
+            response = _jsonrpc_error(msg_id, -32000, str(e))
     
     if msg_id is not None:
         print(json.dumps(response))
