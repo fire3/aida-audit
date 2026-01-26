@@ -1,19 +1,26 @@
 import java.io.BufferedWriter;
 import java.io.File;
+import java.io.BufferedReader;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
+import java.io.InputStreamReader;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.zip.CRC32;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
@@ -44,20 +51,60 @@ public class AidaExport extends GhidraScript {
         if (args == null || args.length < 1) {
             return;
         }
-        File outDir = new File(args[0]);
+        List<String> positional = parsePositionalArgs(args);
+        if (positional.isEmpty()) {
+            return;
+        }
+        File outDir = new File(positional.get(0));
         outDir.mkdirs();
+        String mode = positional.size() > 1 ? positional.get(1) : "full";
+        int threads = parseIntArg(args, "--threads", 1);
+        int chunkSize = parseIntArg(args, "--chunk", 0);
+        println("AidaExport start");
+        println("Output: " + outDir.getAbsolutePath());
+        println("Mode: " + mode);
+        println("Threads: " + threads + " Chunk: " + chunkSize);
+        if ("pseudocode".equalsIgnoreCase(mode)) {
+            String listPath = positional.size() > 2 ? positional.get(2) : null;
+            String outPath = positional.size() > 3 ? positional.get(3) : null;
+            List<Long> targets = listPath != null && !listPath.isEmpty() ? readFunctionList(listPath) : null;
+            File outFile = outPath != null && !outPath.isEmpty() ? new File(outPath) : null;
+            println("Pseudocode mode list: " + (listPath == null ? "" : listPath));
+            println("Pseudocode mode out: " + (outFile == null ? "" : outFile.getAbsolutePath()));
+            writePseudocode(outDir, targets, outFile);
+            return;
+        }
+        println("Export metadata");
         writeMetadata(outDir);
+        println("Export segments");
         writeSegments(outDir);
+        println("Export sections");
         writeSections(outDir);
+        println("Export imports");
         writeImports(outDir);
+        println("Export exports");
         writeExports(outDir);
+        println("Export symbols");
         writeSymbols(outDir);
+        println("Export functions");
         writeFunctions(outDir);
+        println("Export disassembly");
         writeDisasmChunks(outDir);
+        println("Export strings");
         writeStrings(outDir);
-        writePseudocode(outDir);
+        if (!"nopseudocode".equalsIgnoreCase(mode)) {
+            println("Export pseudocode");
+            if (threads > 1) {
+                writePseudocodeParallel(outDir, threads, chunkSize);
+            } else {
+                writePseudocode(outDir, null, null);
+            }
+        }
+        println("Export xrefs");
         writeXrefs(outDir);
+        println("Export call edges");
         writeCallEdges(outDir);
+        println("AidaExport done");
     }
 
     private void writeMetadata(File outDir) throws Exception {
@@ -280,33 +327,159 @@ public class AidaExport extends GhidraScript {
         }
     }
 
-    private void writePseudocode(File outDir) throws Exception {
-        File outFile = new File(outDir, "pseudocode.jsonl");
+    private void writePseudocode(File outDir, List<Long> onlyFunctions, File outputOverride) throws Exception {
+        File outFile = outputOverride != null ? outputOverride : new File(outDir, "pseudocode.jsonl");
         DecompInterface ifc = new DecompInterface();
         ifc.setSimplificationStyle("decompile");
         if (!ifc.openProgram(currentProgram)) {
             return;
         }
+        int total = 0;
+        if (onlyFunctions != null && !onlyFunctions.isEmpty()) {
+            total = onlyFunctions.size();
+        } else {
+            total = currentProgram.getFunctionManager().getFunctionCount();
+        }
+        int logEvery = Math.max(1, total / 20);
+        int processed = 0;
         try (BufferedWriter w = writer(outFile)) {
-            FunctionIterator it = currentProgram.getFunctionManager().getFunctions(true);
-            while (it.hasNext()) {
-                Function f = it.next();
-                DecompileResults res = ifc.decompileFunction(f, 30, monitor);
-                if (res == null || !res.decompileCompleted() || res.getDecompiledFunction() == null) {
-                    continue;
+            if (onlyFunctions != null && !onlyFunctions.isEmpty()) {
+                Collections.sort(onlyFunctions);
+                FunctionManager fm = currentProgram.getFunctionManager();
+                for (Long addrVal : onlyFunctions) {
+                    if (addrVal == null) {
+                        continue;
+                    }
+                    Address addr = currentProgram.getAddressFactory().getDefaultAddressSpace().getAddress(addrVal);
+                    Function f = fm.getFunctionAt(addr);
+                    if (f == null) {
+                        continue;
+                    }
+                    writePseudocodeForFunction(ifc, w, f);
+                    processed += 1;
+                    if (processed % logEvery == 0) {
+                        println("Pseudocode progress " + processed + "/" + total);
+                    }
                 }
-                String content = res.getDecompiledFunction().getC();
-                if (content == null) {
-                    continue;
+            } else {
+                FunctionIterator it = currentProgram.getFunctionManager().getFunctions(true);
+                while (it.hasNext()) {
+                    Function f = it.next();
+                    writePseudocodeForFunction(ifc, w, f);
+                    processed += 1;
+                    if (processed % logEvery == 0) {
+                        println("Pseudocode progress " + processed + "/" + total);
+                    }
                 }
-                Map<String, Object> row = new LinkedHashMap<>();
-                row.put("function_va", f.getEntryPoint().getOffset());
-                row.put("content", content);
-                writeJsonLine(w, row);
             }
         } finally {
             ifc.dispose();
         }
+    }
+
+    private void writePseudocodeParallel(File outDir, int threads, int chunkSize) throws Exception {
+        File outFile = new File(outDir, "pseudocode.jsonl");
+        List<Function> all = new ArrayList<>();
+        FunctionIterator it = currentProgram.getFunctionManager().getFunctions(true);
+        while (it.hasNext()) {
+            all.add(it.next());
+        }
+        if (all.isEmpty()) {
+            try (BufferedWriter w = writer(outFile)) {
+            }
+            return;
+        }
+        List<List<Function>> batches = buildBatches(all, threads, chunkSize);
+        println("Pseudocode parallel total " + all.size() + " batches " + batches.size());
+        AtomicInteger processed = new AtomicInteger(0);
+        int total = all.size();
+        int logEvery = Math.max(1, total / 20);
+        ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, threads));
+        try (BufferedWriter w = writer(outFile)) {
+            for (List<Function> batch : batches) {
+                executor.submit(() -> {
+                    DecompInterface local = new DecompInterface();
+                    local.setSimplificationStyle("decompile");
+                    try {
+                        if (!local.openProgram(currentProgram)) {
+                            return;
+                        }
+                        for (Function f : batch) {
+                            DecompileResults res = local.decompileFunction(f, 30, monitor);
+                            if (res == null || !res.decompileCompleted() || res.getDecompiledFunction() == null) {
+                                continue;
+                            }
+                            String content = res.getDecompiledFunction().getC();
+                            if (content == null) {
+                                continue;
+                            }
+                            Map<String, Object> row = new LinkedHashMap<>();
+                            row.put("function_va", f.getEntryPoint().getOffset());
+                            row.put("content", content);
+                            synchronized (w) {
+                                writeJsonLine(w, row);
+                            }
+                            int done = processed.incrementAndGet();
+                            if (done % logEvery == 0) {
+                                println("Pseudocode progress " + done + "/" + total);
+                            }
+                        }
+                    } catch (Exception e) {
+                    } finally {
+                        try {
+                            local.dispose();
+                        } catch (Exception ignore) {
+                        }
+                    }
+                });
+            }
+            executor.shutdown();
+            executor.awaitTermination(12, TimeUnit.HOURS);
+        }
+    }
+
+    private void writePseudocodeForFunction(DecompInterface ifc, BufferedWriter w, Function f) throws Exception {
+        DecompileResults res = ifc.decompileFunction(f, 30, monitor);
+        if (res == null || !res.decompileCompleted() || res.getDecompiledFunction() == null) {
+            return;
+        }
+        String content = res.getDecompiledFunction().getC();
+        if (content == null) {
+            return;
+        }
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("function_va", f.getEntryPoint().getOffset());
+        row.put("content", content);
+        writeJsonLine(w, row);
+    }
+
+    private List<Long> readFunctionList(String path) {
+        File file = new File(path);
+        if (!file.isFile()) {
+            return null;
+        }
+        List<Long> out = new ArrayList<>();
+        try (BufferedReader r = new BufferedReader(new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                line = line.trim();
+                if (line.isEmpty()) {
+                    continue;
+                }
+                try {
+                    if (line.startsWith("0x") || line.startsWith("0X")) {
+                        out.add(Long.parseLong(line.substring(2), 16));
+                    } else {
+                        out.add(Long.parseLong(line));
+                    }
+                } catch (Exception e) {
+                    continue;
+                }
+            }
+        } catch (Exception e) {
+            return null;
+        }
+        return out;
     }
 
     private void writeDisasmChunks(File outDir) throws Exception {
@@ -441,6 +614,63 @@ public class AidaExport extends GhidraScript {
     private void writeJsonLine(BufferedWriter w, Map<String, Object> obj) throws Exception {
         w.write(toJson(obj));
         w.newLine();
+    }
+
+    private int parseIntArg(String[] args, String flag, int def) {
+        if (args == null || args.length == 0) {
+            return def;
+        }
+        for (int i = 0; i < args.length - 1; i++) {
+            if (flag.equalsIgnoreCase(args[i])) {
+                try {
+                    return Integer.parseInt(args[i + 1]);
+                } catch (Exception e) {
+                    return def;
+                }
+            }
+        }
+        return def;
+    }
+
+    private List<String> parsePositionalArgs(String[] args) {
+        List<String> out = new ArrayList<>();
+        if (args == null || args.length == 0) {
+            return out;
+        }
+        for (int i = 0; i < args.length; i++) {
+            String arg = args[i];
+            if ("--threads".equalsIgnoreCase(arg) || "--chunk".equalsIgnoreCase(arg)) {
+                i += 1;
+                continue;
+            }
+            out.add(arg);
+        }
+        return out;
+    }
+
+    private List<List<Function>> buildBatches(List<Function> functions, int threads, int chunkSize) {
+        List<List<Function>> batches = new ArrayList<>();
+        if (chunkSize != 0) {
+            int size = Math.max(1, chunkSize);
+            for (int i = 0; i < functions.size(); i += size) {
+                int end = Math.min(functions.size(), i + size);
+                batches.add(new ArrayList<>(functions.subList(i, end)));
+            }
+            return batches;
+        }
+        int t = Math.max(1, threads);
+        int base = functions.size() / t;
+        int rem = functions.size() % t;
+        int start = 0;
+        for (int i = 0; i < t; i++) {
+            int size = base + (i < rem ? 1 : 0);
+            if (size <= 0) {
+                continue;
+            }
+            batches.add(new ArrayList<>(functions.subList(start, start + size)));
+            start += size;
+        }
+        return batches;
     }
 
     private String toJson(Object v) {

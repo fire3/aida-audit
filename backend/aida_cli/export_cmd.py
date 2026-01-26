@@ -303,7 +303,7 @@ class ExportOrchestrator:
                 return cand
         return None
 
-    def _run_ghidra_headless(self, input_path, export_dir, ghidra_home):
+    def _run_ghidra_headless(self, input_path, export_dir, ghidra_home, threads=None, chunk_size=None):
         ghidra_home = self._resolve_ghidra_home(ghidra_home)
         headless = self._get_ghidra_headless(ghidra_home)
         if not headless:
@@ -316,10 +316,12 @@ class ExportOrchestrator:
         project_name = "aida-cli"
         json_dir = os.path.join(export_dir, "json")
         os.makedirs(json_dir, exist_ok=True)
+        thread_count = max(1, int(threads) if threads else 1)
+        chunk_value = int(chunk_size) if chunk_size is not None else 0
         cmd = (
             f"\"{headless}\" \"{project_dir}\" \"{project_name}\" "
             f"-import \"{input_path}\" -scriptPath \"{script_dir}\" "
-            f"-postScript AidaExport.java \"{json_dir}\" -overwrite"
+            f"-postScript AidaExport.java \"{json_dir}\" --threads {thread_count} --chunk {chunk_value} -overwrite"
         )
         res = self.run_command(cmd, stream_output=True, context="GHIDRA")
         if not res["ok"]:
@@ -658,7 +660,13 @@ class ExportOrchestrator:
         temp_dir = export_root or tempfile.mkdtemp(prefix="ghidra_export_")
         json_dir = None
         try:
-            json_dir = self._run_ghidra_headless(input_path, temp_dir, ghidra_home)
+            json_dir = self._run_ghidra_headless(
+                input_path,
+                temp_dir,
+                ghidra_home,
+                threads=self.workers,
+                chunk_size=0,
+            )
             if not json_dir:
                 return False
             return import_ghidra_export(json_dir, output_db, self.logger)
