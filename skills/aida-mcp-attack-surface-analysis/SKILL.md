@@ -139,7 +139,8 @@ This document guides agents on how to use the AIDA MCP toolset to perform Code A
 
 ## 4. Reporting Standard
 
-All attack surface analysis reports must follow this Markdown format:
+- **Write clear, concise, and well-structured reports following this template.**
+- **Use user language in the report to avoid confusion.**
 
 ### 4.1 Report Template
 
