@@ -669,7 +669,7 @@ class ExportOrchestrator:
                 except Exception:
                     pass
 
-    def process_directory_ghidra(self, scan_dir, out_dir, target_binary, ghidra_home=None):
+    def process_directory_ghidra(self, scan_dir, out_dir, target_binary, ghidra_home=None, export_c=False):
         scan_dir = os.path.abspath(scan_dir)
         out_dir = os.path.abspath(out_dir)
 
@@ -715,6 +715,8 @@ class ExportOrchestrator:
                     output_db=db_path,
                     ghidra_home=ghidra_home,
                 )
+                if export_c and success:
+                    _write_decompiled_c(db_path, self.logger)
                 if path == src_path:
                     out_db = db_path if success else None
 
@@ -824,7 +826,7 @@ class ExportOrchestrator:
             except:
                  pass
 
-    def process_directory(self, scan_dir, out_dir, target_binary):
+    def process_directory(self, scan_dir, out_dir, target_binary, export_c=False):
         scan_dir = os.path.abspath(scan_dir)
         out_dir = os.path.abspath(out_dir)
         
@@ -869,6 +871,8 @@ class ExportOrchestrator:
                     output_db=db_path,
                     save_idb=None,
                 )
+                if export_c and success:
+                    _write_decompiled_c(db_path, self.logger)
                 if path == target_path:
                     out_db = db_path if success else None
             return out_db
@@ -943,17 +947,15 @@ def main():
                         out_dir=output_dir,
                         target_binary=target_path,
                         ghidra_home=args.ghidra_home,
+                        export_c=args.export_c,
                     )
-                    if args.export_c and out_db:
-                        _write_decompiled_c(out_db, orchestrator.logger)
                 else:
                     out_db = orchestrator.process_directory(
                         scan_dir=scan_dir,
                         out_dir=output_dir,
-                        target_binary=target_path
+                        target_binary=target_path,
+                        export_c=args.export_c,
                     )
-                    if args.export_c and out_db:
-                        _write_decompiled_c(out_db, orchestrator.logger)
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
