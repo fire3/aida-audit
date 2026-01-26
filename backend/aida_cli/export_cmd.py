@@ -136,81 +136,6 @@ def _expand_targets(target_value):
         return uniq
     return [target_value]
 
-def _get_binary_name_from_db(db_path):
-    try:
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        cur = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='metadata_json' LIMIT 1")
-        if cur.fetchone():
-            row = conn.execute("SELECT content FROM metadata_json WHERE id=1").fetchone()
-            content = row["content"] if row else None
-            if content:
-                meta = json.loads(content) if isinstance(content, str) else content
-                if isinstance(meta, dict) and meta.get("binary_name"):
-                    return os.path.basename(str(meta.get("binary_name")))
-        cur = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='metadata' LIMIT 1")
-        if cur.fetchone():
-            row = conn.execute("SELECT value FROM metadata WHERE key='binary_name' LIMIT 1").fetchone()
-            if row and row["value"]:
-                return os.path.basename(str(row["value"]))
-    except Exception:
-        return None
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
-    return None
-
-def _derive_name_from_db_filename(db_path):
-    base_name = os.path.basename(db_path)
-    if base_name.lower().endswith(".db"):
-        base_name = base_name[:-3]
-    m = re.match(r"^(?P<name>.+)\.[0-9a-fA-F]{8}$", base_name)
-    if m:
-        return m.group("name")
-    return base_name
-
-def _write_decompiled_c(db_path, logger=None):
-    if not db_path or not os.path.exists(db_path):
-        return False
-    try:
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        cur = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pseudocode' LIMIT 1")
-        if not cur.fetchone():
-            return False
-        rows = conn.execute(
-            "SELECT f.start_va as start_va, p.content as content "
-            "FROM pseudocode p LEFT JOIN functions f ON f.function_va = p.function_va "
-            "ORDER BY f.start_va ASC"
-        ).fetchall()
-        if not rows:
-            return False
-        name = _get_binary_name_from_db(db_path) or _derive_name_from_db_filename(db_path)
-        out_path = os.path.join(os.path.dirname(db_path), f"{name}.c")
-        with open(out_path, "w", encoding="utf-8") as f:
-            first = True
-            for r in rows:
-                content = r["content"] or ""
-                if not content.strip():
-                    continue
-                if not first:
-                    f.write("\n\n")
-                f.write(content.rstrip() + "\n")
-                first = False
-        if logger:
-            logger.log(f"C file saved to {out_path}", context="EXPORT")
-        return True
-    except Exception as e:
-        if logger:
-            logger.log(f"Failed to export C file: {e}", context="ERROR")
-        return False
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
 
 def _detect_idb_path(binary_path):
     for ext in (".i64", ".idb"):
@@ -467,7 +392,7 @@ class ExportOrchestrator:
         self.logger.plain("=" * 72)
         self.logger.plain("")
 
-    def _run_master_analysis(self, master_input, output_db, temp_dir, save_idb=None):
+    def _run_master_analysis(self, master_input, output_db, temp_dir, save_idb=None, export_c_path=None):
         """
         Step 1: Run Master (Export Metadata + Dump Functions)
         """
@@ -489,6 +414,8 @@ class ExportOrchestrator:
         ida_export_script = os.path.join(current_script_dir, "ida_export_worker.py")
         
         master_cmd = f"python \"{ida_export_script}\" \"{master_input}\" --output \"{output_db}\" --parallel-master --dump-funcs \"{funcs_json}\" --save-idb \"{analysis_base}\" --perf-json \"{master_perf_json}\" --no-perf-report --fast --plain-log"
+        if export_c_path:
+            master_cmd += f" --export-c \"{export_c_path}\""
             
         result = self.run_command(master_cmd, stream_output=True, context="MASTER")
         
@@ -724,7 +651,8 @@ class ExportOrchestrator:
                     ghidra_home=ghidra_home,
                 )
                 if export_c and success:
-                    _write_decompiled_c(db_path, self.logger)
+                    # _write_decompiled_c(db_path, self.logger)
+                    pass
                 if path == src_path:
                     out_db = db_path if success else None
 
@@ -733,7 +661,7 @@ class ExportOrchestrator:
             self.logger.log(f"Failed to process {name}: {e}", context="ERROR")
             return None
 
-    def process_single_file(self, input_path, output_db, save_idb=None):
+    def process_single_file(self, input_path, output_db, save_idb=None, export_c=False):
         input_path = os.path.abspath(input_path)
         if not os.path.exists(input_path):
             self.logger.log(f"Error: Input file '{input_path}' not found.", context="ERROR")
@@ -778,9 +706,13 @@ class ExportOrchestrator:
                 existing_idb = candidate
                 break
         
+        export_c_path = None
+        if export_c:
+            export_c_path = os.path.splitext(output_db)[0] + ".c"
+
         try:
             # Step 1: Run Master
-            master_res = self._run_master_analysis(existing_idb or input_path, output_db, temp_dir, save_idb)
+            master_res = self._run_master_analysis(existing_idb or input_path, output_db, temp_dir, save_idb, export_c_path)
             if not master_res:
                 return False
             stats['master_time'] = master_res['duration']
@@ -878,9 +810,8 @@ class ExportOrchestrator:
                     input_path=out_bin,
                     output_db=db_path,
                     save_idb=None,
+                    export_c=export_c,
                 )
-                if export_c and success:
-                    _write_decompiled_c(db_path, self.logger)
                 if path == target_path:
                     out_db = db_path if success else None
             return out_db
@@ -989,10 +920,12 @@ def main():
                 success = orchestrator.process_single_file(
                     input_path=target_path,
                     output_db=output_db,
-                    save_idb=None
+                    save_idb=None,
+                    export_c=args.export_c
                 )
-            if args.export_c and success:
-                _write_decompiled_c(output_db, orchestrator.logger)
+            if args.export_c and success and args.backend == "ghidra":
+                # _write_decompiled_c(output_db, orchestrator.logger)
+                pass
             all_ok = all_ok and bool(success)
         sys.exit(0 if all_ok else 1)
 
