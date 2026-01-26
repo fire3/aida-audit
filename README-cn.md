@@ -163,7 +163,7 @@ aida-mcp install --client <client_name>
 ```
 
 **选项：**
-*   `--client`: 要配置的 MCP 客户端。支持的值：`opencode`, `claude-code`, `trae`, `cline`, `roo-code`。可以指定多个客户端（例如 `--client opencode --client trae`）。
+*   `--client`: 要配置的 MCP 客户端。支持的值：`opencode`。
 *   `--transport`: 传输模式。可选值：`stdio` (默认), `http`。
     *   `stdio`: 启动本地 Python 进程。
     *   `http`: 连接到正在运行的服务器（需要先运行 `aida-mcp serve`）。
@@ -178,11 +178,8 @@ aida-mcp install --client <client_name>
 # 为 OpenCode 安装配置 (stdio 模式)
 aida-mcp install --client opencode
 
-# 为 Claude Code 安装配置 (使用 HTTP 传输)
-aida-mcp install --client claude-code --transport http
-
 # 将配置打印到标准输出
-aida-mcp install --client trae --output -
+aida-mcp install --client opencode --output -
 ```
 
 ### 4. 初始化工作区 (`workspace`)
@@ -197,11 +194,7 @@ aida-mcp workspace --init <workspace_dir>
 *   `<workspace_dir>/project/`：放置导出的 `.db` 文件。
 *   `<workspace_dir>/opencode.json`：OpenCode 项目配置（包含 MCP 服务器）。
 *   `<workspace_dir>/.opencode/skills/`：OpenCode 兼容 skills。
-*   `<workspace_dir>/.claude/skills/`：Claude 兼容 skills。
-*   `<workspace_dir>/.mcp.json`：Claude Code 项目 MCP 配置。
-*   `<workspace_dir>/mcp_<client>.json`：其他客户端的兜底配置。
 
 **选项：**
-*   `--client`：目标客户端（默认：opencode, roo-code, trae, claude-code, cline）。
 *   `--transport`：`stdio`（默认）或 `http`。
 *   `--url`：使用 `http` 时的 MCP 服务地址。

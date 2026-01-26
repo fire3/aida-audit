@@ -164,7 +164,7 @@ aida-mcp install --client <client_name>
 ```
 
 **Options:**
-*   `--client`: The MCP client to configure. Supported values: `opencode`, `claude-code`, `trae`, `cline`, `roo-code`. You can specify multiple clients (e.g., `--client opencode --client trae`).
+*   `--client`: The MCP client to configure. Supported values: `opencode`.
 *   `--transport`: The transport mode. Choices: `stdio` (default), `http`.
     *   `stdio`: Starts a local python process.
     *   `http`: Connects to a running server (requires `aida-mcp serve` to be running).
@@ -179,11 +179,8 @@ aida-mcp install --client <client_name>
 # Install for OpenCode (stdio mode)
 aida-mcp install --client opencode
 
-# Install for Claude Code using HTTP transport
-aida-mcp install --client claude-code --transport http
-
 # Print configuration to stdout
-aida-mcp install --client trae --output -
+aida-mcp install --client opencode --output -
 ```
 
 ### 4. Initialize Workspace (`workspace`)
@@ -198,12 +195,8 @@ aida-mcp workspace --init <workspace_dir>
 *   `<workspace_dir>/project/`: Place your exported `.db` files here.
 *   `<workspace_dir>/opencode.json`: OpenCode project config with MCP servers.
 *   `<workspace_dir>/.opencode/skills/`: OpenCode-compatible skills.
-*   `<workspace_dir>/.claude/skills/`: Claude-compatible skills.
-*   `<workspace_dir>/.mcp.json`: Claude Code project MCP config.
-*   `<workspace_dir>/mcp_<client>.json`: Fallback configs for other clients.
 
 **Options:**
-*   `--client`: Target clients (default: opencode, roo-code, trae, claude-code, cline).
 *   `--transport`: `stdio` (default) or `http`.
 *   `--url`: MCP server URL when using `http`.
 

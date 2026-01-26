@@ -19,14 +19,6 @@ def _normalize_client(value):
     key = value.strip().lower().replace(" ", "-")
     mapping = {
         "opencode": "opencode",
-        "roo": "roo-code",
-        "roo-code": "roo-code",
-        "roocode": "roo-code",
-        "trae": "trae",
-        "claude": "claude-code",
-        "claude-code": "claude-code",
-        "claudecode": "claude-code",
-        "cline": "cline",
     }
     return mapping.get(key)
 
@@ -43,20 +35,7 @@ def _parse_clients(items):
             if norm not in clients:
                 clients.append(norm)
         return clients
-    return ["opencode", "roo-code", "trae", "claude-code", "cline"]
-
-def _build_stdio_config(project, python_cmd, server_name):
-    command = python_cmd
-    if os.name == "nt" and " " in command:
-        command = "python"
-    return {
-        "mcpServers": {
-            server_name: {
-                "command": command,
-                "args": ["-m", "aida_mcp.mcp_stdio_server", "--project", project],
-            }
-        }
-    }
+    return ["opencode"]
 
 def _build_opencode_stdio_config(project, python_cmd, server_name):
     command = python_cmd
@@ -69,15 +48,6 @@ def _build_opencode_stdio_config(project, python_cmd, server_name):
                 "type": "local",
                 "command": [command, "-m", "aida_mcp.mcp_stdio_server", "--project", project],
                 "enabled": True,
-            }
-        }
-    }
-
-def _build_http_config(url, server_name):
-    return {
-        "mcpServers": {
-            server_name: {
-                "url": url,
             }
         }
     }
@@ -118,19 +88,6 @@ def _pick_server_name(existing):
         idx += 1
     return f"{base}-{idx}"
 
-def _merge_config(existing, payload):
-    if not isinstance(existing, dict):
-        existing = {}
-    servers = existing.get("mcpServers")
-    if not isinstance(servers, dict):
-        servers = {}
-    for key, value in payload.get("mcpServers", {}).items():
-        if key in servers:
-            key = _pick_server_name(servers)
-        servers[key] = value
-    existing["mcpServers"] = servers
-    return existing
-
 def _merge_opencode_config(existing, payload):
     if not isinstance(existing, dict):
         existing = {}
@@ -167,42 +124,19 @@ def _config_roots():
             seen.append(item)
     return seen
 
-def _client_name_candidates(client):
-    mapping = {
-        "opencode": ["opencode", "open-code", "open_code"],
-        "roo-code": ["roo-code", "roo", "roocode"],
-        "trae": ["trae"],
-        "claude-code": ["claude-code", "claude", "claudecode"],
-        "cline": ["cline"],
-    }
-    return mapping.get(client, [client])
-
 def _candidate_paths(client):
-    names = _client_name_candidates(client)
     roots = _config_roots()
     paths = []
-    if client == "trae":
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            paths.append(os.path.join(appdata, "trae", "user", "mcp.json"))
-        home = os.path.expanduser("~")
-        if home:
-            paths.append(os.path.join(home, "trae", "user", "mcp.json"))
-    
     if client == "opencode":
         home = os.path.expanduser("~")
         if home:
             paths.append(os.path.join(home, ".config", "opencode", "opencode.json"))
 
     for root in roots:
-        for name in names:
-            paths.extend([
-                os.path.join(root, name, "mcp.json"),
-                os.path.join(root, name, "mcp_servers.json"),
-                os.path.join(root, name, "config.json"),
-                os.path.join(root, f".{name}", "mcp.json"),
-                os.path.join(root, name, "opencode.json"),
-            ])
+        paths.extend([
+            os.path.join(root, "opencode", "opencode.json"),
+            os.path.join(root, "opencode.json"),
+        ])
     return paths
 
 def _find_existing_config(client):
@@ -214,25 +148,16 @@ def _find_existing_config(client):
 def _default_config_path(client):
     roots = _config_roots()
     base = roots[0] if roots else "."
-    name = _client_name_candidates(client)[0]
-    if client == "trae":
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            return os.path.join(appdata, "trae", "user", "mcp.json")
-        home = os.path.expanduser("~")
-        if home:
-            return os.path.join(home, "trae", "user", "mcp.json")
-    
     if client == "opencode":
         home = os.path.expanduser("~")
         if home:
              return os.path.join(home, ".config", "opencode", "opencode.json")
 
-    return os.path.join(base, name, "mcp.json")
+    return os.path.join(base, "opencode", "opencode.json")
 
 def install_main():
     parser = argparse.ArgumentParser(description="Generate MCP client config files")
-    parser.add_argument("--client", action="append", default=[], help="Supported clients: opencode, roo-code, trae, claude-code, cline")
+    parser.add_argument("--client", action="append", default=[], help="Supported clients: opencode")
     parser.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     parser.add_argument("--project", default=".")
     parser.add_argument("--python", dest="python_cmd", default=sys.executable)
@@ -241,69 +166,47 @@ def install_main():
     args = parser.parse_args()
 
     clients = _parse_clients(args.client)
+    if clients != ["opencode"]:
+        raise SystemExit("Only opencode is supported at the moment")
 
-    def get_payload(client):
-        is_opencode = (client == "opencode")
+    def get_payload():
         if args.transport == "stdio":
-            if is_opencode:
-                return _build_opencode_stdio_config(os.path.abspath(args.project), args.python_cmd, "aida-mcp")
-            else:
-                return _build_stdio_config(os.path.abspath(args.project), args.python_cmd, "aida-mcp")
-        else:
-            if is_opencode:
-                return _build_opencode_http_config(args.url, "aida-mcp")
-            else:
-                return _build_http_config(args.url, "aida-mcp")
-
-    def merge(client, existing, payload):
-        if client == "opencode":
-            return _merge_opencode_config(existing, payload)
-        else:
-            return _merge_config(existing, payload)
+            return _build_opencode_stdio_config(os.path.abspath(args.project), args.python_cmd, "aida-mcp")
+        return _build_opencode_http_config(args.url, "aida-mcp")
 
     output = args.output
     if output == "-":
-        target_client = clients[0] if clients else "claude-code"
-        payload = get_payload(target_client)
+        payload = get_payload()
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return
 
     if output != "auto":
-        output_is_file = output.lower().endswith(".json")
-        if output_is_file and len(clients) > 1:
-            raise SystemExit("Output is a file but multiple clients were selected")
-
-        if output_is_file:
-            target_client = clients[0] if clients else "claude-code"
-            payload = get_payload(target_client)
+        if output.lower().endswith(".json"):
+            payload = get_payload()
             _write_json(output, payload)
             print(output)
             print(json.dumps(payload, ensure_ascii=False, indent=2))
             return
 
         os.makedirs(output, exist_ok=True)
-        for client in clients:
-            filename = f"mcp_{client}.json"
-            path = os.path.join(output, filename)
-            payload = get_payload(client)
-            _write_json(path, payload)
-            print(f"{client}: {path}")
+        path = os.path.join(output, "opencode.json")
+        payload = get_payload()
+        _write_json(path, payload)
+        print(f"opencode: {path}")
         return
 
-    for client in clients:
-        existing_path = _find_existing_config(client)
-        payload = get_payload(client)
-        
-        if existing_path:
-            existing = _read_json(existing_path)
-            merged = merge(client, existing, payload)
-            _write_json(existing_path, merged)
-            print(f"{client}: {existing_path}")
-        else:
-            target = _default_config_path(client)
-            os.makedirs(os.path.dirname(target), exist_ok=True)
-            _write_json(target, payload)
-            print(f"{client}: {target}")
+    existing_path = _find_existing_config("opencode")
+    payload = get_payload()
+    if existing_path:
+        existing = _read_json(existing_path)
+        merged = _merge_opencode_config(existing, payload)
+        _write_json(existing_path, merged)
+        print(f"opencode: {existing_path}")
+    else:
+        target = _default_config_path("opencode")
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        _write_json(target, payload)
+        print(f"opencode: {target}")
 
 def _skills_root_candidates():
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -336,7 +239,6 @@ def _copy_skills(skills_root, target_root):
 def workspace_main():
     parser = argparse.ArgumentParser(description="Initialize a local MCP workspace")
     parser.add_argument("--init", required=True, help="Workspace directory to initialize")
-    parser.add_argument("--client", action="append", default=[], help="Supported clients: opencode, roo-code, trae, claude-code, cline")
     parser.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     parser.add_argument("--python", dest="python_cmd", default=sys.executable)
     parser.add_argument("--url", default="http://127.0.0.1:8765/mcp")
@@ -345,42 +247,24 @@ def workspace_main():
     workspace_root = os.path.abspath(args.init)
     project_root = os.path.join(workspace_root, "project")
     opencode_skills_root = os.path.join(workspace_root, ".opencode", "skills")
-    claude_skills_root = os.path.join(workspace_root, ".claude", "skills")
     os.makedirs(project_root, exist_ok=True)
     os.makedirs(opencode_skills_root, exist_ok=True)
-    os.makedirs(claude_skills_root, exist_ok=True)
 
-    clients = _parse_clients(args.client)
-
-    def get_payload(client):
-        is_opencode = (client == "opencode")
+    def get_payload():
         if args.transport == "stdio":
-            if is_opencode:
-                return _build_opencode_stdio_config(project_root, args.python_cmd, "aida-mcp")
-            return _build_stdio_config(project_root, args.python_cmd, "aida-mcp")
-        if is_opencode:
-            return _build_opencode_http_config(args.url, "aida-mcp")
-        return _build_http_config(args.url, "aida-mcp")
+            return _build_opencode_stdio_config(project_root, args.python_cmd, "aida-mcp")
+        return _build_opencode_http_config(args.url, "aida-mcp")
 
-    for client in clients:
-        payload = get_payload(client)
-        if client == "opencode":
-            path = os.path.join(workspace_root, "opencode.json")
-        elif client == "claude-code":
-            path = os.path.join(workspace_root, ".mcp.json")
-        else:
-            filename = f"mcp_{client}.json"
-            path = os.path.join(workspace_root, filename)
-        _write_json(path, payload)
-        print(f"{client}: {path}")
+    payload = get_payload()
+    path = os.path.join(workspace_root, "opencode.json")
+    _write_json(path, payload)
+    print(f"opencode: {path}")
 
     skills_source = _resolve_skills_root()
     copied = []
     if skills_source:
         copied.extend(_copy_skills(skills_source, opencode_skills_root))
-        copied.extend(_copy_skills(skills_source, claude_skills_root))
         print(f"skills: {opencode_skills_root}")
-        print(f"skills: {claude_skills_root}")
     else:
         print("skills: not found")
 
