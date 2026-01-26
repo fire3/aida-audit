@@ -26,6 +26,6 @@ setup(
         ],
     },
     include_package_data=True,
-    description="AIDA MCP Tool",
+    description="AIDA CLI Tool",
     author="User",
 )
