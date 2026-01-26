@@ -6,7 +6,7 @@ AIDA-MCP is a powerful tool designed to bridge the gap between IDA Pro binary an
 
 *   **Export**: Automated extraction of binary metadata (functions, strings, imports, exports, pseudocode, etc.) from IDA Pro into portable SQLite databases.
 *   **Web UI**: A modern, interactive web interface to browse and analyze the exported data.
-*   **MCP Server**: A fully compliant Model Context Protocol server that allows AI assistants (like Claude, Trae, etc.) to query and reason about the binary structure.
+*   **MCP Server**: A fully compliant Model Context Protocol server that allows AI assistants to query and reason about the binary structure.
 *   **REST API**: A FastAPI-backed backend for custom integrations.
 
 ## Installation
@@ -157,14 +157,13 @@ Once the server is running, open your browser and navigate to:
 
 ### 3. Install MCP Configuration (`install`)
 
-The `install` command generates or updates the configuration file for various MCP clients (e.g., OpenCode, Claude Code, Trae). The `config` command is an alias.
+The `install` command generates or updates the OpenCode configuration file. The `config` command is an alias.
 
 ```bash
-aida-mcp install --client <client_name>
+aida-mcp install
 ```
 
 **Options:**
-*   `--client`: The MCP client to configure. Supported values: `opencode`.
 *   `--transport`: The transport mode. Choices: `stdio` (default), `http`.
     *   `stdio`: Starts a local python process.
     *   `http`: Connects to a running server (requires `aida-mcp serve` to be running).
@@ -177,10 +176,10 @@ aida-mcp install --client <client_name>
 **Examples:**
 ```bash
 # Install for OpenCode (stdio mode)
-aida-mcp install --client opencode
+aida-mcp install
 
 # Print configuration to stdout
-aida-mcp install --client opencode --output -
+aida-mcp install --output -
 ```
 
 ### 4. Initialize Workspace (`workspace`)

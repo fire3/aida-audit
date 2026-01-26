@@ -15,28 +15,6 @@ def _print_main_help():
     print("  install - Generate MCP client config")
     print("  workspace - Initialize a local workspace")
 
-def _normalize_client(value):
-    key = value.strip().lower().replace(" ", "-")
-    mapping = {
-        "opencode": "opencode",
-    }
-    return mapping.get(key)
-
-def _parse_clients(items):
-    raw_clients = []
-    for item in items:
-        raw_clients.extend([c for c in item.split(",") if c.strip()])
-    if raw_clients:
-        clients = []
-        for c in raw_clients:
-            norm = _normalize_client(c)
-            if not norm:
-                raise SystemExit(f"Unsupported client: {c}")
-            if norm not in clients:
-                clients.append(norm)
-        return clients
-    return ["opencode"]
-
 def _build_opencode_stdio_config(project, python_cmd, server_name):
     command = python_cmd
     if os.name == "nt" and " " in command:
@@ -124,13 +102,12 @@ def _config_roots():
             seen.append(item)
     return seen
 
-def _candidate_paths(client):
+def _candidate_paths():
     roots = _config_roots()
     paths = []
-    if client == "opencode":
-        home = os.path.expanduser("~")
-        if home:
-            paths.append(os.path.join(home, ".config", "opencode", "opencode.json"))
+    home = os.path.expanduser("~")
+    if home:
+        paths.append(os.path.join(home, ".config", "opencode", "opencode.json"))
 
     for root in roots:
         paths.extend([
@@ -139,35 +116,29 @@ def _candidate_paths(client):
         ])
     return paths
 
-def _find_existing_config(client):
-    for path in _candidate_paths(client):
+def _find_existing_config():
+    for path in _candidate_paths():
         if os.path.isfile(path):
             return path
     return None
 
-def _default_config_path(client):
+def _default_config_path():
     roots = _config_roots()
     base = roots[0] if roots else "."
-    if client == "opencode":
-        home = os.path.expanduser("~")
-        if home:
-             return os.path.join(home, ".config", "opencode", "opencode.json")
+    home = os.path.expanduser("~")
+    if home:
+         return os.path.join(home, ".config", "opencode", "opencode.json")
 
     return os.path.join(base, "opencode", "opencode.json")
 
 def install_main():
     parser = argparse.ArgumentParser(description="Generate MCP client config files")
-    parser.add_argument("--client", action="append", default=[], help="Supported clients: opencode")
     parser.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     parser.add_argument("--project", default=".")
     parser.add_argument("--python", dest="python_cmd", default=sys.executable)
     parser.add_argument("--url", default="http://127.0.0.1:8765/mcp")
     parser.add_argument("--output", default="auto")
     args = parser.parse_args()
-
-    clients = _parse_clients(args.client)
-    if clients != ["opencode"]:
-        raise SystemExit("Only opencode is supported at the moment")
 
     def get_payload():
         if args.transport == "stdio":
@@ -195,7 +166,7 @@ def install_main():
         print(f"opencode: {path}")
         return
 
-    existing_path = _find_existing_config("opencode")
+    existing_path = _find_existing_config()
     payload = get_payload()
     if existing_path:
         existing = _read_json(existing_path)
@@ -203,7 +174,7 @@ def install_main():
         _write_json(existing_path, merged)
         print(f"opencode: {existing_path}")
     else:
-        target = _default_config_path("opencode")
+        target = _default_config_path()
         os.makedirs(os.path.dirname(target), exist_ok=True)
         _write_json(target, payload)
         print(f"opencode: {target}")

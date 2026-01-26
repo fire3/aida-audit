@@ -54,26 +54,17 @@ aida-mcp serve [project_path]
 
 ### 3. MCP Client Configuration
 
-To use this tool with AI assistants like Claude, configure your `claude_desktop_config.json`:
+Configure OpenCode by adding an MCP server entry to your `opencode.json`:
 
 ```json
 {
-  "mcpServers": {
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
     "aida-mcp": {
-      "command": "npx",
-      "args": [
-        "-y", 
-        "supergateway", 
-        "--streamableHttp",
-        "http://localhost:8765/mcp"
-      ]
+      "type": "remote",
+      "url": "http://localhost:8765/mcp",
+      "enabled": true
     }
   }
 }
-```
-
-To use this tool with AI chat tools like Chatbox, just use streamable http MCP URL:
-
-```
-http://localhost:8765/mcp
 ```

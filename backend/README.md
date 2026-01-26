@@ -108,11 +108,10 @@ Options:
 Generates MCP client configuration files.
 
 ```bash
-aida-mcp install --client <client_name>
+aida-mcp install
 ```
 
 Options:
-- `--client`: Client name (`opencode`, `claude-code`, `trae`, etc.).
 - `--transport`: `stdio` or `http` (default: `stdio`).
 - `--output`: Output path or `-` for stdout (default: `auto`).
 

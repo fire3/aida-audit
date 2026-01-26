@@ -13,7 +13,7 @@ export function AboutTab() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p>
-            The service allows LLM agents (like Claude) to inspect binary analysis results, including functions, strings, cross-references, and disassembly.
+            The service allows LLM agents to inspect binary analysis results, including functions, strings, cross-references, and disassembly.
           </p>
           
           <div className="bg-muted p-4 rounded-md">
@@ -37,20 +37,17 @@ export function AboutTab() {
               <div>
                 <div className="font-medium mb-1">3. Connect MCP Client</div>
                 <p className="text-muted-foreground mb-2">
-                  Configure your MCP client (e.g., Claude Desktop) to connect to this server.
-                  Below is an example configuration for <code>claude_desktop_config.json</code>:
+                  Configure OpenCode to connect to this server.
+                  Below is an example <code>opencode.json</code> configuration:
                 </p>
                 <pre className="bg-background p-2 rounded border text-xs overflow-auto font-mono">
 {`{
-  "mcpServers": {
-    "ida-mcp": {
-      "command": "python",
-      "args": [
-        "-m", 
-        "ida_project_mcp.mcp_stdio_server", 
-        "--project", 
-        "C:/path/to/your/project"
-      ]
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "aida-mcp": {
+      "type": "remote",
+      "url": "http://localhost:8765/mcp",
+      "enabled": true
     }
   }
 }`}
