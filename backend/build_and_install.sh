@@ -18,6 +18,8 @@ fi
 
 FRONTEND_DIR="${FRONTEND_DIR:-"$SCRIPT_DIR/../frontend"}"
 BACKEND_STATIC_DIR="${BACKEND_STATIC_DIR:-"$SCRIPT_DIR/aida_mcp/static"}"
+SKILLS_DIR="${SKILLS_DIR:-"$SCRIPT_DIR/../skills"}"
+BACKEND_SKILLS_DIR="${BACKEND_SKILLS_DIR:-"$SCRIPT_DIR/aida_mcp/skills"}"
 FRONTEND_MODE="${FRONTEND_MODE:-auto}"
 
 build_frontend() {
@@ -99,6 +101,15 @@ build_frontend() {
 build_backend() {
   echo "Cleaning up previous builds..."
   rm -rf dist build aida_mcp.egg-info
+
+  if [[ -d "$SKILLS_DIR" ]]; then
+    echo "Copying skills into backend package..."
+    rm -rf "$BACKEND_SKILLS_DIR"
+    mkdir -p "$BACKEND_SKILLS_DIR"
+    cp -R "$SKILLS_DIR/." "$BACKEND_SKILLS_DIR/"
+  else
+    echo "Warning: skills directory not found at '$SKILLS_DIR'."
+  fi
 
   echo "Building package..."
   "$PYTHON_BIN" -m pip install --upgrade build

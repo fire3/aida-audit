@@ -16,7 +16,14 @@ setup(
         ],
     },
     package_data={
-        "aida_mcp": ["static/**/*", "static/*", "ghidra_export/**/*", "ghidra_export/*"],
+        "aida_mcp": [
+            "static/**/*",
+            "static/*",
+            "ghidra_export/**/*",
+            "ghidra_export/*",
+            "skills/**/*",
+            "skills/*",
+        ],
     },
     include_package_data=True,
     description="AIDA MCP Tool",

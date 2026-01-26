@@ -76,6 +76,7 @@ We provide scripts to automatically build the frontend, package the backend, and
 This script will automatically:
 *   Build the React frontend.
 *   Copy the frontend assets to the backend package.
+*   Copy the built-in skills into the backend package.
 *   Build the Python wheel.
 *   Install `aida-mcp` using `pip`.
 
@@ -154,12 +155,12 @@ Once the server is running, open your browser and navigate to:
 **MCP Server Address:**
 **http://localhost:8765/mcp**
 
-### 3. Install MCP Configuration (`config`)
+### 3. Install MCP Configuration (`install`)
 
-The `config` command generates or updates the configuration file for various MCP clients (e.g., OpenCode, Claude Code, Trae).
+The `install` command generates or updates the configuration file for various MCP clients (e.g., OpenCode, Claude Code, Trae). The `config` command is an alias.
 
 ```bash
-aida-mcp config --client <client_name>
+aida-mcp install --client <client_name>
 ```
 
 **Options:**
@@ -184,6 +185,24 @@ aida-mcp install --client claude-code --transport http
 # Print configuration to stdout
 aida-mcp install --client trae --output -
 ```
+
+### 4. Initialize Workspace (`workspace`)
+
+The `workspace` command creates a local workspace directory with MCP client configs and skills.
+
+```bash
+aida-mcp workspace --init <workspace_dir>
+```
+
+**What it creates:**
+*   `<workspace_dir>/project/`: Place your exported `.db` files here.
+*   `<workspace_dir>/skills/`: Built-in skills copied from the package.
+*   `<workspace_dir>/mcp_<client>.json`: Client configs for the selected clients.
+
+**Options:**
+*   `--client`: Target clients (default: opencode, roo-code, trae, claude-code, cline).
+*   `--transport`: `stdio` (default) or `http`.
+*   `--url`: MCP server URL when using `http`.
 
 ## Development
 

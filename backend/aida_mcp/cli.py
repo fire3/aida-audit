@@ -3,6 +3,7 @@ import os
 import json
 import argparse
 import re
+import shutil
 from . import export_cmd
 from . import server_cmd
 
@@ -12,6 +13,7 @@ def _print_main_help():
     print("  export  - Export IDA database")
     print("  serve   - Start MCP server")
     print("  install - Generate MCP client config")
+    print("  workspace - Initialize a local workspace")
 
 def _normalize_client(value):
     key = value.strip().lower().replace(" ", "-")
@@ -27,6 +29,21 @@ def _normalize_client(value):
         "cline": "cline",
     }
     return mapping.get(key)
+
+def _parse_clients(items):
+    raw_clients = []
+    for item in items:
+        raw_clients.extend([c for c in item.split(",") if c.strip()])
+    if raw_clients:
+        clients = []
+        for c in raw_clients:
+            norm = _normalize_client(c)
+            if not norm:
+                raise SystemExit(f"Unsupported client: {c}")
+            if norm not in clients:
+                clients.append(norm)
+        return clients
+    return ["opencode", "roo-code", "trae", "claude-code", "cline"]
 
 def _build_stdio_config(project, python_cmd, server_name):
     command = python_cmd
@@ -223,19 +240,7 @@ def install_main():
     parser.add_argument("--output", default="auto")
     args = parser.parse_args()
 
-    raw_clients = []
-    for item in args.client:
-        raw_clients.extend([c for c in item.split(",") if c.strip()])
-    if raw_clients:
-        clients = []
-        for c in raw_clients:
-            norm = _normalize_client(c)
-            if not norm:
-                raise SystemExit(f"Unsupported client: {c}")
-            if norm not in clients:
-                clients.append(norm)
-    else:
-        clients = ["opencode", "roo-code", "trae", "claude-code", "cline"]
+    clients = _parse_clients(args.client)
 
     def get_payload(client):
         is_opencode = (client == "opencode")
@@ -300,6 +305,78 @@ def install_main():
             _write_json(target, payload)
             print(f"{client}: {target}")
 
+def _skills_root_candidates():
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    return [
+        os.path.join(current_dir, "skills"),
+        os.path.abspath(os.path.join(current_dir, "..", "..", "skills")),
+    ]
+
+def _resolve_skills_root():
+    for candidate in _skills_root_candidates():
+        if os.path.isdir(candidate):
+            return candidate
+    return None
+
+def _copy_skills(skills_root, target_root):
+    if not skills_root or not os.path.isdir(skills_root):
+        return []
+    copied = []
+    for name in os.listdir(skills_root):
+        source_dir = os.path.join(skills_root, name)
+        if not os.path.isdir(source_dir):
+            continue
+        if not os.path.isfile(os.path.join(source_dir, "SKILL.md")):
+            continue
+        target_dir = os.path.join(target_root, name)
+        shutil.copytree(source_dir, target_dir, dirs_exist_ok=True)
+        copied.append(name)
+    return copied
+
+def workspace_main():
+    parser = argparse.ArgumentParser(description="Initialize a local MCP workspace")
+    parser.add_argument("--init", required=True, help="Workspace directory to initialize")
+    parser.add_argument("--client", action="append", default=[], help="Supported clients: opencode, roo-code, trae, claude-code, cline")
+    parser.add_argument("--transport", choices=["stdio", "http"], default="stdio")
+    parser.add_argument("--python", dest="python_cmd", default=sys.executable)
+    parser.add_argument("--url", default="http://127.0.0.1:8765/mcp")
+    args = parser.parse_args()
+
+    workspace_root = os.path.abspath(args.init)
+    project_root = os.path.join(workspace_root, "project")
+    skills_root = os.path.join(workspace_root, "skills")
+    os.makedirs(project_root, exist_ok=True)
+    os.makedirs(skills_root, exist_ok=True)
+
+    clients = _parse_clients(args.client)
+
+    def get_payload(client):
+        is_opencode = (client == "opencode")
+        if args.transport == "stdio":
+            if is_opencode:
+                return _build_opencode_stdio_config(project_root, args.python_cmd, "aida-mcp")
+            else:
+                return _build_stdio_config(project_root, args.python_cmd, "aida-mcp")
+        else:
+            if is_opencode:
+                return _build_opencode_http_config(args.url, "aida-mcp")
+            else:
+                return _build_http_config(args.url, "aida-mcp")
+
+    for client in clients:
+        filename = f"mcp_{client}.json"
+        path = os.path.join(workspace_root, filename)
+        payload = get_payload(client)
+        _write_json(path, payload)
+        print(f"{client}: {path}")
+
+    skills_source = _resolve_skills_root()
+    copied = _copy_skills(skills_source, skills_root)
+    if skills_source:
+        print(f"skills: {skills_root}")
+    else:
+        print("skills: not found")
+
 def main():
     if len(sys.argv) < 2:
         _print_main_help()
@@ -320,11 +397,13 @@ def main():
         export_cmd.main()
     elif command == "serve":
         server_cmd.main()
-    elif command == "config":
-        config_main()
+    elif command in ("install", "config"):
+        install_main()
+    elif command == "workspace":
+        workspace_main()
     else:
         print(f"Unknown command: {command}")
-        print("Available commands: export, serve, config")
+        print("Available commands: export, serve, install, workspace")
         sys.exit(1)
 
 if __name__ == "__main__":

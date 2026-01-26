@@ -3,6 +3,8 @@
 # --- Frontend Build ---
 $FrontendDir = "..\frontend"
 $BackendStaticDir = "aida_mcp\static"
+$SkillsDir = "..\skills"
+$BackendSkillsDir = "aida_mcp\skills"
 
 if (Test-Path $FrontendDir) {
     Write-Host "Found frontend directory. Building frontend..."
@@ -48,6 +50,15 @@ Write-Host "Cleaning up previous builds..."
 if (Test-Path "dist") { Remove-Item -Recurse -Force "dist" }
 if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
 if (Test-Path "aida_mcp.egg-info") { Remove-Item -Recurse -Force "aida_mcp.egg-info" }
+
+if (Test-Path $SkillsDir) {
+    Write-Host "Copying skills into backend package..."
+    if (Test-Path $BackendSkillsDir) { Remove-Item -Recurse -Force $BackendSkillsDir }
+    New-Item -ItemType Directory -Force -Path $BackendSkillsDir | Out-Null
+    Copy-Item -Recurse -Force "$SkillsDir\*" $BackendSkillsDir
+} else {
+    Write-Host "Warning: skills directory not found at $SkillsDir."
+}
 
 Write-Host "Building package..."
 # Ensure build tool is installed
