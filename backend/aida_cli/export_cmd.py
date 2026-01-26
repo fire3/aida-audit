@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 # =============================================================================
 
 from .ghidra_importer import import_ghidra_export
+from .elf_service import ElfService
 
 # =============================================================================
 # Shared Utilities & Logging
@@ -688,21 +689,36 @@ class ExportOrchestrator:
         name = os.path.basename(src_path)
 
         try:
-            out_bin = _copy_to_out_dir(src_path, out_dir)
-            self.logger.log(f"Copied {name} -> {out_bin}", context="BUNDLE")
+            deps = ElfService.resolve_recursive_dependencies(scan_dir, src_path)
+            dep_paths = []
+            for dep in deps:
+                dep_path = dep.get("path")
+                if dep_path and os.path.exists(dep_path):
+                    dep_paths.append(os.path.abspath(dep_path))
 
-            db_name = _make_db_name(src_path)
-            out_db = os.path.join(out_dir, db_name)
+            targets = [src_path] + [p for p in dep_paths if p != src_path]
+            seen = set()
+            out_db = None
+            for path in targets:
+                if path in seen:
+                    continue
+                seen.add(path)
+                out_bin = _copy_to_out_dir(path, out_dir)
+                self.logger.log(f"Copied {os.path.basename(path)} -> {out_bin}", context="BUNDLE")
 
-            self.logger.log(f"Exporting {name} -> {out_db}", context="BUNDLE")
+                db_name = _make_db_name(path)
+                db_path = os.path.join(out_dir, db_name)
+                self.logger.log(f"Exporting {os.path.basename(path)} -> {db_path}", context="BUNDLE")
 
-            success = self.process_single_file_ghidra(
-                input_path=out_bin,
-                output_db=out_db,
-                ghidra_home=ghidra_home,
-            )
+                success = self.process_single_file_ghidra(
+                    input_path=out_bin,
+                    output_db=db_path,
+                    ghidra_home=ghidra_home,
+                )
+                if path == src_path:
+                    out_db = db_path if success else None
 
-            return out_db if success else None
+            return out_db
         except Exception as e:
             self.logger.log(f"Failed to process {name}: {e}", context="ERROR")
             return None
@@ -827,20 +843,35 @@ class ExportOrchestrator:
             
         name = os.path.basename(target_path)
         try:
-            out_bin = _copy_to_out_dir(target_path, out_dir)
-            self.logger.log(f"Copied {name} -> {out_bin}", context="BUNDLE")
+            deps = ElfService.resolve_recursive_dependencies(scan_dir, target_path)
+            dep_paths = []
+            for dep in deps:
+                dep_path = dep.get("path")
+                if dep_path and os.path.exists(dep_path):
+                    dep_paths.append(os.path.abspath(dep_path))
 
-            db_name = _make_db_name(target_path)
-            out_db = os.path.join(out_dir, db_name)
-            
-            self.logger.log(f"Exporting {name} -> {out_db}", context="BUNDLE")
-            
-            success = self.process_single_file(
-                input_path=out_bin,
-                output_db=out_db,
-                save_idb=None,
-            )
-            return out_db if success else None
+            targets = [target_path] + [p for p in dep_paths if p != target_path]
+            seen = set()
+            out_db = None
+            for path in targets:
+                if path in seen:
+                    continue
+                seen.add(path)
+                out_bin = _copy_to_out_dir(path, out_dir)
+                self.logger.log(f"Copied {os.path.basename(path)} -> {out_bin}", context="BUNDLE")
+
+                db_name = _make_db_name(path)
+                db_path = os.path.join(out_dir, db_name)
+                self.logger.log(f"Exporting {os.path.basename(path)} -> {db_path}", context="BUNDLE")
+
+                success = self.process_single_file(
+                    input_path=out_bin,
+                    output_db=db_path,
+                    save_idb=None,
+                )
+                if path == target_path:
+                    out_db = db_path if success else None
+            return out_db
         except Exception as e:
             self.logger.log(f"Failed to process {name}: {e}", context="ERROR")
             return None

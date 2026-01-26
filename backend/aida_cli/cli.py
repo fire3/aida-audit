@@ -10,7 +10,7 @@ from . import server_cmd
 def _print_main_help():
     print("Usage: aida-cli <command> [args]")
     print("Commands:")
-    print("  export  - Export IDA database")
+    print("  export  - Export MCP database")
     print("  serve   - Start MCP server")
     print("  install - Generate MCP client config")
     print("  workspace - Initialize a local workspace")
@@ -131,9 +131,9 @@ def _default_config_path():
 
     return os.path.join(base, "opencode", "opencode.json")
 
-def install_main():
+def config_main():
     parser = argparse.ArgumentParser(description="Generate MCP client config files")
-    parser.add_argument("--transport", choices=["stdio", "http"], default="stdio")
+    parser.add_argument("--transport", choices=["stdio", "http"], default="http")
     parser.add_argument("--project", default=".")
     parser.add_argument("--python", dest="python_cmd", default=sys.executable)
     parser.add_argument("--url", default="http://127.0.0.1:8765/mcp")
@@ -259,13 +259,13 @@ def main():
         export_cmd.main()
     elif command == "serve":
         server_cmd.main()
-    elif command in ("install", "config"):
-        install_main()
+    elif command == "config":
+        config_main()
     elif command == "workspace":
         workspace_main()
     else:
         print(f"Unknown command: {command}")
-        print("Available commands: export, serve, install, workspace")
+        print("Available commands: export, serve, config, workspace")
         sys.exit(1)
 
 if __name__ == "__main__":
