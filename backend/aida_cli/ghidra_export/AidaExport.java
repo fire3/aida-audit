@@ -60,10 +60,14 @@ public class AidaExport extends GhidraScript {
         String mode = positional.size() > 1 ? positional.get(1) : "full";
         int threads = parseIntArg(args, "--threads", 1);
         int chunkSize = parseIntArg(args, "--chunk", 0);
+        String exportCPath = parseStringArg(args, "--export-c", null);
         println("AidaExport start");
         println("Output: " + outDir.getAbsolutePath());
         println("Mode: " + mode);
         println("Threads: " + threads + " Chunk: " + chunkSize);
+        if (exportCPath != null) {
+            println("Export C: " + exportCPath);
+        }
         if ("pseudocode".equalsIgnoreCase(mode)) {
             String listPath = positional.size() > 2 ? positional.get(2) : null;
             String outPath = positional.size() > 3 ? positional.get(3) : null;
@@ -104,7 +108,44 @@ public class AidaExport extends GhidraScript {
         writeXrefs(outDir);
         println("Export call edges");
         writeCallEdges(outDir);
+        if (exportCPath != null) {
+            println("Exporting C file...");
+            writeCFile(new File(exportCPath));
+        }
         println("AidaExport done");
+    }
+
+    private void writeCFile(File outFile) throws Exception {
+        DecompInterface ifc = new DecompInterface();
+        ifc.setSimplificationStyle("decompile");
+        if (!ifc.openProgram(currentProgram)) {
+            println("Decompiler failed to open program");
+            return;
+        }
+        
+        try (BufferedWriter w = writer(outFile)) {
+             FunctionIterator it = currentProgram.getFunctionManager().getFunctions(true);
+             int count = 0;
+             while (it.hasNext()) {
+                 Function f = it.next();
+                 DecompileResults res = ifc.decompileFunction(f, 30, monitor);
+                 if (res != null && res.decompileCompleted() && res.getDecompiledFunction() != null) {
+                     String c = res.getDecompiledFunction().getC();
+                     if (c != null && !c.isEmpty()) {
+                         w.write("// Function: " + f.getName() + " @ " + f.getEntryPoint() + "\n");
+                         w.write(c);
+                         w.write("\n\n");
+                         count++;
+                     }
+                 }
+                 if (count % 100 == 0) {
+                     // monitor.setMessage("Exporting C: " + count);
+                 }
+             }
+             println("Exported " + count + " functions to C file");
+        } finally {
+            ifc.dispose();
+        }
     }
 
     private void writeMetadata(File outDir) throws Exception {
@@ -632,6 +673,18 @@ public class AidaExport extends GhidraScript {
         return def;
     }
 
+    private String parseStringArg(String[] args, String flag, String def) {
+        if (args == null || args.length == 0) {
+            return def;
+        }
+        for (int i = 0; i < args.length - 1; i++) {
+            if (flag.equalsIgnoreCase(args[i])) {
+                return args[i + 1];
+            }
+        }
+        return def;
+    }
+
     private List<String> parsePositionalArgs(String[] args) {
         List<String> out = new ArrayList<>();
         if (args == null || args.length == 0) {
@@ -639,7 +692,7 @@ public class AidaExport extends GhidraScript {
         }
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
-            if ("--threads".equalsIgnoreCase(arg) || "--chunk".equalsIgnoreCase(arg)) {
+            if ("--threads".equalsIgnoreCase(arg) || "--chunk".equalsIgnoreCase(arg) || "--export-c".equalsIgnoreCase(arg)) {
                 i += 1;
                 continue;
             }

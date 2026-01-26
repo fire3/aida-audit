@@ -228,7 +228,7 @@ class ExportOrchestrator:
                 return cand
         return None
 
-    def _run_ghidra_headless(self, input_path, export_dir, ghidra_home, threads=None, chunk_size=None):
+    def _run_ghidra_headless(self, input_path, export_dir, ghidra_home, threads=None, chunk_size=None, export_c_path=None):
         ghidra_home = self._resolve_ghidra_home(ghidra_home)
         headless = self._get_ghidra_headless(ghidra_home)
         if not headless:
@@ -248,6 +248,8 @@ class ExportOrchestrator:
             f"-import \"{input_path}\" -scriptPath \"{script_dir}\" "
             f"-postScript AidaExport.java \"{json_dir}\" --threads {thread_count} --chunk {chunk_value} -overwrite"
         )
+        if export_c_path:
+             cmd += f" --export-c \"{export_c_path}\""
         res = self.run_command(cmd, stream_output=True, context="GHIDRA")
         if not res["ok"]:
             return None
@@ -538,7 +540,7 @@ class ExportOrchestrator:
             "worker_perf_paths": worker_perf_paths
         }
 
-    def process_single_file_ghidra(self, input_path, output_db, ghidra_home=None):
+    def process_single_file_ghidra(self, input_path, output_db, ghidra_home=None, export_c=False):
         input_path = os.path.abspath(input_path)
         if not os.path.exists(input_path):
             self.logger.log(f"Error: Input file '{input_path}' not found.", context="ERROR")
@@ -583,6 +585,11 @@ class ExportOrchestrator:
 
         self.logger.log(f"Input  : {input_path}", context="ORCHESTRATOR")
         self.logger.log(f"Output : {output_db}", context="ORCHESTRATOR")
+        
+        export_c_path = None
+        if export_c:
+            export_c_path = os.path.splitext(output_db)[0] + ".c"
+            self.logger.log(f"Export C: {export_c_path}", context="ORCHESTRATOR")
 
         temp_dir = export_root or tempfile.mkdtemp(prefix="ghidra_export_")
         json_dir = None
@@ -593,6 +600,7 @@ class ExportOrchestrator:
                 ghidra_home,
                 threads=self.workers,
                 chunk_size=0,
+                export_c_path=export_c_path
             )
             if not json_dir:
                 return False
@@ -649,9 +657,10 @@ class ExportOrchestrator:
                     input_path=out_bin,
                     output_db=db_path,
                     ghidra_home=ghidra_home,
+                    export_c=export_c,
                 )
                 if export_c and success:
-                    # _write_decompiled_c(db_path, self.logger)
+                    # C export is handled by process_single_file_ghidra
                     pass
                 if path == src_path:
                     out_db = db_path if success else None
@@ -915,6 +924,7 @@ def main():
                     input_path=target_path,
                     output_db=output_db,
                     ghidra_home=args.ghidra_home,
+                    export_c=args.export_c,
                 )
             else:
                 success = orchestrator.process_single_file(
@@ -924,7 +934,7 @@ def main():
                     export_c=args.export_c
                 )
             if args.export_c and success and args.backend == "ghidra":
-                # _write_decompiled_c(output_db, orchestrator.logger)
+                # C export is handled by process_single_file_ghidra
                 pass
             all_ok = all_ok and bool(success)
         sys.exit(0 if all_ok else 1)
