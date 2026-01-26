@@ -130,6 +130,7 @@ install_backend() {
 
   local whl="${wheels[0]}"
   echo "Found wheel: $whl"
+  "$PYTHON_BIN" -m pip uninstall -y "aida-mcp"
   "$PYTHON_BIN" -m pip install "$whl"
 
   echo "Installation complete."
