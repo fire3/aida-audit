@@ -736,6 +736,9 @@ class ExportOrchestrator:
         if export_c:
             export_c_path = os.path.splitext(output_db)[0] + ".c"
 
+        if save_idb is None:
+            save_idb = os.path.splitext(output_db)[0]
+
         try:
             # Step 1: Run Master
             master_res = self._run_master_analysis(existing_idb or input_path, output_db, temp_dir, save_idb, export_c_path)
