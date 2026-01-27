@@ -27,7 +27,15 @@ import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSetView;
+import ghidra.program.model.data.Array;
 import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.DataTypeComponent;
+import ghidra.program.model.data.Enum;
+import ghidra.program.model.data.FunctionDefinition;
+import ghidra.program.model.data.Pointer;
+import ghidra.program.model.data.Structure;
+import ghidra.program.model.data.Typedef;
+import ghidra.program.model.data.Union;
 import ghidra.program.model.listing.CodeUnit;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.Function;
@@ -124,6 +132,9 @@ public class AidaExport extends GhidraScript {
         }
         
         try (BufferedWriter w = writer(outFile)) {
+             writeCTypeDefinitions(w);
+             writeCGlobals(w);
+             writeCPrototypes(w);
              FunctionIterator it = currentProgram.getFunctionManager().getFunctions(true);
              int count = 0;
              while (it.hasNext()) {
@@ -146,6 +157,235 @@ public class AidaExport extends GhidraScript {
         } finally {
             ifc.dispose();
         }
+    }
+
+    private void writeCTypeDefinitions(BufferedWriter w) throws Exception {
+        List<DataType> types = new ArrayList<>();
+        for (DataType dt : currentProgram.getDataTypeManager().getAllDataTypes()) {
+            if (dt == null) {
+                continue;
+            }
+            String name = dt.getName();
+            if (name == null || name.isEmpty()) {
+                continue;
+            }
+            String path = dt.getCategoryPath() != null ? dt.getCategoryPath().toString() : "";
+            if (path.startsWith("/builtin") || path.startsWith("/undefined")) {
+                continue;
+            }
+            if (dt instanceof Structure || dt instanceof Union || dt instanceof Enum || dt instanceof Typedef) {
+                types.add(dt);
+            }
+        }
+        for (DataType dt : types) {
+            String def = formatTypeDefinition(dt);
+            if (def == null || def.isEmpty()) {
+                continue;
+            }
+            w.write(def);
+            w.newLine();
+            w.newLine();
+        }
+    }
+
+    private void writeCGlobals(BufferedWriter w) throws Exception {
+        SymbolTable table = currentProgram.getSymbolTable();
+        SymbolIterator it = table.getAllSymbols(true);
+        Set<String> emitted = new LinkedHashSet<>();
+        while (it.hasNext()) {
+            Symbol s = it.next();
+            if (s == null || isExternalSymbol(s)) {
+                continue;
+            }
+            SymbolType st = s.getSymbolType();
+            if (st != null && (st == SymbolType.FUNCTION || st == SymbolType.LABEL)) {
+                continue;
+            }
+            Address addr = s.getAddress();
+            if (addr == null) {
+                continue;
+            }
+            Data data = currentProgram.getListing().getDataAt(addr);
+            if (data == null) {
+                continue;
+            }
+            DataType dt = data.getDataType();
+            String name = s.getName();
+            if (dt == null || name == null || name.isEmpty()) {
+                continue;
+            }
+            String decl = formatDeclaration(dt, name);
+            if (decl == null || decl.isEmpty()) {
+                continue;
+            }
+            if (emitted.add(decl)) {
+                w.write(decl);
+                w.write(";");
+                w.newLine();
+            }
+        }
+        if (!emitted.isEmpty()) {
+            w.newLine();
+        }
+    }
+
+    private void writeCPrototypes(BufferedWriter w) throws Exception {
+        FunctionIterator it = currentProgram.getFunctionManager().getFunctions(true);
+        while (it.hasNext()) {
+            Function f = it.next();
+            String proto = functionPrototype(f);
+            if (proto == null || proto.isEmpty()) {
+                continue;
+            }
+            w.write(proto);
+            if (!proto.trim().endsWith(";")) {
+                w.write(";");
+            }
+            w.newLine();
+        }
+        w.newLine();
+    }
+
+    private String functionPrototype(Function f) {
+        try {
+            Method m = f.getClass().getMethod("getPrototypeString", boolean.class, boolean.class);
+            Object v = m.invoke(f, true, true);
+            if (v != null) {
+                return String.valueOf(v);
+            }
+        } catch (Exception e) {
+        }
+        try {
+            Object sig = f.getSignature();
+            if (sig != null) {
+                Method m = sig.getClass().getMethod("getPrototypeString");
+                Object v = m.invoke(sig);
+                if (v != null) {
+                    return String.valueOf(v);
+                }
+            }
+        } catch (Exception e) {
+        }
+        String name = f.getName();
+        if (name == null || name.isEmpty()) {
+            return null;
+        }
+        return "void " + name + "()";
+    }
+
+    private String formatTypeDefinition(DataType dt) {
+        if (dt instanceof Typedef) {
+            Typedef td = (Typedef) dt;
+            DataType base = td.getDataType();
+            String baseType = toCType(base);
+            String name = td.getName();
+            if (baseType == null || baseType.isEmpty() || name == null || name.isEmpty()) {
+                return null;
+            }
+            return "typedef " + baseType + " " + name + ";";
+        }
+        if (dt instanceof Enum) {
+            Enum en = (Enum) dt;
+            String name = en.getName();
+            if (name == null || name.isEmpty()) {
+                return null;
+            }
+            StringBuilder sb = new StringBuilder();
+            sb.append("typedef enum ").append(name).append(" {").append("\n");
+            String[] names = en.getNames();
+            for (int i = 0; i < names.length; i++) {
+                String n = names[i];
+                if (n == null || n.isEmpty()) {
+                    continue;
+                }
+                sb.append("    ").append(n).append(" = ").append(en.getValue(n));
+                if (i < names.length - 1) {
+                    sb.append(",");
+                }
+                sb.append("\n");
+            }
+            sb.append("} ").append(name).append(";");
+            return sb.toString();
+        }
+        if (dt instanceof Structure) {
+            Structure st = (Structure) dt;
+            return formatCompositeDefinition("struct", st.getName(), st.getComponents());
+        }
+        if (dt instanceof Union) {
+            Union un = (Union) dt;
+            return formatCompositeDefinition("union", un.getName(), un.getComponents());
+        }
+        return null;
+    }
+
+    private String formatCompositeDefinition(String kind, String name, DataTypeComponent[] components) {
+        if (name == null || name.isEmpty()) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("typedef ").append(kind).append(" ").append(name).append(" {").append("\n");
+        if (components != null) {
+            for (DataTypeComponent c : components) {
+                if (c == null || c.getDataType() == null) {
+                    continue;
+                }
+                String fieldName = c.getFieldName();
+                if (fieldName == null || fieldName.isEmpty()) {
+                    fieldName = "field_" + c.getOffset();
+                }
+                String decl = formatDeclaration(c.getDataType(), fieldName);
+                if (decl == null || decl.isEmpty()) {
+                    continue;
+                }
+                sb.append("    ").append(decl).append(";").append("\n");
+            }
+        }
+        sb.append("} ").append(name).append(";");
+        return sb.toString();
+    }
+
+    private String formatDeclaration(DataType dt, String name) {
+        if (dt instanceof Array) {
+            Array arr = (Array) dt;
+            String inner = formatDeclaration(arr.getDataType(), name);
+            if (inner == null || inner.isEmpty()) {
+                return null;
+            }
+            return inner + "[" + arr.getNumElements() + "]";
+        }
+        if (dt instanceof Pointer) {
+            Pointer ptr = (Pointer) dt;
+            String base = toCType(ptr.getDataType());
+            if (base == null || base.isEmpty()) {
+                base = "void";
+            }
+            return base + " *" + name;
+        }
+        String type = toCType(dt);
+        if (type == null || type.isEmpty()) {
+            return null;
+        }
+        return type + " " + name;
+    }
+
+    private String toCType(DataType dt) {
+        if (dt == null) {
+            return null;
+        }
+        if (dt instanceof FunctionDefinition) {
+            String name = dt.getName();
+            if (name != null && !name.isEmpty()) {
+                return name;
+            }
+        }
+        if (dt instanceof Typedef || dt instanceof Structure || dt instanceof Union || dt instanceof Enum) {
+            return dt.getName();
+        }
+        String name = dt.getName();
+        if (name == null || name.isEmpty()) {
+            return null;
+        }
+        return name;
     }
 
     private void writeMetadata(File outDir) throws Exception {
