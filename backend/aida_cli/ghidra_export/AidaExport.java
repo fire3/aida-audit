@@ -11,6 +11,7 @@ import java.security.MessageDigest;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -34,7 +35,6 @@ import ghidra.program.model.data.Enum;
 import ghidra.program.model.data.FunctionDefinition;
 import ghidra.program.model.data.Pointer;
 import ghidra.program.model.data.Structure;
-import ghidra.program.model.data.Typedef;
 import ghidra.program.model.data.Union;
 import ghidra.program.model.listing.CodeUnit;
 import ghidra.program.model.listing.Data;
@@ -161,7 +161,9 @@ public class AidaExport extends GhidraScript {
 
     private void writeCTypeDefinitions(BufferedWriter w) throws Exception {
         List<DataType> types = new ArrayList<>();
-        for (DataType dt : currentProgram.getDataTypeManager().getAllDataTypes()) {
+        Iterator<DataType> it = currentProgram.getDataTypeManager().getAllDataTypes();
+        while (it.hasNext()) {
+            DataType dt = it.next();
             if (dt == null) {
                 continue;
             }
@@ -173,7 +175,7 @@ public class AidaExport extends GhidraScript {
             if (path.startsWith("/builtin") || path.startsWith("/undefined")) {
                 continue;
             }
-            if (dt instanceof Structure || dt instanceof Union || dt instanceof Enum || dt instanceof Typedef) {
+            if (dt instanceof Structure || dt instanceof Union || dt instanceof Enum || isTypedef(dt)) {
                 types.add(dt);
             }
         }
@@ -274,11 +276,10 @@ public class AidaExport extends GhidraScript {
     }
 
     private String formatTypeDefinition(DataType dt) {
-        if (dt instanceof Typedef) {
-            Typedef td = (Typedef) dt;
-            DataType base = td.getDataType();
+        if (isTypedef(dt)) {
+            DataType base = getTypedefBaseType(dt);
             String baseType = toCType(base);
-            String name = td.getName();
+            String name = dt.getName();
             if (baseType == null || baseType.isEmpty() || name == null || name.isEmpty()) {
                 return null;
             }
@@ -378,7 +379,7 @@ public class AidaExport extends GhidraScript {
                 return name;
             }
         }
-        if (dt instanceof Typedef || dt instanceof Structure || dt instanceof Union || dt instanceof Enum) {
+        if (isTypedef(dt) || dt instanceof Structure || dt instanceof Union || dt instanceof Enum) {
             return dt.getName();
         }
         String name = dt.getName();
@@ -386,6 +387,37 @@ public class AidaExport extends GhidraScript {
             return null;
         }
         return name;
+    }
+
+    private boolean isTypedef(DataType dt) {
+        if (dt == null) {
+            return false;
+        }
+        String simple = dt.getClass().getSimpleName();
+        return "TypedefDataType".equals(simple) || "Typedef".equals(simple);
+    }
+
+    private DataType getTypedefBaseType(DataType dt) {
+        if (dt == null) {
+            return null;
+        }
+        try {
+            Method m = dt.getClass().getMethod("getDataType");
+            Object v = m.invoke(dt);
+            if (v instanceof DataType) {
+                return (DataType) v;
+            }
+        } catch (Exception e) {
+        }
+        try {
+            Method m = dt.getClass().getMethod("getBaseDataType");
+            Object v = m.invoke(dt);
+            if (v instanceof DataType) {
+                return (DataType) v;
+            }
+        } catch (Exception e) {
+        }
+        return null;
     }
 
     private void writeMetadata(File outDir) throws Exception {
