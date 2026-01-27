@@ -5,6 +5,8 @@ import argparse
 import os
 import traceback
 from typing import Any
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 # Ensure we can import local modules if run as script
 if __name__ == "__main__" and __package__ is None:
@@ -18,9 +20,17 @@ from .mcp_service import McpService, McpError
 logging.basicConfig(stream=sys.stderr, level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("aida-cli-server")
 
+_print_lock = threading.Lock()
+
+def _print_response(response):
+    with _print_lock:
+        print(json.dumps(response))
+        sys.stdout.flush()
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", default=".", help="Path to IDA project directory")
+    parser.add_argument("--workers", type=int, default=None, help="Max worker threads for tool calls")
     args = parser.parse_args()
 
     project_path = args.project
@@ -38,17 +48,28 @@ def main():
     # Read lines from stdin
     # MCP Stdio transport uses newline-delimited JSON
     try:
-        for line in sys.stdin:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                request = json.loads(line)
-                handle_request(request, service)
-            except json.JSONDecodeError:
-                logger.error("Invalid JSON received")
-            except Exception as e:
-                logger.error(f"Error handling request: {e}")
+        max_workers = 4
+        try:
+            mw_env = os.environ.get("AIDA_MCP_WORKERS")
+            if mw_env:
+                max_workers = max(1, int(mw_env))
+        except Exception:
+            pass
+        if args.workers is not None:
+            max_workers = max(1, int(args.workers))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for line in sys.stdin:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    request = json.loads(line)
+                    executor.submit(handle_request, request, service)
+                except json.JSONDecodeError:
+                    response = _jsonrpc_error(None, -32700, "Parse error")
+                    _print_response(response)
+                except Exception as e:
+                    logger.error(f"Error handling request: {e}")
     except KeyboardInterrupt:
         logger.info("Server stopping...")
 
@@ -74,8 +95,7 @@ def _err(code, message, details=None):
 def handle_request(request: dict, service: McpService):
     if not isinstance(request, dict) or request.get("jsonrpc") != "2.0":
         response = _jsonrpc_error(None, -32600, "Invalid Request")
-        print(json.dumps(response))
-        sys.stdout.flush()
+        _print_response(response)
         return
 
     msg_type = request.get("method")
@@ -134,8 +154,7 @@ def handle_request(request: dict, service: McpService):
             response = _jsonrpc_error(msg_id, -32000, str(e))
     
     if msg_id is not None:
-        print(json.dumps(response))
-        sys.stdout.flush()
+        _print_response(response)
 
 if __name__ == "__main__":
     main()
