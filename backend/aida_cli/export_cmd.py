@@ -243,13 +243,14 @@ class ExportOrchestrator:
         os.makedirs(json_dir, exist_ok=True)
         thread_count = max(1, int(threads) if threads else 1)
         chunk_value = int(chunk_size) if chunk_size is not None else 0
+        script_args = f"\"{json_dir}\" --threads {thread_count} --chunk {chunk_value}"
+        if export_c_path:
+            script_args += f" --export-c \"{export_c_path}\""
         cmd = (
             f"\"{headless}\" \"{project_dir}\" \"{project_name}\" "
-            f"-import \"{input_path}\" -scriptPath \"{script_dir}\" "
-            f"-postScript AidaExport.java \"{json_dir}\" --threads {thread_count} --chunk {chunk_value} -overwrite"
+            f"-import \"{input_path}\" -scriptPath \"{script_dir}\" -overwrite "
+            f"-postScript AidaExport.java -- {script_args}"
         )
-        if export_c_path:
-             cmd += f" --export-c \"{export_c_path}\""
         res = self.run_command(cmd, stream_output=True, context="GHIDRA")
         if not res["ok"]:
             return None
