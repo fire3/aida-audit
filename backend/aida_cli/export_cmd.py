@@ -578,6 +578,13 @@ class ExportOrchestrator:
             export_base = os.path.splitext(os.path.basename(output_db))[0]
             export_root = os.path.join(os.path.dirname(output_db), f"{export_base}.ghidra_export")
             _safe_makedirs(export_root)
+            try:
+                out_dir = os.path.dirname(output_db)
+                copied_bin = _copy_to_out_dir(input_path, out_dir)
+                input_path = copied_bin
+                self.logger.log(f"Copied {os.path.basename(input_path)} -> {copied_bin}", context="ORCHESTRATOR")
+            except Exception as e:
+                self.logger.log(f"Warning: failed to copy input binary to output directory: {e}", context="ORCHESTRATOR")
 
         if os.path.exists(output_db):
             self.logger.log(f"Target database already exists: {output_db}", context="ORCHESTRATOR")
@@ -683,6 +690,15 @@ class ExportOrchestrator:
         output_db = os.path.abspath(output_db)
         self.logger.set_binary(os.path.basename(input_path))
             
+        # Ensure original binary is present in the output directory
+        try:
+            out_dir = os.path.dirname(output_db)
+            copied_bin = _copy_to_out_dir(input_path, out_dir)
+            input_path = copied_bin
+            self.logger.log(f"Copied {os.path.basename(input_path)} -> {copied_bin}", context="ORCHESTRATOR")
+        except Exception as e:
+            self.logger.log(f"Warning: failed to copy input binary to output directory: {e}", context="ORCHESTRATOR")
+
         if os.path.exists(output_db):
             self.logger.log(f"Target database already exists: {output_db}", context="ORCHESTRATOR")
             self.logger.log("Skipping export.", context="ORCHESTRATOR")
