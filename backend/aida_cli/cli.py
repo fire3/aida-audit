@@ -6,6 +6,7 @@ import re
 import shutil
 import glob
 import subprocess
+import hashlib
 from . import export_cmd
 from . import server_cmd
 
@@ -292,17 +293,22 @@ def _parse_cwe_list(values):
             normalized.append(value)
     return normalized or ["all"]
 
-def _resolve_cpg_path(cpg_arg):
-    if cpg_arg:
-        return cpg_arg
-    matches = glob.glob(os.path.join(os.getcwd(), "*.cpg.bin"))
-    if len(matches) == 1:
-        return matches[0]
-    if not matches:
-        print("Error: cpg file not provided and no *.cpg.bin found in current directory", file=sys.stderr)
-    else:
-        print("Error: multiple *.cpg.bin files found; please specify the cpg path", file=sys.stderr)
-    sys.exit(1)
+def _collect_cpg_paths(target):
+    if not target:
+        target = os.getcwd()
+    target = os.path.abspath(target)
+    if os.path.isfile(target):
+        return [target]
+    if not os.path.isdir(target):
+        print(f"Error: cpg path not found: {target}", file=sys.stderr)
+        sys.exit(1)
+    matches = glob.glob(os.path.join(target, "**", "*.cpg.bin"), recursive=True)
+    return sorted({os.path.abspath(p) for p in matches})
+
+def _make_cpg_tag(path):
+    base = os.path.splitext(os.path.splitext(os.path.basename(path))[0])[0]
+    digest = hashlib.sha256(path.encode("utf-8")).hexdigest()[:8]
+    return f"{base}.{digest}"
 
 def audit_main():
     scripts = _list_cwe_scripts()
@@ -311,7 +317,7 @@ def audit_main():
         epilog=_format_cwe_help(scripts),
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.add_argument("cpg", nargs="?", help="Path to CPG file (.cpg.bin)")
+    parser.add_argument("cpg", nargs="?", help="Path to CPG file (.cpg.bin) or directory")
     parser.add_argument("--joern-home", help="Joern installation directory (optional, defaults to JOERN_HOME)")
     parser.add_argument("--cwe", action="append", help="CWE id(s), comma or space separated, or 'all'")
     parser.add_argument("-o", "--output", required=True, help="Report output directory")
@@ -321,9 +327,9 @@ def audit_main():
         print("Error: no CWE scripts found", file=sys.stderr)
         sys.exit(1)
 
-    cpg_path = _resolve_cpg_path(args.cpg)
-    if not os.path.exists(cpg_path):
-        print(f"Error: cpg file not found: {cpg_path}", file=sys.stderr)
+    cpg_paths = _collect_cpg_paths(args.cpg)
+    if not cpg_paths:
+        print("Error: no *.cpg.bin files found", file=sys.stderr)
         sys.exit(1)
 
     joern_home = _resolve_joern_home(args.joern_home)
@@ -345,20 +351,25 @@ def audit_main():
         print(_format_cwe_help(scripts), file=sys.stderr)
         sys.exit(1)
 
-    for name in selected:
-        script_path = scripts[name]
-        report_path = os.path.join(output_dir, f"{name}.txt")
-        cmd = f"\"{joern_bin}\" --script \"{script_path}\" --param cpgFile=\"{cpg_path}\""
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        if result.returncode != 0:
-            if result.stdout:
-                print(result.stdout, file=sys.stderr)
-            if result.stderr:
-                print(result.stderr, file=sys.stderr)
-            sys.exit(result.returncode)
-        with open(report_path, "w", encoding="utf-8") as f:
-            f.write(result.stdout)
-        print(f"{name}: {report_path}")
+    for cpg_path in cpg_paths:
+        if not os.path.exists(cpg_path):
+            print(f"Error: cpg file not found: {cpg_path}", file=sys.stderr)
+            sys.exit(1)
+        cpg_tag = _make_cpg_tag(cpg_path)
+        for name in selected:
+            script_path = scripts[name]
+            report_path = os.path.join(output_dir, f"{cpg_tag}.{name}.json")
+            cmd = f"\"{joern_bin}\" --script \"{script_path}\" --param cpgFile=\"{cpg_path}\""
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+            if result.returncode != 0:
+                if result.stdout:
+                    print(result.stdout, file=sys.stderr)
+                if result.stderr:
+                    print(result.stderr, file=sys.stderr)
+                sys.exit(result.returncode)
+            with open(report_path, "w", encoding="utf-8") as f:
+                f.write(result.stdout)
+            print(f"{name}: {report_path}")
 
 def workspace_main():
     parser = argparse.ArgumentParser(description="Initialize a local MCP workspace")

@@ -30,19 +30,38 @@ def formatLoc(c: io.shiftleft.codepropertygraph.generated.nodes.Call) = {
   s"$mf:$ln"
 }
 
-def run() = {
+def escapeJson(s: String) = {
+  s.replace("\\", "\\\\")
+    .replace("\"", "\\\"")
+    .replace("\r", "\\r")
+    .replace("\n", "\\n")
+    .replace("\t", "\\t")
+}
+
+def jsonString(s: String) = "\"" + escapeJson(s) + "\""
+
+def runJson() = {
   val sinks = cpg.call.name(sinkPattern).l
-  sinks.foreach { s =>
+  val findings = sinks.flatMap { s =>
     val cmdArgs = commandArgsFor(s)
     val flows = cmdArgs.reachableBy(sourceBufs).flows
     if (flows.nonEmpty) {
-      println(s"CWE-78 candidate at sink " + s.name.l.headOption.getOrElse("") + " @ " + formatLoc(s))
-      flows.p
+      val sinkName = s.name.l.headOption.getOrElse("")
+      val location = formatLoc(s)
+      val flowStrings = flows.map(_.toString)
+      List((sinkName, location, flowStrings))
+    } else {
+      List()
     }
   }
+  val jsonEntries = findings.map { case (sinkName, location, flowStrings) =>
+    val flowsJson = flowStrings.map(jsonString).mkString("[", ",", "]")
+    s"""{"cwe":"CWE-78","sink":${jsonString(sinkName)},"location":${jsonString(location)},"flows":$flowsJson}"""
+  }
+  jsonEntries.mkString("[", ",", "]")
 }
 
 @main def exec(cpgFile: String) = {
   importCpg(cpgFile)
-  run()
+  println(runJson())
 }
