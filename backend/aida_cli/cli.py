@@ -321,7 +321,7 @@ def audit_main():
     parser.add_argument("cpg", nargs="?", help="Path to CPG file (.cpg.bin) or directory")
     parser.add_argument("--joern-home", help="Joern installation directory (optional, defaults to JOERN_HOME)")
     parser.add_argument("--cwe", action="append", help="CWE id(s), comma or space separated, or 'all'")
-    parser.add_argument("-o", "--output", required=True, help="Report output directory")
+    parser.add_argument("-o", "--output", default=".", help="Report output directory")
     args = parser.parse_args()
 
     if not scripts:
