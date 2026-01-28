@@ -4,6 +4,8 @@ import json
 import argparse
 import re
 import shutil
+import glob
+import subprocess
 from . import export_cmd
 from . import server_cmd
 
@@ -14,6 +16,7 @@ def _print_main_help():
     print("  serve   - Start MCP server")
     print("  install - Generate MCP client config")
     print("  workspace - Initialize a local workspace")
+    print("  audit   - Run Joern CWE audit scripts")
 
 def _build_opencode_stdio_config(project, python_cmd, server_name):
     command = python_cmd
@@ -207,6 +210,156 @@ def _copy_skills(skills_root, target_root):
         copied.append(name)
     return copied
 
+def _joern_scripts_root():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "joern")
+
+def _list_cwe_scripts():
+    root = _joern_scripts_root()
+    if not os.path.isdir(root):
+        return {}
+    scripts = {}
+    for name in os.listdir(root):
+        if not name.lower().endswith(".sc"):
+            continue
+        key = os.path.splitext(name)[0].lower()
+        scripts[key] = os.path.join(root, name)
+    return scripts
+
+def _format_cwe_help(scripts):
+    if not scripts:
+        return "Available CWE scripts:\n  (none)"
+    lines = ["Available CWE scripts:"]
+    for name in sorted(scripts.keys()):
+        lines.append(f"  {name}")
+    return "\n".join(lines)
+
+def _resolve_joern_home(joern_home):
+    if joern_home:
+        return os.path.abspath(joern_home)
+    env_home = os.environ.get("JOERN_HOME")
+    if env_home:
+        return os.path.abspath(env_home)
+    return None
+
+def _get_joern_bin(joern_home):
+    if joern_home:
+        candidates = [
+            os.path.join(joern_home, "joern"),
+            os.path.join(joern_home, "joern.bat"),
+            os.path.join(joern_home, "bin", "joern"),
+            os.path.join(joern_home, "bin", "joern.bat"),
+        ]
+        for cand in candidates:
+            if os.path.exists(cand):
+                return cand
+    for name in ("joern", "joern.bat"):
+        path = shutil.which(name)
+        if path:
+            return path
+    return None
+
+def _normalize_cwe_token(token):
+    if token is None:
+        return None
+    value = token.strip().lower()
+    if not value:
+        return None
+    if value == "all":
+        return "all"
+    value = value.replace("-", "_")
+    if value.startswith("cwe_"):
+        return value
+    if value.startswith("cwe") and value[3:].isdigit():
+        return f"cwe_{value[3:]}"
+    if value.isdigit():
+        return f"cwe_{value}"
+    return value
+
+def _parse_cwe_list(values):
+    if not values:
+        return ["all"]
+    tokens = []
+    for raw in values:
+        tokens.extend([t for t in re.split(r"[,\s]+", raw) if t])
+    normalized = []
+    for token in tokens:
+        value = _normalize_cwe_token(token)
+        if not value:
+            continue
+        if value == "all":
+            return ["all"]
+        if value not in normalized:
+            normalized.append(value)
+    return normalized or ["all"]
+
+def _resolve_cpg_path(cpg_arg):
+    if cpg_arg:
+        return cpg_arg
+    matches = glob.glob(os.path.join(os.getcwd(), "*.cpg.bin"))
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        print("Error: cpg file not provided and no *.cpg.bin found in current directory", file=sys.stderr)
+    else:
+        print("Error: multiple *.cpg.bin files found; please specify the cpg path", file=sys.stderr)
+    sys.exit(1)
+
+def audit_main():
+    scripts = _list_cwe_scripts()
+    parser = argparse.ArgumentParser(
+        description="Run Joern CWE audit scripts",
+        epilog=_format_cwe_help(scripts),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    parser.add_argument("cpg", nargs="?", help="Path to CPG file (.cpg.bin)")
+    parser.add_argument("--joern-home", help="Joern installation directory (optional, defaults to JOERN_HOME)")
+    parser.add_argument("--cwe", action="append", help="CWE id(s), comma or space separated, or 'all'")
+    parser.add_argument("-o", "--output", required=True, help="Report output directory")
+    args = parser.parse_args()
+
+    if not scripts:
+        print("Error: no CWE scripts found", file=sys.stderr)
+        sys.exit(1)
+
+    cpg_path = _resolve_cpg_path(args.cpg)
+    if not os.path.exists(cpg_path):
+        print(f"Error: cpg file not found: {cpg_path}", file=sys.stderr)
+        sys.exit(1)
+
+    joern_home = _resolve_joern_home(args.joern_home)
+    joern_bin = _get_joern_bin(joern_home)
+    if not joern_bin:
+        print("Error: joern-cli not found. Use --joern-home or set JOERN_HOME", file=sys.stderr)
+        sys.exit(1)
+
+    output_dir = os.path.abspath(args.output)
+    os.makedirs(output_dir, exist_ok=True)
+
+    selected = _parse_cwe_list(args.cwe)
+    if selected == ["all"]:
+        selected = sorted(scripts.keys())
+
+    missing = [name for name in selected if name not in scripts]
+    if missing:
+        print("Error: unknown CWE script(s): " + ", ".join(missing), file=sys.stderr)
+        print(_format_cwe_help(scripts), file=sys.stderr)
+        sys.exit(1)
+
+    for name in selected:
+        script_path = scripts[name]
+        report_path = os.path.join(output_dir, f"{name}.txt")
+        cmd = f"\"{joern_bin}\" --script \"{script_path}\" --param cpgFile=\"{cpg_path}\""
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        if result.returncode != 0:
+            if result.stdout:
+                print(result.stdout, file=sys.stderr)
+            if result.stderr:
+                print(result.stderr, file=sys.stderr)
+            sys.exit(result.returncode)
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write(result.stdout)
+        print(f"{name}: {report_path}")
+
 def workspace_main():
     parser = argparse.ArgumentParser(description="Initialize a local MCP workspace")
     parser.add_argument("--init", required=True, help="Workspace directory to initialize")
@@ -263,9 +416,11 @@ def main():
         config_main()
     elif command == "workspace":
         workspace_main()
+    elif command == "audit":
+        audit_main()
     else:
         print(f"Unknown command: {command}")
-        print("Available commands: export, serve, config, workspace")
+        print("Available commands: export, serve, config, workspace, audit")
         sys.exit(1)
 
 if __name__ == "__main__":
