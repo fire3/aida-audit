@@ -1,5 +1,8 @@
 import io.shiftleft.semanticcpg.language.*
 import io.joern.dataflowengineoss.language.*
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Paths
 
 def sinkPattern = "(?i)^(system|popen|execl|execv|execle|execve|execvp|WinExec|ShellExecute(Ex)?|CreateProcess(A|W)?)$"
 
@@ -41,26 +44,29 @@ def jsonString(s: String) = "\"" + escapeJson(s) + "\""
 
 def runJson() = {
   val sinks = cpg.call.name(sinkPattern).toList
-  val findings = sinks.flatMap { s =>
+  val entries = sinks.flatMap { s =>
     val sinkName = s.name.toLowerCase
     val cmdArgs = commandArgsFor(s.id, sinkName)
-    val flowsPretty = cmdArgs.reachableByFlows(sourceBufs).p
-    if (flowsPretty.nonEmpty) {
+    val sources = cmdArgs.reachableBy(sourceBufs).toList
+    if (sources.nonEmpty) {
       val location = formatLoc(s)
-      val flowStrings = flowsPretty.toList
-      List((sinkName, location, flowStrings))
+      val sinkJson = cpg.call.id(s.id).toJson
+      val sourcesJson = sources.toJson
+      val entry = s"""{"cwe":"CWE-78","sink":$sinkJson,"location":${jsonString(location)},"sources":$sourcesJson}"""
+      List(entry)
     } else {
       List()
     }
   }
-  val jsonEntries = findings.map { case (sinkName, location, flowStrings) =>
-    val flowsJson = flowStrings.map(jsonString).mkString("[", ",", "]")
-    s"""{"cwe":"CWE-78","sink":${jsonString(sinkName)},"location":${jsonString(location)},"flows":$flowsJson}"""
-  }
-  jsonEntries.mkString("[", ",", "]")
+  entries.mkString("[", ",", "]")
 }
 
-@main def exec(cpgFile: String) = {
+@main def exec(cpgFile: String, outputFile: String = "") = {
   importCpg(cpgFile)
-  println(runJson())
+  val json = runJson()
+  if (outputFile != null && outputFile.nonEmpty) {
+    Files.write(Paths.get(outputFile), json.getBytes(StandardCharsets.UTF_8))
+  } else {
+    println(json)
+  }
 }

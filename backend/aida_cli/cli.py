@@ -360,7 +360,8 @@ def audit_main():
             script_path = scripts[name]
             report_path = os.path.join(output_dir, f"{cpg_tag}.{name}.json")
             safe_cpg = cpg_path.replace("\\", "/")
-            cmd = f"\"{joern_bin}\" --script \"{script_path}\" --param \"cpgFile={safe_cpg}\""
+            safe_report = report_path.replace("\\", "/")
+            cmd = f"\"{joern_bin}\" --script \"{script_path}\" --param \"cpgFile={safe_cpg}\" --param \"outputFile={safe_report}\""
             result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
             if result.returncode != 0:
                 if result.stdout:
@@ -368,8 +369,13 @@ def audit_main():
                 if result.stderr:
                     print(result.stderr, file=sys.stderr)
                 sys.exit(result.returncode)
-            with open(report_path, "w", encoding="utf-8") as f:
-                f.write(result.stdout)
+            if not os.path.exists(report_path):
+                if result.stdout:
+                    print(result.stdout, file=sys.stderr)
+                if result.stderr:
+                    print(result.stderr, file=sys.stderr)
+                print(f"Error: report not generated: {report_path}", file=sys.stderr)
+                sys.exit(1)
             print(f"{name}: {report_path}")
 
 def workspace_main():
