@@ -228,6 +228,51 @@ class ExportOrchestrator:
                 return cand
         return None
 
+    def _resolve_joern_home(self, joern_home):
+        if joern_home:
+            return os.path.abspath(joern_home)
+        env_home = os.environ.get("JOERN_HOME")
+        if env_home:
+            return os.path.abspath(env_home)
+        return None
+
+    def _get_joern_parse(self, joern_home):
+        if not joern_home:
+            return None
+        candidates = [
+            os.path.join(joern_home, "joern-parse"),
+            os.path.join(joern_home, "joern-parse.bat"),
+            os.path.join(joern_home, "bin", "joern-parse"),
+            os.path.join(joern_home, "bin", "joern-parse.bat"),
+        ]
+        for cand in candidates:
+            if os.path.exists(cand):
+                return cand
+        return None
+
+    def _run_joern_parse(self, c_path, cpg_path, joern_home):
+        joern_home = self._resolve_joern_home(joern_home)
+        joern_parse = self._get_joern_parse(joern_home)
+        if not joern_parse:
+            raise FileNotFoundError("joern-parse not found")
+        cmd = f"\"{joern_parse}\" --language c --output \"{cpg_path}\" \"{c_path}\""
+        return self.run_command(cmd, stream_output=True, context="JOERN")
+
+    def _export_cpg_cpg(self, c_path, cpg_path, joern_home):
+        if not c_path or not os.path.exists(c_path):
+            self.logger.log(f"Error: C file not found: {c_path}", context="JOERN")
+            return False
+        if os.path.exists(cpg_path):
+            self.logger.log(f"CPG already exists: {cpg_path}", context="JOERN")
+            return True
+        res = self._run_joern_parse(c_path, cpg_path, joern_home)
+        if not res["ok"]:
+            return False
+        if not os.path.exists(cpg_path):
+            self.logger.log(f"Error: CPG not generated: {cpg_path}", context="JOERN")
+            return False
+        return True
+
     def _run_ghidra_headless(self, input_path, export_dir, ghidra_home, threads=None, chunk_size=None, export_c_path=None):
         ghidra_home = self._resolve_ghidra_home(ghidra_home)
         headless = self._get_ghidra_headless(ghidra_home)
@@ -541,7 +586,7 @@ class ExportOrchestrator:
             "worker_perf_paths": worker_perf_paths
         }
 
-    def process_single_file_ghidra(self, input_path, output_db, ghidra_home=None, export_c=False):
+    def process_single_file_ghidra(self, input_path, output_db, ghidra_home=None, export_c=False, export_cpg=False, joern_home=None):
         input_path = os.path.abspath(input_path)
         if not os.path.exists(input_path):
             self.logger.log(f"Error: Input file '{input_path}' not found.", context="ERROR")
@@ -586,8 +631,17 @@ class ExportOrchestrator:
             except Exception as e:
                 self.logger.log(f"Warning: failed to copy input binary to output directory: {e}", context="ORCHESTRATOR")
 
+        c_path = os.path.splitext(output_db)[0] + ".c"
+        cpg_path = os.path.splitext(output_db)[0] + ".cpg.bin"
+        c_exists = os.path.exists(c_path)
+
         if os.path.exists(output_db):
             self.logger.log(f"Target database already exists: {output_db}", context="ORCHESTRATOR")
+            if export_cpg:
+                if not c_exists:
+                    self.logger.log(f"Error: C file not found: {c_path}", context="JOERN")
+                    return False
+                return self._export_cpg_cpg(c_path, cpg_path, joern_home)
             self.logger.log("Skipping export.", context="ORCHESTRATOR")
             return True
 
@@ -595,9 +649,12 @@ class ExportOrchestrator:
         self.logger.log(f"Output : {output_db}", context="ORCHESTRATOR")
         
         export_c_path = None
-        if export_c:
-            export_c_path = os.path.splitext(output_db)[0] + ".c"
+        want_c = export_c or export_cpg
+        if want_c and not c_exists:
+            export_c_path = c_path
             self.logger.log(f"Export C: {export_c_path}", context="ORCHESTRATOR")
+        elif want_c and c_exists:
+            self.logger.log(f"Reuse C: {c_path}", context="ORCHESTRATOR")
 
         temp_dir = export_root or tempfile.mkdtemp(prefix="ghidra_export_")
         json_dir = None
@@ -612,7 +669,12 @@ class ExportOrchestrator:
             )
             if not json_dir:
                 return False
-            return import_ghidra_export(json_dir, output_db, self.logger)
+            ok = import_ghidra_export(json_dir, output_db, self.logger)
+            if not ok:
+                return False
+            if export_cpg:
+                return self._export_cpg_cpg(c_path, cpg_path, joern_home)
+            return True
         finally:
             if cleanup_export_root and not (json_dir and os.path.exists(json_dir)):
                 try:
@@ -620,7 +682,7 @@ class ExportOrchestrator:
                 except Exception:
                     pass
 
-    def process_directory_ghidra(self, scan_dir, out_dir, target_binary, ghidra_home=None, export_c=False):
+    def process_directory_ghidra(self, scan_dir, out_dir, target_binary, ghidra_home=None, export_c=False, export_cpg=False, joern_home=None):
         scan_dir = os.path.abspath(scan_dir)
         out_dir = os.path.abspath(out_dir)
 
@@ -666,6 +728,8 @@ class ExportOrchestrator:
                     output_db=db_path,
                     ghidra_home=ghidra_home,
                     export_c=export_c,
+                    export_cpg=export_cpg,
+                    joern_home=joern_home,
                 )
                 if export_c and success:
                     # C export is handled by process_single_file_ghidra
@@ -678,7 +742,7 @@ class ExportOrchestrator:
             self.logger.log(f"Failed to process {name}: {e}", context="ERROR")
             return None
 
-    def process_single_file(self, input_path, output_db, save_idb=None, export_c=False):
+    def process_single_file(self, input_path, output_db, save_idb=None, export_c=False, export_cpg=False, joern_home=None):
         input_path = os.path.abspath(input_path)
         if not os.path.exists(input_path):
             self.logger.log(f"Error: Input file '{input_path}' not found.", context="ERROR")
@@ -699,8 +763,17 @@ class ExportOrchestrator:
         except Exception as e:
             self.logger.log(f"Warning: failed to copy input binary to output directory: {e}", context="ORCHESTRATOR")
 
+        c_path = os.path.splitext(output_db)[0] + ".c"
+        cpg_path = os.path.splitext(output_db)[0] + ".cpg.bin"
+        c_exists = os.path.exists(c_path)
+
         if os.path.exists(output_db):
             self.logger.log(f"Target database already exists: {output_db}", context="ORCHESTRATOR")
+            if export_cpg:
+                if not c_exists:
+                    self.logger.log(f"Error: C file not found: {c_path}", context="JOERN")
+                    return False
+                return self._export_cpg_cpg(c_path, cpg_path, joern_home)
             self.logger.log("Skipping export.", context="ORCHESTRATOR")
             return True
             
@@ -733,8 +806,11 @@ class ExportOrchestrator:
                 break
         
         export_c_path = None
-        if export_c:
-            export_c_path = os.path.splitext(output_db)[0] + ".c"
+        want_c = export_c or export_cpg
+        if want_c and not c_exists:
+            export_c_path = c_path
+        elif want_c and c_exists:
+            self.logger.log(f"Reuse C: {c_path}", context="ORCHESTRATOR")
 
         if save_idb is None:
             save_idb = os.path.splitext(output_db)[0]
@@ -787,6 +863,8 @@ class ExportOrchestrator:
                     if wp:
                         worker_perfs.append(wp)
                 self.print_full_performance_summary(stats, master_perf, worker_perfs)
+            if export_cpg:
+                return self._export_cpg_cpg(c_path, cpg_path, joern_home)
             return True
             
         finally:
@@ -795,7 +873,7 @@ class ExportOrchestrator:
             except:
                  pass
 
-    def process_directory(self, scan_dir, out_dir, target_binary, export_c=False):
+    def process_directory(self, scan_dir, out_dir, target_binary, export_c=False, export_cpg=False, joern_home=None):
         scan_dir = os.path.abspath(scan_dir)
         out_dir = os.path.abspath(out_dir)
         
@@ -840,6 +918,8 @@ class ExportOrchestrator:
                     output_db=db_path,
                     save_idb=None,
                     export_c=export_c,
+                    export_cpg=export_cpg,
+                    joern_home=joern_home,
                 )
                 if path == target_path:
                     out_db = db_path if success else None
@@ -865,6 +945,8 @@ def main():
     parser.add_argument("--backend", choices=["ida", "ghidra"], default="ida", help="Export backend (ida or ghidra)")
     parser.add_argument("--ghidra-home", help="Ghidra installation directory (optional, defaults to GHIDRA_HOME)")
     parser.add_argument("--export-c", action="store_true", help="Export decompiled C file")
+    parser.add_argument("--joern-home", help="Joern installation directory (optional, defaults to JOERN_HOME)")
+    parser.add_argument("--export-cpg", action="store_true", help="Export Joern CPG database file")
 
     args = parser.parse_args()
     
@@ -916,6 +998,8 @@ def main():
                         target_binary=target_path,
                         ghidra_home=args.ghidra_home,
                         export_c=args.export_c,
+                        export_cpg=args.export_cpg,
+                        joern_home=args.joern_home,
                     )
                 else:
                     out_db = orchestrator.process_directory(
@@ -923,6 +1007,8 @@ def main():
                         out_dir=output_dir,
                         target_binary=target_path,
                         export_c=args.export_c,
+                        export_cpg=args.export_cpg,
+                        joern_home=args.joern_home,
                     )
         except Exception as e:
             print(f"Error: {e}")
@@ -945,13 +1031,17 @@ def main():
                     output_db=output_db,
                     ghidra_home=args.ghidra_home,
                     export_c=args.export_c,
+                    export_cpg=args.export_cpg,
+                    joern_home=args.joern_home,
                 )
             else:
                 success = orchestrator.process_single_file(
                     input_path=target_path,
                     output_db=output_db,
                     save_idb=None,
-                    export_c=args.export_c
+                    export_c=args.export_c,
+                    export_cpg=args.export_cpg,
+                    joern_home=args.joern_home,
                 )
             if args.export_c and success and args.backend == "ghidra":
                 # C export is handled by process_single_file_ghidra
