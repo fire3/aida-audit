@@ -7,6 +7,7 @@ import shutil
 import glob
 import subprocess
 import hashlib
+import tempfile
 from . import export_cmd
 from . import server_cmd
 
@@ -356,27 +357,28 @@ def audit_main():
             print(f"Error: cpg file not found: {cpg_path}", file=sys.stderr)
             sys.exit(1)
         cpg_tag = _make_cpg_tag(cpg_path)
-        for name in selected:
-            script_path = scripts[name]
-            report_path = os.path.join(output_dir, f"{cpg_tag}.{name}.json")
-            safe_cpg = cpg_path.replace("\\", "/")
-            safe_report = report_path.replace("\\", "/")
-            cmd = f"\"{joern_bin}\" --script \"{script_path}\" --param \"cpgFile={safe_cpg}\" --param \"outputFile={safe_report}\""
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-            if result.returncode != 0:
-                if result.stdout:
-                    print(result.stdout, file=sys.stderr)
-                if result.stderr:
-                    print(result.stderr, file=sys.stderr)
-                sys.exit(result.returncode)
-            if not os.path.exists(report_path):
-                if result.stdout:
-                    print(result.stdout, file=sys.stderr)
-                if result.stderr:
-                    print(result.stderr, file=sys.stderr)
-                print(f"Error: report not generated: {report_path}", file=sys.stderr)
-                sys.exit(1)
-            print(f"{name}: {report_path}")
+        with tempfile.TemporaryDirectory(prefix="joern_audit_") as temp_dir:
+            for name in selected:
+                script_path = scripts[name]
+                report_path = os.path.join(output_dir, f"{cpg_tag}.{name}.json")
+                safe_cpg = cpg_path.replace("\\", "/")
+                safe_report = report_path.replace("\\", "/")
+                cmd = f"\"{joern_bin}\" --script \"{script_path}\" --param \"cpgFile={safe_cpg}\" --param \"outputFile={safe_report}\""
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=temp_dir)
+                if result.returncode != 0:
+                    if result.stdout:
+                        print(result.stdout, file=sys.stderr)
+                    if result.stderr:
+                        print(result.stderr, file=sys.stderr)
+                    sys.exit(result.returncode)
+                if not os.path.exists(report_path):
+                    if result.stdout:
+                        print(result.stdout, file=sys.stderr)
+                    if result.stderr:
+                        print(result.stderr, file=sys.stderr)
+                    print(f"Error: report not generated: {report_path}", file=sys.stderr)
+                    sys.exit(1)
+                print(f"{name}: {report_path}")
 
 def workspace_main():
     parser = argparse.ArgumentParser(description="Initialize a local MCP workspace")
