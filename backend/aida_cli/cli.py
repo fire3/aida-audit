@@ -382,8 +382,8 @@ def audit_main():
 
 def workspace_main():
     parser = argparse.ArgumentParser(description="Initialize a local MCP workspace")
-    parser.add_argument("--init", required=True, help="Workspace directory to initialize")
-    parser.add_argument("--transport", choices=["stdio", "http"], default="stdio")
+    parser.add_argument("--init", required=True, default=".", help="Workspace directory to initialize")
+    parser.add_argument("--transport", choices=["stdio", "http"], default="http")
     parser.add_argument("--python", dest="python_cmd", default=sys.executable)
     parser.add_argument("--url", default="http://127.0.0.1:8765/mcp")
     args = parser.parse_args()
