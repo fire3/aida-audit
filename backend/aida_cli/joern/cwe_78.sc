@@ -3,15 +3,14 @@ import io.joern.dataflowengineoss.language.*
 
 def sinkPattern = "(?i)^(system|popen|execl|execv|execle|execve|execvp|WinExec|ShellExecute(Ex)?|CreateProcess(A|W)?)$"
 
-def commandArgsFor(c: io.shiftleft.codepropertygraph.generated.nodes.Call) = {
-  val n = c.name.l.headOption.getOrElse("").toLowerCase
-  if (n == "system") c.argument(1)
-  else if (n == "popen") c.argument(1)
-  else if (n.startsWith("exec")) c.argument(1)
-  else if (n.startsWith("createprocess")) c.argument(2)
-  else if (n.startsWith("shellexecute")) c.argument(2)
-  else if (n == "winexec") c.argument(1)
-  else c.argument
+def commandArgsFor(callId: Long, callName: String) = {
+  if (callName == "system") cpg.call.id(callId).argument(1)
+  else if (callName == "popen") cpg.call.id(callId).argument(1)
+  else if (callName.startsWith("exec")) cpg.call.id(callId).argument(1)
+  else if (callName.startsWith("createprocess")) cpg.call.id(callId).argument(2)
+  else if (callName.startsWith("shellexecute")) cpg.call.id(callId).argument(2)
+  else if (callName == "winexec") cpg.call.id(callId).argument(1)
+  else cpg.call.id(callId).argument
 }
 
 def sourceBufs = {
@@ -25,8 +24,8 @@ def sourceBufs = {
 }
 
 def formatLoc(c: io.shiftleft.codepropertygraph.generated.nodes.Call) = {
-  val mf = c.methodFullName.l.headOption.getOrElse("")
-  val ln = c.lineNumber.l.headOption.getOrElse(-1)
+  val mf = Option(c.methodFullName).getOrElse("")
+  val ln = c.lineNumber.getOrElse(-1)
   s"$mf:$ln"
 }
 
@@ -41,14 +40,14 @@ def escapeJson(s: String) = {
 def jsonString(s: String) = "\"" + escapeJson(s) + "\""
 
 def runJson() = {
-  val sinks = cpg.call.name(sinkPattern).l
+  val sinks = cpg.call.name(sinkPattern).toList
   val findings = sinks.flatMap { s =>
-    val cmdArgs = commandArgsFor(s)
-    val flows = cmdArgs.reachableBy(sourceBufs).flows
-    if (flows.nonEmpty) {
-      val sinkName = s.name.l.headOption.getOrElse("")
+    val sinkName = s.name.toLowerCase
+    val cmdArgs = commandArgsFor(s.id, sinkName)
+    val flowsPretty = cmdArgs.reachableByFlows(sourceBufs).p
+    if (flowsPretty.nonEmpty) {
       val location = formatLoc(s)
-      val flowStrings = flows.map(_.toString)
+      val flowStrings = flowsPretty.toList
       List((sinkName, location, flowStrings))
     } else {
       List()

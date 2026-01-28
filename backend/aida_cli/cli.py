@@ -359,7 +359,8 @@ def audit_main():
         for name in selected:
             script_path = scripts[name]
             report_path = os.path.join(output_dir, f"{cpg_tag}.{name}.json")
-            cmd = f"\"{joern_bin}\" --script \"{script_path}\" --param cpgFile=\"{cpg_path}\""
+            safe_cpg = cpg_path.replace("\\", "/")
+            cmd = f"\"{joern_bin}\" --script \"{script_path}\" --param \"cpgFile={safe_cpg}\""
             result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
             if result.returncode != 0:
                 if result.stdout:
