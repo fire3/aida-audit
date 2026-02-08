@@ -37,6 +37,156 @@ class IDACPGExporter:
             return ida_lines.tag_remove(s)
         return s
 
+    def _get_maturity(self):
+        if 'ida_hexrays' in globals():
+            return getattr(ida_hexrays, "MMAT_LVARS", ida_hexrays.MMAT_LOCOPT)
+        return None
+
+    def _get_maturity_name(self):
+        if 'ida_hexrays' in globals() and hasattr(ida_hexrays, "MMAT_LVARS"):
+            return "MMAT_LVARS"
+        return "MMAT_LOCOPT"
+
+    def _opcode_name(self, opcode):
+        if 'ida_hexrays' in globals() and hasattr(ida_hexrays, "get_mcode_name"):
+            try:
+                return ida_hexrays.get_mcode_name(opcode)
+            except Exception:
+                pass
+        return str(opcode)
+
+    def _mop_embedded_insn(self, mop):
+        if mop is None:
+            return None
+        if hasattr(mop, "t") and hasattr(ida_hexrays, "mop_d") and mop.t == ida_hexrays.mop_d:
+            return mop.d
+        if hasattr(mop, "insn"):
+            return mop.insn
+        if hasattr(mop, "f") and hasattr(mop.f, "insn"):
+            return mop.f.insn
+        return None
+
+    def _insn_bits(self, insn):
+        if hasattr(insn, "d") and insn.d and not insn.d.empty():
+            return insn.d.size * 8
+        if hasattr(insn, "l") and insn.l and not insn.l.empty():
+            return insn.l.size * 8
+        if hasattr(insn, "r") and insn.r and not insn.r.empty():
+            return insn.r.size * 8
+        return 0
+
+    def _mop_to_expr_operand(self, mop):
+        embedded = self._mop_embedded_insn(mop)
+        if embedded:
+            return self._insn_to_expr(embedded)
+        return self._normalize_operand(mop)
+
+    def _insn_to_expr(self, insn):
+        args = []
+        if hasattr(insn, "l") and insn.l and not insn.l.empty():
+            op = self._mop_to_expr_operand(insn.l)
+            if op:
+                args.append(op)
+        if hasattr(insn, "r") and insn.r and not insn.r.empty():
+            op = self._mop_to_expr_operand(insn.r)
+            if op:
+                args.append(op)
+        if hasattr(insn, "d") and insn.d and not insn.d.empty():
+            op = self._mop_to_expr_operand(insn.d)
+            if op:
+                args.append(op)
+        return {
+            "kind": "expr",
+            "bits": self._insn_bits(insn),
+            "repr": self._strip_tags(str(insn._print())),
+            "v": {
+                "op": self._opcode_name(insn.opcode),
+                "args": args
+            }
+        }
+
+    def _collect_reads_from_mop(self, mop, reads, calls, role, index):
+        if mop is None or mop.empty():
+            return
+        embedded = self._mop_embedded_insn(mop)
+        if embedded:
+            self._collect_reads_from_insn(embedded, reads, calls, False)
+            return
+        norm = self._normalize_operand(mop)
+        if norm:
+            reads.append({"role": role, "index": index, "op": norm})
+
+    def _extract_call_args(self, insn):
+        args = []
+        if hasattr(insn, "r") and insn.r and not insn.r.empty():
+            mop = insn.r
+            if hasattr(mop, "t") and hasattr(ida_hexrays, "mop_f") and mop.t == ida_hexrays.mop_f and hasattr(mop, "f") and hasattr(mop.f, "args"):
+                for a in mop.f.args:
+                    op = self._mop_to_expr_operand(a)
+                    if op:
+                        args.append(op)
+            elif hasattr(mop, "args") and isinstance(mop.args, (list, tuple)):
+                for a in mop.args:
+                    op = self._mop_to_expr_operand(a)
+                    if op:
+                        args.append(op)
+            else:
+                op = self._mop_to_expr_operand(mop)
+                if op:
+                    args.append(op)
+        return args
+
+    def _record_call(self, insn, reads, calls):
+        callee_name = None
+        callee_ea = None
+        target = None
+        callee_norm = None
+        if hasattr(insn, "l") and insn.l and not insn.l.empty():
+            callee_norm = self._mop_to_expr_operand(insn.l)
+            if insn.l.t == ida_hexrays.mop_v:
+                addr = insn.l.g
+                callee_ea = f"0x{addr:x}"
+                name = ida_name.get_name(addr)
+                if name:
+                    callee_name = name
+            elif hasattr(ida_hexrays, "mop_h") and insn.l.t == ida_hexrays.mop_h:
+                callee_name = insn.l.helper
+            else:
+                target = callee_norm
+        kind = "unknown"
+        if callee_ea or callee_name:
+            kind = "direct"
+        elif target:
+            kind = "indirect"
+        args = self._extract_call_args(insn)
+        ret = None
+        if hasattr(insn, "d") and insn.d and not insn.d.empty():
+            ret = self._normalize_operand(insn.d)
+        call_info = {
+            "index": len(calls),
+            "kind": kind,
+            "callee_name": callee_name,
+            "callee_ea": callee_ea,
+            "target": target,
+            "args": args,
+            "ret": ret
+        }
+        calls.append(call_info)
+        if callee_norm:
+            reads.append({"role": "callee", "index": 0, "op": callee_norm})
+        for i, arg in enumerate(args):
+            reads.append({"role": "arg", "index": i, "op": arg})
+
+    def _collect_reads_from_insn(self, insn, reads, calls, is_root):
+        if 'ida_hexrays' in globals() and ida_hexrays.is_mcode_call(insn.opcode):
+            self._record_call(insn, reads, calls)
+        if hasattr(insn, "l"):
+            self._collect_reads_from_mop(insn.l, reads, calls, "src", 0)
+        if hasattr(insn, "r"):
+            self._collect_reads_from_mop(insn.r, reads, calls, "src", 1)
+        if not is_root and hasattr(insn, "d"):
+            self._collect_reads_from_mop(insn.d, reads, calls, "src", 2)
+
     def export(self):
         self.log("Waiting for auto-analysis to finish...")
         if 'ida_auto' in globals():
@@ -154,7 +304,7 @@ class IDACPGExporter:
         # Type string
         tinfo = ida_typeinf.tinfo_t()
         # Try multiple ways to get tinfo
-        if ida_nalt.get_tinfo(tinfo, func_ea) or ida_hexrays.get_func_tinfo(tinfo, func_ea):
+        if ida_nalt.get_tinfo(tinfo, func_ea):
              res["type_str"] = str(tinfo)
         else:
             # Fallback: guess type from function flags/info
@@ -164,7 +314,7 @@ class IDACPGExporter:
 
         # Decompile / Microcode
         try:
-            # 1. Generate Microcode (LOCOPT)
+            # 1. Generate Microcode (LVARS)
             # Use gen_microcode to get mba at specific maturity
             # Construct mba_ranges_t for the function (handles chunks)
             mbr = ida_hexrays.mba_ranges_t()
@@ -178,7 +328,7 @@ class IDACPGExporter:
                 hf, 
                 None, 
                 ida_hexrays.DECOMP_WARNINGS, 
-                ida_hexrays.MMAT_LOCOPT
+                self._get_maturity()
             )
             
             if mba:
@@ -271,7 +421,7 @@ class IDACPGExporter:
                 insn_idx += 1
                 
         return {
-            "maturity": "MMAT_LOCOPT",
+            "maturity": self._get_maturity_name(),
             "blocks": blocks,
             "cfg_edges": cfg_edges,
             "insns": insns
@@ -287,73 +437,26 @@ class IDACPGExporter:
         # However, the design doc example shows "m_call".
         # We might need a map.
         
-        # Normalized operands
         reads = []
         writes = []
-        
-        # Helper to add read/write
-        def add_op(role, index, mop, is_write):
-            norm = self._normalize_operand(mop)
+        calls = []
+
+        if hasattr(insn, "d") and insn.d and not insn.d.empty():
+            norm = self._normalize_operand(insn.d)
             if norm:
-                entry = {"role": role, "index": index, "op": norm}
-                if is_write:
-                    writes.append(entry)
-                else:
-                    reads.append(entry)
+                writes.append({"role": "dst", "index": 0, "op": norm})
 
-        # Iterate operands
-        # minsn_t has l (left), r (right), d (dest) usually
-        # But access depends on opcode
-        
-        # Destination (def)
-        add_op("ret", 0, insn.d, True)
-        
-        # Sources (use)
-        add_op("op1", 0, insn.l, False)
-        add_op("op2", 1, insn.r, False)
-        
-        # Handle call specifically
-        call_info = None
-        if ida_hexrays.is_mcode_call(insn.opcode):
-            # At MMAT_LOCOPT, arguments are passed via previous instructions.
-            # The call instruction itself usually has:
-            # l: Callee (global address, helper, or register)
-            # d: Return value location (or empty)
-            
-            callee_name = None
-            callee_ea = None
-            
-            # Extract callee info from 'l' operand
-            if not insn.l.empty():
-                if insn.l.t == ida_hexrays.mop_v: # Global address
-                    addr = insn.l.g
-                    callee_ea = f"0x{addr:x}"
-                    name = ida_name.get_name(addr)
-                    if name:
-                        callee_name = name
-                elif insn.l.t == ida_hexrays.mop_h: # Helper function
-                    callee_name = insn.l.helper
-                elif insn.l.t == ida_hexrays.mop_r: # Register (indirect call)
-                    # We can't know the name statically easily
-                    pass
-
-            call_info = {
-                "kind": "call",
-                "callee_name": callee_name,
-                "callee_ea": callee_ea,
-                "args": [], # No folded args at LOCOPT
-                "ret": None # Return location is in writes (insn.d)
-            }
+        self._collect_reads_from_insn(insn, reads, calls, True)
 
         return {
             "block_id": block_id,
             "insn_idx": insn_idx,
             "ea": f"0x{insn.ea:x}",
-            "opcode": str(insn.opcode), # TODO: Map to string
+            "opcode": self._opcode_name(opcode),
             "text": self._strip_tags(str(insn._print())), # Print representation
             "reads": reads,
             "writes": writes,
-            "call": call_info
+            "calls": calls
         }
 
     def _normalize_operand(self, mop):
@@ -383,6 +486,12 @@ class IDACPGExporter:
             # mop.s is stkvar_ref_t, has off
             off = mop.s.off
             v = {"base": "fp", "off": off}
+        elif hasattr(ida_hexrays, "mop_l") and mop.t == ida_hexrays.mop_l:
+            kind = "stack"
+            if hasattr(mop, "l") and hasattr(mop.l, "off"):
+                v = {"base": "fp", "off": mop.l.off}
+            else:
+                v = {}
             
         elif mop.t == ida_hexrays.mop_v: # Global
             kind = "global"
