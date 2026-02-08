@@ -201,6 +201,16 @@ class CPGBuilder:
                  node_id = f"E:{func_ea}:{repr_str}"
                  if node_id not in self.graph:
                      self.graph.add_node(node_id, kind=NODE_EXPR, **get_attrs(op))
+                     
+                     # Recursively handle args if present
+                     v_data = op.get("v", {})
+                     if isinstance(v_data, dict) and "args" in v_data:
+                         for i, sub_op in enumerate(v_data["args"]):
+                             sub_node_id = self._intern_operand(func_ea, sub_op)
+                             if sub_node_id:
+                                 # Add edge from Expr to Operand
+                                 # This is a USE relationship: Expr uses Operand
+                                 self.graph.add_edge(node_id, sub_node_id, type=EDGE_USE, index=i)
         
         return node_id
 
@@ -220,6 +230,12 @@ class CPGBuilder:
                 
             # Remove size prefix: _QWORD var
             m = re.match(r'^_(?:QWORD|DWORD|WORD|BYTE|OWORD|TBYTE)\s+(.*)$', repr_str)
+            if m:
+                repr_str = m.group(1)
+                continue
+
+            # Remove type cast-like prefix: __int64 var, __int32 var
+            m = re.match(r'^__int\d+\s+(.*)$', repr_str)
             if m:
                 repr_str = m.group(1)
                 continue

@@ -1,7 +1,7 @@
 import networkx as nx
 from typing import Dict, List, Set, Optional, Any
 from .model import (
-    NODE_STRING, NODE_CONST, NODE_VAR, NODE_MEM, NODE_EXPR,
+    NODE_STRING, NODE_CONST, NODE_VAR, NODE_MEM, NODE_EXPR, NODE_CALL,
     EDGE_DEF, EDGE_USE, EDGE_CALL_OF, EDGE_ARG
 )
 
@@ -23,6 +23,7 @@ class TaintEngine:
         
         # Build function map for interprocedural analysis
         self.func_map = {}
+        self.ea_map = {}
         for node, data in self.graph.nodes(data=True):
             if data.get("kind") == "Function":
                 name = data.get("name")
@@ -32,6 +33,27 @@ class TaintEngine:
                     if clean_name.startswith("_"): clean_name = clean_name[1:]
                     self.func_map[clean_name] = node
                     self.func_map[name] = node # Keep original too
+                    
+                    # Map EA to Name
+                    ea = data.get("ea")
+                    if ea:
+                        self.ea_map[str(ea)] = name
+        
+        # Build caller map: callee_name -> [call_site_id]
+        self.caller_map = {}
+        for node, data in self.graph.nodes(data=True):
+             if data.get("kind") == NODE_CALL:
+                 callee_name = data.get("callee_name")
+                 if callee_name:
+                     if callee_name not in self.caller_map:
+                         self.caller_map[callee_name] = []
+                     self.caller_map[callee_name].append(node)
+                     
+                     if callee_name.startswith("_"):
+                         sname = callee_name[1:]
+                         if sname not in self.caller_map:
+                             self.caller_map[sname] = []
+                         self.caller_map[sname].append(node)
 
     def get_taint_sources(self, node_id) -> List[Dict]:
         """
@@ -42,12 +64,22 @@ class TaintEngine:
 
     def _trace(self, node_id, visited, depth):
         # print(f"DEBUG: _trace {node_id} depth={depth}")
+        node_data = self.graph.nodes[node_id]
+        kind = node_data.get("kind")
+        if depth < 10: # Reduce noise
+             print(f"DEBUG: _trace {node_id} kind={kind} depth={depth}")
+             # Print in-edges for debugging
+             if kind in [NODE_VAR, NODE_MEM, NODE_EXPR]:
+                 print(f"DEBUG:   In-edges for {node_id}:")
+                 for u, _, d in self.graph.in_edges(node_id, data=True):
+                     print(f"DEBUG:     <- {u} ({d})")
+
         if depth > self.max_depth: return []
         if node_id in visited: return []
         visited.add(node_id)
         
-        node_data = self.graph.nodes[node_id]
-        kind = node_data.get("kind")
+        # node_data = self.graph.nodes[node_id] # Already got it
+        # kind = node_data.get("kind") # Already got it
         
         # 1. Base Cases: Safe
         if kind in [NODE_STRING, NODE_CONST]:
@@ -67,10 +99,36 @@ class TaintEngine:
             
             # B. Implicit DEFs (Output Args)
             # Look for USEs where this variable is an output argument
-            for instr_id, _, edge_data in self.graph.in_edges(node_id, data=True):
-                if edge_data.get("type") == EDGE_USE:
+            # Also check if this node is DIRECTLY an output argument (incoming ARG edge)
+            for user_node, _, edge_data in self.graph.in_edges(node_id, data=True):
+                edge_type = edge_data.get("type")
+                
+                # Case 1: Direct Argument
+                if edge_type == EDGE_ARG:
+                    cs = user_node # user_node is the CallSite source
+                    if self._is_propagator_output(cs, node_id):
+                        has_def = True
+                        results.extend(self._trace_call_inputs(cs, visited, depth+1))
+
+                # Case 2: Used in an Expression which is an Argument
+                elif edge_type == EDGE_USE:
+                    print(f"DEBUG: Checking user_node {user_node} (USEs {node_id})")
+                    # Check if user_node is an argument to a CallSite
+                    for cs, _, d in self.graph.in_edges(user_node, data=True):
+                        print(f"DEBUG:   Incoming edge from {cs}: {d}")
+                        if d.get("type") == EDGE_ARG:
+                            print(f"DEBUG: user_node {user_node} is ARG to {cs}")
+                            # user_node is an argument to cs
+                            # Check if user_node is an output argument
+                            if self._is_propagator_output(cs, user_node):
+                                print(f"DEBUG: Propagator match via ARG! {cs} -> {user_node}")
+                                has_def = True
+                                results.extend(self._trace_call_inputs(cs, visited, depth+1))
+                            else:
+                                print(f"DEBUG: Not propagator output. cs={cs} user_node={user_node}")
+                    
                     # Check if this instr is a CallSite and we are an output arg
-                    call_sites = [u for u, _, d in self.graph.in_edges(instr_id, data=True) if d.get("type") == EDGE_CALL_OF]
+                    call_sites = [u for u, _, d in self.graph.in_edges(user_node, data=True) if d.get("type") == EDGE_CALL_OF]
                     for cs in call_sites:
                         # print(f"DEBUG: Checking propagator {cs} for {node_id}")
                         if self._is_propagator_output(cs, node_id):
@@ -78,8 +136,88 @@ class TaintEngine:
                             has_def = True
                             results.extend(self._trace_call_inputs(cs, visited, depth+1))
 
-            pass
+            # C. Expression Operands (Expr -> Var/Expr)
+            # If this is an Expr, trace its operands (outgoing EDGE_USE)
+            if kind == NODE_EXPR:
+                for _, neighbor, edge_data in self.graph.out_edges(node_id, data=True):
+                    if edge_data.get("type") == EDGE_USE:
+                        results.extend(self._trace(neighbor, visited, depth+1))
 
+            # D. Interprocedural: Trace Callers (Parameters)
+            # If this variable is a parameter, trace back to call sites
+            if kind == NODE_VAR:
+                results.extend(self._trace_callers(node_id, visited, depth))
+
+        return results
+
+    def _trace_callers(self, node_id, visited, depth):
+        # 1. Parse EA from node_id
+        # node_id format: V:<ea>:... 
+        parts = node_id.split(":")
+        if len(parts) < 2: return []
+        ea_str = parts[1]
+        
+        # 2. Get Function Name
+        func_name = self.ea_map.get(ea_str)
+        # print(f"DEBUG: _trace_callers node={node_id} ea={ea_str} func={func_name}")
+        if not func_name: return []
+        
+        # 3. Determine Parameter Index
+        node_data = self.graph.nodes[node_id]
+        repr_str = node_data.get("repr", "")
+        
+        param_index = -1
+        # Heuristic for ARM64 registers
+        # x0-x7 are arguments
+        import re
+        # Match x0, x1... w0, w1... followed by non-digit (to avoid x00)
+        # Handle cases like x0_0.8, x0.8, x0
+        # Debug regex
+        # print(f"DEBUG: repr_raw={repr(repr_str)}")
+        
+        # Relaxed regex: Look for xN or wN preceded by boundary or space, followed by non-digit
+        # Using [^a-zA-Z0-9] instead of \b for safety if needed, but \b should work.
+        # Let's try explicitly handling the underscore issue if any
+        
+        m = re.search(r'(?:^|[\s\W])([xw])([0-7])(?!\d)', repr_str)
+        if m:
+            param_index = int(m.group(2))
+        
+        print(f"DEBUG: repr={repr_str} param_index={param_index}")
+        if param_index == -1: return []
+        
+        # 4. Find Callers
+        print(f"DEBUG: Checking caller_map for '{func_name}'")
+        if func_name in self.caller_map:
+             print(f"DEBUG: Found in caller_map with {len(self.caller_map[func_name])} entries")
+        else:
+             print(f"DEBUG: Not found in caller_map. Keys sample: {list(self.caller_map.keys())[:5]}")
+             
+        caller_ids = self.caller_map.get(func_name, [])
+        if not caller_ids: 
+             # Try stripping underscore
+             if func_name.startswith("_"):
+                 caller_ids = self.caller_map.get(func_name[1:], [])
+        
+        # print(f"DEBUG: callers={caller_ids}")
+        if not caller_ids: return []
+        
+        results = []
+        for cs in caller_ids:
+             print(f"DEBUG: Checking CallSite {cs} for arg {param_index}")
+             # Find argument at param_index
+             found_arg = False
+             for _, arg_node, edge_data in self.graph.out_edges(cs, data=True):
+                 print(f"DEBUG:   Edge to {arg_node}: {edge_data}")
+                 if edge_data.get("type") == EDGE_ARG and edge_data.get("index") == param_index:
+                     found_arg = True
+                     # Trace this argument in the caller's context
+                     print(f"DEBUG: Tracing caller arg {arg_node}")
+                     results.extend(self._trace(arg_node, visited, depth + 1))
+             
+             if not found_arg:
+                 print(f"DEBUG: Arg {param_index} not found for CallSite {cs}")
+                     
         return results
 
     def _check_instr_source(self, instr_id, visited, depth):
