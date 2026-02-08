@@ -67,13 +67,17 @@ class IDACPGExporter:
         return None
 
     def _insn_bits(self, insn):
+        size = 0
         if hasattr(insn, "d") and insn.d and not insn.d.empty():
-            return insn.d.size * 8
-        if hasattr(insn, "l") and insn.l and not insn.l.empty():
-            return insn.l.size * 8
-        if hasattr(insn, "r") and insn.r and not insn.r.empty():
-            return insn.r.size * 8
-        return 0
+            size = insn.d.size
+        elif hasattr(insn, "l") and insn.l and not insn.l.empty():
+            size = insn.l.size
+        elif hasattr(insn, "r") and insn.r and not insn.r.empty():
+            size = insn.r.size
+            
+        if size < 0:
+            size = 0
+        return size * 8
 
     def _mop_to_expr_operand(self, mop):
         embedded = self._mop_embedded_insn(mop)
@@ -118,7 +122,7 @@ class IDACPGExporter:
 
     def _extract_call_args(self, insn):
         args = []
-        # Support for top-level call arguments (MMAT_LVARS)
+        # 1. Try insn.args (sometimes available in specific maturity levels)
         if hasattr(insn, "args") and insn.args:
             for a in insn.args:
                 op = self._mop_to_expr_operand(a)
@@ -126,22 +130,34 @@ class IDACPGExporter:
                     args.append(op)
             return args
 
+        # 2. Try to find mop_f (function call info) in operands
+        # m_call instructions often store call details in 'd' (destination) or 'l' (left)
+        # depending on whether it's an indirect call or direct call, and maturity.
+        candidates = []
+        if hasattr(insn, "d"): candidates.append(insn.d)
+        if hasattr(insn, "l"): candidates.append(insn.l)
+        if hasattr(insn, "r"): candidates.append(insn.r)
+        
+        for mop in candidates:
+            if not mop or mop.empty():
+                continue
+            
+            # Check if it is a function call info operand (mop_f)
+            if hasattr(mop, "t") and hasattr(ida_hexrays, "mop_f") and mop.t == ida_hexrays.mop_f:
+                if hasattr(mop, "f") and hasattr(mop.f, "args"):
+                    for a in mop.f.args:
+                        op = self._mop_to_expr_operand(a)
+                        if op:
+                            args.append(op)
+                    return args
+
+        # 3. Fallback: if 'r' is present, treat it as a single argument or list
         if hasattr(insn, "r") and insn.r and not insn.r.empty():
-            mop = insn.r
-            if hasattr(mop, "t") and hasattr(ida_hexrays, "mop_f") and mop.t == ida_hexrays.mop_f and hasattr(mop, "f") and hasattr(mop.f, "args"):
-                for a in mop.f.args:
-                    op = self._mop_to_expr_operand(a)
-                    if op:
-                        args.append(op)
-            elif hasattr(mop, "args") and isinstance(mop.args, (list, tuple)):
-                for a in mop.args:
-                    op = self._mop_to_expr_operand(a)
-                    if op:
-                        args.append(op)
-            else:
-                op = self._mop_to_expr_operand(mop)
-                if op:
-                    args.append(op)
+            # Avoid duplicating if 'r' was already checked as mop_f (it would be caught above)
+            # This is for cases where 'r' is a simple operand (e.g. mop_r) used as an argument
+            op = self._mop_to_expr_operand(insn.r)
+            if op:
+                args.append(op)
         return args
 
     def _record_call(self, insn, reads, calls):
@@ -188,9 +204,31 @@ class IDACPGExporter:
             self._record_call(insn, reads, calls)
             
             # Recursively collect reads from arguments
+            # 1. Try insn.args
             if hasattr(insn, "args") and insn.args:
                 for i, arg in enumerate(insn.args):
                     self._collect_reads_from_mop(arg, reads, calls, "arg", i)
+            else:
+                # 2. Try mop_f candidates in d, l, r
+                candidates = []
+                if hasattr(insn, "d"): candidates.append(insn.d)
+                if hasattr(insn, "l"): candidates.append(insn.l)
+                if hasattr(insn, "r"): candidates.append(insn.r)
+                
+                found_args = False
+                for mop in candidates:
+                    if not mop or mop.empty(): continue
+                    if hasattr(mop, "t") and hasattr(ida_hexrays, "mop_f") and mop.t == ida_hexrays.mop_f:
+                        if hasattr(mop, "f") and hasattr(mop.f, "args"):
+                            for i, arg in enumerate(mop.f.args):
+                                self._collect_reads_from_mop(arg, reads, calls, "arg", i)
+                            found_args = True
+                            break
+                
+                # 3. Fallback to 'r' if not found
+                if not found_args and hasattr(insn, "r") and insn.r and not insn.r.empty():
+                     # Only if we didn't process it as mop_f above
+                     self._collect_reads_from_mop(insn.r, reads, calls, "arg", 0)
 
         if hasattr(insn, "l"):
             role = "callee" if is_call else "src"
@@ -480,7 +518,16 @@ class IDACPGExporter:
             return None
             
         kind = "unknown"
-        bits = mop.size * 8
+        
+        size = mop.size
+        if size < 0:
+            # Handle invalid/unknown size (often -1 for function addresses)
+            if mop.t == ida_hexrays.mop_v and 'ida_ida' in globals():
+                 size = 8 if ida_ida.inf_is_64bit() else 4
+            else:
+                 size = 0
+                 
+        bits = size * 8
         repr_str = self._strip_tags(str(mop._print()))
         v = {}
         
