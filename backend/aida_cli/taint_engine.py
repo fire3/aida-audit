@@ -64,22 +64,12 @@ class TaintEngine:
 
     def _trace(self, node_id, visited, depth):
         # print(f"DEBUG: _trace {node_id} depth={depth}")
-        node_data = self.graph.nodes[node_id]
-        kind = node_data.get("kind")
-        if depth < 10: # Reduce noise
-             print(f"DEBUG: _trace {node_id} kind={kind} depth={depth}")
-             # Print in-edges for debugging
-             if kind in [NODE_VAR, NODE_MEM, NODE_EXPR]:
-                 print(f"DEBUG:   In-edges for {node_id}:")
-                 for u, _, d in self.graph.in_edges(node_id, data=True):
-                     print(f"DEBUG:     <- {u} ({d})")
-
         if depth > self.max_depth: return []
         if node_id in visited: return []
         visited.add(node_id)
         
-        # node_data = self.graph.nodes[node_id] # Already got it
-        # kind = node_data.get("kind") # Already got it
+        node_data = self.graph.nodes[node_id]
+        kind = node_data.get("kind")
         
         # 1. Base Cases: Safe
         if kind in [NODE_STRING, NODE_CONST]:
@@ -112,20 +102,14 @@ class TaintEngine:
 
                 # Case 2: Used in an Expression which is an Argument
                 elif edge_type == EDGE_USE:
-                    print(f"DEBUG: Checking user_node {user_node} (USEs {node_id})")
                     # Check if user_node is an argument to a CallSite
                     for cs, _, d in self.graph.in_edges(user_node, data=True):
-                        print(f"DEBUG:   Incoming edge from {cs}: {d}")
                         if d.get("type") == EDGE_ARG:
-                            print(f"DEBUG: user_node {user_node} is ARG to {cs}")
                             # user_node is an argument to cs
                             # Check if user_node is an output argument
                             if self._is_propagator_output(cs, user_node):
-                                print(f"DEBUG: Propagator match via ARG! {cs} -> {user_node}")
                                 has_def = True
                                 results.extend(self._trace_call_inputs(cs, visited, depth+1))
-                            else:
-                                print(f"DEBUG: Not propagator output. cs={cs} user_node={user_node}")
                     
                     # Check if this instr is a CallSite and we are an output arg
                     call_sites = [u for u, _, d in self.graph.in_edges(user_node, data=True) if d.get("type") == EDGE_CALL_OF]
@@ -183,40 +167,26 @@ class TaintEngine:
         if m:
             param_index = int(m.group(2))
         
-        print(f"DEBUG: repr={repr_str} param_index={param_index}")
         if param_index == -1: return []
         
         # 4. Find Callers
-        print(f"DEBUG: Checking caller_map for '{func_name}'")
-        if func_name in self.caller_map:
-             print(f"DEBUG: Found in caller_map with {len(self.caller_map[func_name])} entries")
-        else:
-             print(f"DEBUG: Not found in caller_map. Keys sample: {list(self.caller_map.keys())[:5]}")
-             
         caller_ids = self.caller_map.get(func_name, [])
         if not caller_ids: 
              # Try stripping underscore
              if func_name.startswith("_"):
                  caller_ids = self.caller_map.get(func_name[1:], [])
         
-        # print(f"DEBUG: callers={caller_ids}")
         if not caller_ids: return []
         
         results = []
         for cs in caller_ids:
-             print(f"DEBUG: Checking CallSite {cs} for arg {param_index}")
              # Find argument at param_index
              found_arg = False
              for _, arg_node, edge_data in self.graph.out_edges(cs, data=True):
-                 print(f"DEBUG:   Edge to {arg_node}: {edge_data}")
                  if edge_data.get("type") == EDGE_ARG and edge_data.get("index") == param_index:
                      found_arg = True
                      # Trace this argument in the caller's context
-                     print(f"DEBUG: Tracing caller arg {arg_node}")
                      results.extend(self._trace(arg_node, visited, depth + 1))
-             
-             if not found_arg:
-                 print(f"DEBUG: Arg {param_index} not found for CallSite {cs}")
                      
         return results
 
