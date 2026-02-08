@@ -29,6 +29,7 @@ class TaintEngine:
         return self._trace(node_id, set(), 0)
 
     def _trace(self, node_id, visited, depth):
+        # print(f"DEBUG: _trace {node_id} depth={depth}")
         if depth > self.max_depth: return []
         if node_id in visited: return []
         visited.add(node_id)
@@ -59,7 +60,9 @@ class TaintEngine:
                     # Check if this instr is a CallSite and we are an output arg
                     call_sites = [u for u, _, d in self.graph.in_edges(instr_id, data=True) if d.get("type") == EDGE_CALL_OF]
                     for cs in call_sites:
+                        # print(f"DEBUG: Checking propagator {cs} for {node_id}")
                         if self._is_propagator_output(cs, node_id):
+                            # print(f"DEBUG: Propagator match! {cs}")
                             has_def = True
                             results.extend(self._trace_call_inputs(cs, visited, depth+1))
 
@@ -117,8 +120,31 @@ class TaintEngine:
         # Check args of this call
         for _, neighbor, edge_data in self.graph.out_edges(call_id, data=True):
             if edge_data.get("type") == EDGE_ARG:
-                if edge_data.get("index") in indices and neighbor == var_node_id:
-                    return True
+                if edge_data.get("index") in indices:
+                    if neighbor == var_node_id:
+                        return True
+                    
+                    # Check partial match for expressions/memory (e.g. buf + offset)
+                    neighbor_data = self.graph.nodes[neighbor]
+                    if neighbor_data.get("kind") in [NODE_EXPR, NODE_MEM]:
+                        var_data = self.graph.nodes[var_node_id]
+                        var_repr = var_data.get("repr") or var_data.get("name")
+                        # Also try to clean up repr (remove type/size suffix like .8)
+                        # But simple substring might work for now
+                        expr_repr = neighbor_data.get("repr")
+                        
+                        if var_repr and expr_repr:
+                             # 1. Direct containment
+                            if var_repr in expr_repr:
+                                return True
+                            
+                            # 2. Try to extract variable name (last token) and check
+                            # e.g. "_QWORD __s.8" -> "__s.8"
+                            var_tokens = var_repr.split()
+                            if len(var_tokens) > 1:
+                                var_name = var_tokens[-1]
+                                if var_name and len(var_name) > 1 and var_name in expr_repr:
+                                    return True
         return False
 
     def _get_callee_name(self, call_id):

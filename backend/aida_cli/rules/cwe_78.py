@@ -14,7 +14,9 @@ class CWE78Rule(BaseRule):
     # Propagators: {func_name: [output_arg_indices]}
     PROPAGATORS = {
         "snprintf": [0], "sprintf": [0], "strcpy": [0], "memcpy": [0], "strcat": [0],
-        "__snprintf_chk": [0], "strncpy": [0], "read": [1], "_read": [1]
+        "__snprintf_chk": [0], "strncpy": [0], "read": [1], "_read": [1],
+        "recv": [1], "_recv": [1], "recvfrom": [1], "_recvfrom": [1],
+        "fgets": [0], "_fgets": [0]
     }
     
     def match(self, graph: nx.MultiDiGraph) -> Iterator[str]:

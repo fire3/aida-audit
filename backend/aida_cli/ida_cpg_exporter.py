@@ -562,8 +562,8 @@ class IDACPGExporter:
             
         elif mop.t == ida_hexrays.mop_str: # String
             kind = "string"
-            ea = mop.cstr # or similar, depends on API
-            v = {"ea": f"0x{ea:x}"} if ea else {}
+            # mop.cstr is the string content, not an address
+            v = {"content": mop.cstr}
 
         elif hasattr(ida_hexrays, "mop_f") and mop.t == ida_hexrays.mop_f:
             kind = "type"

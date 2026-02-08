@@ -146,9 +146,15 @@ class CPGBuilder:
             # V1 spec: Var/Mem/Expr ID must be stable
             v_info = op.get("v", {})
             # Construct a unique key for the variable
-            # e.g., location based
-            var_key = v_info.get("full_repr") or op.get("repr")
-            var_key = self._normalize_key(var_key)
+            
+            # IMPROVEMENT: Use structured location if available (base+off)
+            if "base" in v_info and "off" in v_info:
+                var_key = f"{v_info['base']}:{v_info['off']}"
+            else:
+                # e.g., location based
+                var_key = v_info.get("full_repr") or op.get("repr")
+                var_key = self._normalize_key(var_key)
+                
             if not var_key: return None
             node_id = f"V:{func_ea}:{var_key}"
             if node_id not in self.graph:

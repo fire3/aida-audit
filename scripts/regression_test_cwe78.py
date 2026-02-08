@@ -53,29 +53,46 @@ def run_command(cmd, cwd=None, timeout=None):
         }
 
 def parse_scan_output(output):
-    """Parse scan command output (JSON lines)."""
+    """Parse scan command output (multiple JSON objects)."""
     findings = []
-    lines = output.splitlines()
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        # Skip log lines
-        if line.startswith("[") or line.startswith("Building") or line.startswith("Graph") or line.startswith("Running") or line.startswith("Scan"):
-            continue
+    
+    # Extract JSON part (everything after the log lines)
+    # We look for the first occurrence of '{'
+    start_idx = output.find('{')
+    if start_idx == -1:
+        return []
+        
+    json_text = output[start_idx:]
+    decoder = json.JSONDecoder()
+    pos = 0
+    
+    while pos < len(json_text):
+        # Skip whitespace
+        while pos < len(json_text) and json_text[pos].isspace():
+            pos += 1
+        if pos >= len(json_text):
+            break
+            
         try:
-            finding = json.loads(line)
-            findings.append(finding)
+            obj, idx = decoder.raw_decode(json_text[pos:])
+            findings.append(obj)
+            pos += idx
         except json.JSONDecodeError:
-            pass
+            # If we fail to parse, try to skip to next '{'
+            next_start = json_text.find('{', pos + 1)
+            if next_start != -1:
+                pos = next_start
+            else:
+                break
+                
     return findings
 
 def main():
-    parser = argparse.ArgumentParser(description="Regression Test for CWE-78 Detection")
+    parser = argparse.ArgumentParser(description="Regression Test for CWE78")
     parser.add_argument("--test-dir", default=DEFAULT_TEST_DIR, help="Directory containing test binaries")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help="Directory to save results")
     parser.add_argument("--limit", type=int, default=0, help="Limit number of tests (0 for all)")
-    parser.add_argument("--filter", help="Filter test files by name pattern")
+    parser.add_argument("--filter", help="Filter test cases by filename substring")
     parser.add_argument("--clean", action="store_true", help="Clean output directory before running")
     parser.add_argument("--workers", type=int, default=1, help="Number of parallel workers for export (passed to aida-cli)")
     parser.add_argument("--verbose", action="store_true", help="Show verbose output")
@@ -159,7 +176,9 @@ def main():
             continue
             
         # Step 2: Scan
-        scan_cmd = f"{PYTHON_CMD} -m backend.aida_cli.cli scan \"{case_dir}\" --rules cwe-78"
+        # The CPG JSON export creates a subdirectory named <filename>.cpg_json
+        cpg_dir = os.path.join(case_dir, f"{filename}.cpg_json")
+        scan_cmd = f"{PYTHON_CMD} -m backend.aida_cli.cli scan \"{cpg_dir}\" --rules cwe-78"
         scan_res = run_command(scan_cmd, cwd=PROJECT_ROOT)
         case_result["scan_time"] = scan_res["duration"]
         
