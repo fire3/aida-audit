@@ -19,6 +19,7 @@ try:
     import idautils
     import ida_ida
     import ida_auto
+    import ida_range
 except ImportError:
     pass
 
@@ -32,6 +33,10 @@ class IDACPGExporter:
             os.makedirs(output_dir)
 
     def export(self):
+        self.log("Waiting for auto-analysis to finish...")
+        if 'ida_auto' in globals():
+            ida_auto.auto_wait()
+            
         self.log("Starting CPG JSON export...")
         self.export_meta()
         self.export_functions()
@@ -107,8 +112,17 @@ class IDACPGExporter:
         out_path = os.path.join(self.output_dir, "functions.jsonl")
         
         # Initialize Hex-Rays
-        if not ida_hexrays.init_hexrays_plugin():
-            self.log("Hex-Rays not available. Functions will skip microcode.")
+        hexrays_ok = False
+        if 'ida_hexrays' in globals():
+            if ida_hexrays.init_hexrays_plugin():
+                hexrays_ok = True
+            else:
+                arch = "unknown"
+                if 'ida_ida' in globals():
+                    arch = ida_ida.inf_get_procname()
+                self.log(f"Hex-Rays available but initialization failed (Arch: {arch}). Microcode will be skipped.")
+        else:
+             self.log("Hex-Rays module not imported. Microcode will be skipped.")
         
         with open(out_path, "w", encoding="utf-8") as f:
             for func_ea in idautils.Functions():
@@ -137,22 +151,38 @@ class IDACPGExporter:
         if ida_nalt.get_tinfo(tinfo, func_ea):
              res["type_str"] = str(tinfo)
 
-        # Decompile
+        # Decompile / Microcode
         try:
-            # Generate microcode
-            # We use decompile() to get cfunc_t, which contains microcode (mba)
-            cfunc = ida_hexrays.decompile(func_ea)
-            if cfunc:
-                # Pseudocode
-                res["decompilation"]["pseudocode"] = str(cfunc)
-                
-                # Microcode extraction
-                # cfunc.mba is the microcode array
-                if cfunc.mba:
-                    res["microcode"] = self._extract_microcode(cfunc.mba)
+            # 1. Generate Microcode (LOCOPT)
+            # Use gen_microcode to get mba at specific maturity
+            # Construct mba_ranges_t for the function (handles chunks)
+            mbr = ida_hexrays.mba_ranges_t()
+            for start, end in idautils.Chunks(func_ea):
+                mbr.ranges.push_back(ida_range.range_t(start, end))
+
+            hf = ida_hexrays.hexrays_failure_t()
+            # gen_microcode(mba_ranges_t const &, hexrays_failure_t *, mlist_t const *, int, mba_maturity_t)
+            mba = ida_hexrays.gen_microcode(
+                mbr, 
+                hf, 
+                None, 
+                ida_hexrays.DECOMP_WARNINGS, 
+                ida_hexrays.MMAT_LOCOPT
+            )
+            
+            if mba:
+                res["microcode"] = self._extract_microcode(mba)
             else:
                 res["status"] = "failed"
-                res["error"] = "decompile returned None"
+                res["error"] = f"gen_microcode failed: {hf.str}"
+
+            # 2. Get Pseudocode (Optional, best effort)
+            try:
+                cfunc = ida_hexrays.decompile(func_ea)
+                if cfunc:
+                    res["decompilation"]["pseudocode"] = str(cfunc)
+            except:
+                pass # Ignore pseudocode failures if microcode succeeded
                 
         except Exception as e:
             res["status"] = "failed"
@@ -215,7 +245,7 @@ class IDACPGExporter:
                 insn_idx += 1
                 
         return {
-            "maturity": "MMAT_LVARS", # Assuming we are at this stage if we decompiled
+            "maturity": "MMAT_LOCOPT",
             "blocks": blocks,
             "cfg_edges": cfg_edges,
             "insns": insns
@@ -259,22 +289,16 @@ class IDACPGExporter:
         # Handle call specifically
         call_info = None
         if ida_hexrays.is_mcode_call(insn.opcode):
-            # Extract call args
+            # At MMAT_LOCOPT, arguments are passed via previous instructions (mov to regs/stack).
+            # The call instruction itself mainly holds the callee (l) and return (d).
+            # We create a placeholder call_info.
             call_info = {
                 "kind": "unknown",
                 "callee_name": None,
                 "callee_ea": None,
-                "args": [],
+                "args": [], # No folded args at LOCOPT
                 "ret": None
             }
-            # For call instructions, 'l' usually holds the callee info if it's a direct call
-            # 'd' is the return value location
-            
-            # We need to dig into call arguments which are usually passed via specific setup
-            # Hex-Rays 'm_call' instruction usually has arguments in 'args' list if fully analyzed?
-            # Actually minsn_t doesn't have 'args' field directly in Python API usually exposed simply.
-            # But let's check `insn.d.t` (type) or similar.
-            pass
 
         return {
             "block_id": block_id,

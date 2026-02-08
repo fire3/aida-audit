@@ -48,7 +48,7 @@ Extractor 输出一个目录（V1 不压缩，便于调试与增量）：
 
 - `binary_id` 必须稳定：对输入文件内容做 SHA-256 后编码成 `sha256:<hex>`。
 
-### 3.3 MicroCode 生成策略
+## 3.4 MicroCode 生成策略
 建议在每个函数上：
 - `gen_microcode(func_ea)` 获取 mba
 - 将 maturity 推进到 `MMAT_LOCOPT`（Local Optimization）
@@ -61,7 +61,7 @@ Extractor 输出一个目录（V1 不压缩，便于调试与增量）：
 - **Maturity Level**：锁定在 `MMAT_LOCOPT`。不要使用 `MMAT_LVARS` 或更高，因为高层级会掩盖底层的 flag 依赖与寄存器传输细节。
 - 间接调用：优先结合 IDA 的 xrefs、类型签名、vtable 识别结果、以及 microcode 中的 callee mop 形态做保守解析。
 
-## 3.4 `functions.jsonl`（函数级导出契约）
+## 3.5 `functions.jsonl`（函数级导出契约）
 
 `functions.jsonl` 每行一个函数记录。每条记录必须包含下列字段：
 
