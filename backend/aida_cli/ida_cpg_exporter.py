@@ -153,8 +153,14 @@ class IDACPGExporter:
 
         # Type string
         tinfo = ida_typeinf.tinfo_t()
-        if ida_nalt.get_tinfo(tinfo, func_ea):
+        # Try multiple ways to get tinfo
+        if ida_nalt.get_tinfo(tinfo, func_ea) or ida_hexrays.get_func_tinfo(tinfo, func_ea):
              res["type_str"] = str(tinfo)
+        else:
+            # Fallback: guess type from function flags/info
+            f = ida_funcs.get_func(func_ea)
+            if f:
+                res["type_str"] = "unknown" # Or try to reconstruct if needed
 
         # Decompile / Microcode
         try:
@@ -186,6 +192,21 @@ class IDACPGExporter:
                 cfunc = ida_hexrays.decompile(func_ea)
                 if cfunc:
                     res["decompilation"]["pseudocode"] = str(cfunc)
+                    
+                    # Generate EA to line mapping
+                    ea_to_line = {}
+                    # cfunc.get_pseudocode() returns a list of simpleline_t
+                    # We can iterate and check ea
+                    # Note: str(cfunc) might not perfectly align line numbers with the list
+                    # But usually line index in list corresponds to line number
+                    
+                    pcode = cfunc.get_pseudocode()
+                    for line_idx, sline in enumerate(pcode):
+                         if sline.ea != ida_ida.BADADDR:
+                             ea_to_line[f"0x{sline.ea:x}"] = line_idx + 1 # 1-based line number
+                    
+                    res["decompilation"]["ea_to_line"] = ea_to_line
+                    
             except:
                 pass # Ignore pseudocode failures if microcode succeeded
                 
@@ -294,15 +315,34 @@ class IDACPGExporter:
         # Handle call specifically
         call_info = None
         if ida_hexrays.is_mcode_call(insn.opcode):
-            # At MMAT_LOCOPT, arguments are passed via previous instructions (mov to regs/stack).
-            # The call instruction itself mainly holds the callee (l) and return (d).
-            # We create a placeholder call_info.
+            # At MMAT_LOCOPT, arguments are passed via previous instructions.
+            # The call instruction itself usually has:
+            # l: Callee (global address, helper, or register)
+            # d: Return value location (or empty)
+            
+            callee_name = None
+            callee_ea = None
+            
+            # Extract callee info from 'l' operand
+            if not insn.l.empty():
+                if insn.l.t == ida_hexrays.mop_v: # Global address
+                    addr = insn.l.g
+                    callee_ea = f"0x{addr:x}"
+                    name = ida_name.get_name(addr)
+                    if name:
+                        callee_name = name
+                elif insn.l.t == ida_hexrays.mop_h: # Helper function
+                    callee_name = insn.l.helper
+                elif insn.l.t == ida_hexrays.mop_r: # Register (indirect call)
+                    # We can't know the name statically easily
+                    pass
+
             call_info = {
-                "kind": "unknown",
-                "callee_name": None,
-                "callee_ea": None,
+                "kind": "call",
+                "callee_name": callee_name,
+                "callee_ea": callee_ea,
                 "args": [], # No folded args at LOCOPT
-                "ret": None
+                "ret": None # Return location is in writes (insn.d)
             }
 
         return {
