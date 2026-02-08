@@ -15,7 +15,9 @@ from backend.aida_cli.model import (
 )
 
 def debug_trace():
-    cpg_path = "/Users/fire3/SRC/aida-mcp/scan_results_cwe78/CWE78_OS_Command_Injection__char_connect_socket_execl_21-bad/CWE78_OS_Command_Injection__char_connect_socket_execl_21-bad.cpg_json"
+    # cpg_path = "/Users/fire3/SRC/aida-mcp/scan_results_cwe78/CWE78_OS_Command_Injection__char_connect_socket_execl_12-bad/CWE78_OS_Command_Injection__char_connect_socket_execl_12-bad.cpg_json"
+    # cpg_path = "/Users/fire3/SRC/aida-mcp/scan_results_cwe78/CWE78_OS_Command_Injection__char_connect_socket_execl_32-bad/CWE78_OS_Command_Injection__char_connect_socket_execl_32-bad.cpg_json"
+    cpg_path = "/Users/fire3/SRC/aida-mcp/scan_results_cwe78/CWE78_OS_Command_Injection__char_connect_socket_execl_41-bad/CWE78_OS_Command_Injection__char_connect_socket_execl_41-bad.cpg_json"
     
     print(f"Loading CPG from {cpg_path}...")
     builder = CPGBuilder(cpg_path)
@@ -68,6 +70,11 @@ def debug_trace():
                                      for _, a, d3 in graph.out_edges(cs, data=True):
                                          if d3.get("type") == EDGE_ARG:
                                              print(f"         Arg {d3.get('index')}: {a} {graph.nodes[a]}")
+            
+            # Print USES/Out-Edges of arg_node
+            print("  Out-Edges of arg_node:")
+            for _, neighbor, edge_data in graph.out_edges(arg_node, data=True):
+                 print(f"    -> {neighbor} ({edge_data})")
 
             break
             
@@ -114,6 +121,9 @@ def debug_trace():
                                     engine = TaintEngine(graph, CWE78Rule.SOURCES, CWE78Rule.PROPAGATORS)
                                     is_prop = engine._is_propagator_output(node, arg_node)
                                     print(f"       Is propagator output for arg_node? {is_prop}")
+                                    print(f"       Out-edges of Arg 1:")
+                                    for _, neighbor, edge_data in graph.out_edges(v, data=True):
+                                         print(f"         -> {neighbor} ({edge_data})")
 
     print("\nRunning TaintEngine trace...")
     engine = TaintEngine(graph, CWE78Rule.SOURCES, CWE78Rule.PROPAGATORS)
