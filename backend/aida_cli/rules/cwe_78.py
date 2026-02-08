@@ -85,7 +85,7 @@ class CWE78Rule(BaseRule):
                 severity="high",
                 binary_id="unknown",
                 func_ea=func_ea,
-                sink={"kind": "CallSite", "id": call_id, "callee": callee},
+                sink={"kind": "CallSite", "id": call_id, "callee": callee, "ea": call_data.get("ea", "unknown")},
                 sources=unique_sources,
                 evidence={"node_ids": evidence_nodes}
             )

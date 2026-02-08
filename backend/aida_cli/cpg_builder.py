@@ -78,12 +78,12 @@ class CPGBuilder:
             # Handle CallSites (calls is a list)
             if "calls" in insn:
                 for call_data in insn["calls"]:
-                    self._build_callsite(func_ea, insn_id, call_data)
+                    self._build_callsite(func_ea, insn_id, call_data, insn_ea)
             
             # Handle Def/Use
             self._build_def_use(func_ea, insn_id, insn)
 
-    def _build_callsite(self, func_ea, insn_id, call_data):
+    def _build_callsite(self, func_ea, insn_id, call_data, insn_ea=None):
         # C:<insn_id>:<index>
         call_idx = call_data.get("index", 0)
         call_id = f"C:{insn_id}:{call_idx}"
@@ -92,6 +92,10 @@ class CPGBuilder:
         attrs = call_data.copy()
         if "kind" in attrs:
             attrs["call_kind"] = attrs.pop("kind")
+        
+        # Inherit EA from instruction if not present
+        if "ea" not in attrs and insn_ea:
+            attrs["ea"] = insn_ea
             
         self.graph.add_node(call_id, kind=NODE_CALL, **attrs)
         self.graph.add_edge(call_id, insn_id, type=EDGE_CALL_OF)
