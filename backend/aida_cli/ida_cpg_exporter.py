@@ -32,6 +32,11 @@ class IDACPGExporter:
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
+    def _strip_tags(self, s):
+        if 'ida_lines' in globals():
+            return ida_lines.tag_remove(s)
+        return s
+
     def export(self):
         self.log("Waiting for auto-analysis to finish...")
         if 'ida_auto' in globals():
@@ -305,7 +310,7 @@ class IDACPGExporter:
             "insn_idx": insn_idx,
             "ea": f"0x{insn.ea:x}",
             "opcode": str(insn.opcode), # TODO: Map to string
-            "text": str(insn._print()), # Print representation
+            "text": self._strip_tags(str(insn._print())), # Print representation
             "reads": reads,
             "writes": writes,
             "call": call_info
@@ -318,7 +323,7 @@ class IDACPGExporter:
             
         kind = "unknown"
         bits = mop.size * 8
-        repr_str = str(mop._print())
+        repr_str = self._strip_tags(str(mop._print()))
         v = {}
         
         if mop.t == ida_hexrays.mop_r: # Register
