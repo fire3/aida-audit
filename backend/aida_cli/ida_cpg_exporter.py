@@ -118,6 +118,14 @@ class IDACPGExporter:
 
     def _extract_call_args(self, insn):
         args = []
+        # Support for top-level call arguments (MMAT_LVARS)
+        if hasattr(insn, "args") and insn.args:
+            for a in insn.args:
+                op = self._mop_to_expr_operand(a)
+                if op:
+                    args.append(op)
+            return args
+
         if hasattr(insn, "r") and insn.r and not insn.r.empty():
             mop = insn.r
             if hasattr(mop, "t") and hasattr(ida_hexrays, "mop_f") and mop.t == ida_hexrays.mop_f and hasattr(mop, "f") and hasattr(mop.f, "args"):
@@ -172,18 +180,25 @@ class IDACPGExporter:
             "ret": ret
         }
         calls.append(call_info)
-        if callee_norm:
-            reads.append({"role": "callee", "index": 0, "op": callee_norm})
-        for i, arg in enumerate(args):
-            reads.append({"role": "arg", "index": i, "op": arg})
 
     def _collect_reads_from_insn(self, insn, reads, calls, is_root):
+        is_call = False
         if 'ida_hexrays' in globals() and ida_hexrays.is_mcode_call(insn.opcode):
+            is_call = True
             self._record_call(insn, reads, calls)
+            
+            # Recursively collect reads from arguments
+            if hasattr(insn, "args") and insn.args:
+                for i, arg in enumerate(insn.args):
+                    self._collect_reads_from_mop(arg, reads, calls, "arg", i)
+
         if hasattr(insn, "l"):
-            self._collect_reads_from_mop(insn.l, reads, calls, "src", 0)
+            role = "callee" if is_call else "src"
+            self._collect_reads_from_mop(insn.l, reads, calls, role, 0)
+
         if hasattr(insn, "r"):
             self._collect_reads_from_mop(insn.r, reads, calls, "src", 1)
+            
         if not is_root and hasattr(insn, "d"):
             self._collect_reads_from_mop(insn.d, reads, calls, "src", 2)
 
