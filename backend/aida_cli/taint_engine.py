@@ -20,6 +20,18 @@ class TaintEngine:
         self.sources = sources
         self.propagators = propagators
         self.max_depth = max_depth
+        
+        # Build function map for interprocedural analysis
+        self.func_map = {}
+        for node, data in self.graph.nodes(data=True):
+            if data.get("kind") == "Function":
+                name = data.get("name")
+                if name:
+                    # Strip underscores for consistency
+                    clean_name = name
+                    if clean_name.startswith("_"): clean_name = clean_name[1:]
+                    self.func_map[clean_name] = node
+                    self.func_map[name] = node # Keep original too
 
     def get_taint_sources(self, node_id) -> List[Dict]:
         """
@@ -81,9 +93,51 @@ class TaintEngine:
                 results.append(self._make_source_info(cs, name))
             else:
                 # Return from non-source function.
-                # Could trace arguments (if it returns a value derived from args).
-                pass
+                # Try interprocedural trace
+                sources = self._trace_interprocedural(cs, visited, depth)
+                if sources: results.extend(sources)
         return results
+
+    def _trace_interprocedural(self, call_id, visited, depth):
+        # Find callee function node
+        name = self._get_callee_name(call_id)
+        if not name: return []
+        
+        # Check if we have this function in our graph
+        func_node = self.func_map.get(name)
+        if not func_node: return []
+        
+        # Find return variable (heuristic: x0 / fp:0)
+        return_var = self._find_return_var(func_node)
+        if not return_var: return []
+        
+        # Trace inside the callee
+        # We need to ensure we don't loop infinitely if recursion is direct
+        # But 'visited' handles nodes. 'return_var' is a different node than caller's var.
+        return self._trace(return_var, visited, depth + 1)
+
+    def _find_return_var(self, func_node):
+        # Heuristic: Find variable in this function that represents x0/rax
+        # We assume variables are linked to function scope by some means, 
+        # or we scan for vars with specific properties near function start/end.
+        # In this CPG, vars are often named like 'var80.8' or registers.
+        # But we saw 'V:func_addr:fp:0' for x0.
+        
+        func_ea = self.graph.nodes[func_node].get("ea") # e.g. "0x100000a88"
+        if not func_ea: return None
+        
+        # Construct ID prefix? 
+        # Node IDs are strings. 
+        # We can iterate all nodes... (inefficient)
+        # Or check if we can predict the ID.
+        # ID format seems to be V:<ea>:<base>:<off>
+        # e.g. V:0x100000a88:fp:0
+        
+        target_id = f"V:{func_ea}:fp:0"
+        if target_id in self.graph.nodes:
+            return target_id
+            
+        return None
 
     def _trace_call_inputs(self, call_id, visited, depth):
         name = self._get_callee_name(call_id)

@@ -53,7 +53,21 @@ def debug_trace():
                          # Find call site
                          for cs, _, d in graph.in_edges(instr_id, data=True):
                              if d.get("type") == EDGE_CALL_OF:
-                                 print(f"       Called by: {cs} {graph.nodes[cs].get('callee_name')}")
+                                 callee = graph.nodes[cs].get('callee_name')
+                                 print(f"       Called by: {cs} {callee}")
+                                 
+                                 # If called by badSource, check its arguments (USEs of instr_id)
+                                 if "badSource" in str(callee):
+                                     print("       Checking badSource arguments...")
+                                     for _, u, d2 in graph.out_edges(instr_id, data=True):
+                                         if d2.get("type") == EDGE_USE:
+                                             print(f"         Arg used: {u} {graph.nodes[u]}")
+                                             
+                                     # Also check ARG edges of the CallSite
+                                     print("       Checking CallSite arguments...")
+                                     for _, a, d3 in graph.out_edges(cs, data=True):
+                                         if d3.get("type") == EDGE_ARG:
+                                             print(f"         Arg {d3.get('index')}: {a} {graph.nodes[a]}")
 
             break
             
@@ -107,6 +121,35 @@ def debug_trace():
     print(f"Taint sources found: {len(sources)}")
     for s in sources:
         print(f"  Source: {s}")
+
+    # Check badSource
+    print("\nChecking badSource...")
+    bad_source_node = None
+    for node, data in graph.nodes(data=True):
+        if data.get("kind") == "Function" and "badSource" in data.get("name", ""):
+            print(f"Found badSource function: {node} {data.get('name')}")
+            bad_source_node = node
+            break
+            
+    if bad_source_node:
+        print("  Instructions in badSource:")
+        # Iterate all nodes, check if they belong to badSource function
+        # Or simpler: traverse from function node if possible?
+        # Since we don't know the structure, let's just list instructions with ea starting with badSource address
+        # badSource starts at 0x100000a88.
+        
+        nodes = []
+        for node, data in graph.nodes(data=True):
+            if data.get("kind") == NODE_INSTR:
+                ea = data.get("ea")
+                if ea and isinstance(ea, str) and int(ea, 16) >= 0x100000a88 and int(ea, 16) < 0x100000c00: # Approximate range
+                     nodes.append((node, data))
+        
+        nodes.sort(key=lambda x: int(x[1].get("ea"), 16))
+        for node, data in nodes:
+            print(f"    {node}: {data.get('mnemonic')}")
+
+
 
 if __name__ == "__main__":
     debug_trace()
