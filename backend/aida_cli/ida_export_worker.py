@@ -10,6 +10,7 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 import ida_utils
 from binary_database import BinaryDatabase
 from ida_exporter import IDAExporter
+from ida_cpg_exporter import IDACPGExporter
 
 # Try to import IDA modules
 try:
@@ -66,6 +67,7 @@ def main():
     parser.add_argument("--dump-funcs", help="Path to dump function list JSON (used with --parallel-master)")
     parser.add_argument("--save-idb", help="Save analyzed IDB/I64 to this path (optional; extension auto-chosen if omitted)")
     parser.add_argument("--export-c", help="Path to export C file (uses ida_hexrays.decompile_many)")
+    parser.add_argument("--cpg-json", help="Path to export CPG JSON directory")
     parser.add_argument("--perf-json", help="Write performance stats JSON to this path")
     parser.add_argument("--no-perf-report", action="store_true", help="Do not print the textual performance summary")
     parser.add_argument("--plain-log", action="store_true", help="Use plain logging (no timestamps, just messages)")
@@ -204,6 +206,24 @@ def main():
             logger.log(f"Failed to save IDA database: {e}", level="WARN")
 
     # Export Process
+    if args.cpg_json:
+        try:
+            cpg_out_dir = os.path.abspath(args.cpg_json)
+            logger.log(f"Starting CPG JSON export to {cpg_out_dir}...")
+            cpg_exporter = IDACPGExporter(cpg_out_dir, logger)
+            cpg_exporter.export()
+            logger.log("CPG JSON export completed.")
+        except Exception as e:
+            logger.log(f"CPG JSON export failed: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            if ida_pro.qexit:
+                 if opened_db or idc.batch(0) == 1:
+                     logger.log("Exiting IDA...")
+                     ida_pro.qexit(0)
+            sys.exit(0)
+
     try:
         db = BinaryDatabase(db_path, logger)
         db.connect()

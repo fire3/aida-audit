@@ -1,0 +1,377 @@
+import os
+import json
+import hashlib
+import datetime
+import time
+
+try:
+    import ida_hexrays
+    import ida_lines
+    import ida_pro
+    import ida_nalt
+    import ida_segment
+    import ida_funcs
+    import ida_bytes
+    import ida_name
+    import ida_entry
+    import ida_xref
+    import ida_typeinf
+    import idautils
+    import ida_ida
+    import ida_auto
+except ImportError:
+    pass
+
+class IDACPGExporter:
+    def __init__(self, output_dir, logger):
+        self.output_dir = output_dir
+        self.log = logger.log
+        self.meta = {}
+        
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+    def export(self):
+        self.log("Starting CPG JSON export...")
+        self.export_meta()
+        self.export_functions()
+        self.export_imports()
+        self.export_exports()
+        self.export_strings()
+        self.log("CPG JSON export completed.")
+
+    def export_meta(self):
+        self.log("Exporting meta.json...")
+        
+        # Binary ID (SHA256 of input file)
+        input_path = ida_nalt.get_input_file_path()
+        binary_id = "sha256:unknown"
+        if input_path and os.path.exists(input_path):
+            sha256 = hashlib.sha256()
+            try:
+                with open(input_path, "rb") as f:
+                    for chunk in iter(lambda: f.read(4096), b""):
+                        sha256.update(chunk)
+                binary_id = f"sha256:{sha256.hexdigest()}"
+            except Exception as e:
+                self.log(f"Error calculating hash: {e}")
+
+        # Arch info
+        proc_name = ida_ida.inf_get_procname()
+        
+        # Bitness
+        if ida_pro.IDA_SDK_VERSION >= 900:
+             is_64 = ida_ida.inf_is_64bit()
+        else:
+             is_64 = ida_ida.inf_is_64bit()
+             
+        bitness = 64 if is_64 else 32
+        
+        # Endian
+        is_be = ida_ida.inf_is_be()
+        endian = "big" if is_be else "little"
+        
+        # Imagebase
+        imagebase = f"0x{ida_nalt.get_imagebase():x}"
+        
+        # Arch mapping (simple heuristic)
+        arch = proc_name.lower()
+        if arch == "metapc":
+            arch = "x86_64" if is_64 else "x86"
+        elif "arm" in arch:
+             arch = "arm64" if is_64 else "arm"
+        
+        meta = {
+            "binary_id": binary_id,
+            "input_path": input_path,
+            "arch": arch,
+            "endian": endian,
+            "bitness": bitness,
+            "imagebase": imagebase,
+            "ida": {
+                "version": str(ida_pro.IDA_SDK_VERSION), # Approximate
+                "hexrays": ida_hexrays.init_hexrays_plugin()
+            },
+            "extractor": {
+                "version": "v1",
+                "time_utc": datetime.datetime.utcnow().isoformat() + "Z"
+            }
+        }
+        
+        with open(os.path.join(self.output_dir, "meta.json"), "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2)
+
+    def export_functions(self):
+        self.log("Exporting functions.jsonl...")
+        
+        out_path = os.path.join(self.output_dir, "functions.jsonl")
+        
+        # Initialize Hex-Rays
+        if not ida_hexrays.init_hexrays_plugin():
+            self.log("Hex-Rays not available. Functions will skip microcode.")
+        
+        with open(out_path, "w", encoding="utf-8") as f:
+            for func_ea in idautils.Functions():
+                func_data = self._process_function(func_ea)
+                f.write(json.dumps(func_data) + "\n")
+
+    def _process_function(self, func_ea):
+        func_name = ida_funcs.get_func_name(func_ea)
+        
+        # Basic info
+        res = {
+            "func_ea": f"0x{func_ea:x}",
+            "name": func_name,
+            "type_str": None,
+            "status": "ok",
+            "error": None,
+            "microcode": None,
+            "decompilation": {
+                "pseudocode": None,
+                "ea_to_line": None
+            }
+        }
+
+        # Type string
+        tinfo = ida_typeinf.tinfo_t()
+        if ida_nalt.get_tinfo(tinfo, func_ea):
+             res["type_str"] = str(tinfo)
+
+        # Decompile
+        try:
+            # Generate microcode
+            # We use decompile() to get cfunc_t, which contains microcode (mba)
+            cfunc = ida_hexrays.decompile(func_ea)
+            if cfunc:
+                # Pseudocode
+                res["decompilation"]["pseudocode"] = str(cfunc)
+                
+                # Microcode extraction
+                # cfunc.mba is the microcode array
+                if cfunc.mba:
+                    res["microcode"] = self._extract_microcode(cfunc.mba)
+            else:
+                res["status"] = "failed"
+                res["error"] = "decompile returned None"
+                
+        except Exception as e:
+            res["status"] = "failed"
+            res["error"] = str(e)
+            
+        return res
+
+    def _extract_microcode(self, mba):
+        # mba is mbl_array_t
+        # It has blocks (mblock_t)
+        
+        blocks = []
+        cfg_edges = []
+        insns = []
+        
+        # Iterate blocks
+        for i in range(mba.qty):
+            block = mba.get_mblock(i)
+            
+            # Block info
+            blk_data = {
+                "block_id": i,
+                "start_ea": f"0x{block.start:x}",
+                "end_ea": f"0x{block.end:x}"
+            }
+            blocks.append(blk_data)
+            
+            # Edges
+            # succs is a list of integers (block ids) or mblock_t objects
+            for succ in block.succs():
+                succ_id = succ
+                if hasattr(succ, "serial"):
+                    succ_id = succ.serial
+                
+                # Determine branch type (simplified)
+                branch_type = "unknown"
+                if succ_id == i + 1:
+                    branch_type = "fallthrough"
+                else:
+                    branch_type = "true" # Simplified, need more logic for cond/switch
+                
+                cfg_edges.append({
+                    "src_block_id": i,
+                    "dst_block_id": succ_id,
+                    "branch": branch_type
+                })
+            
+            # Instructions
+            # Iterate instructions in block
+            # block.head is the first instruction (minsn_t)
+            # block.nextb(insn) gets the next
+            
+            curr = block.head
+            insn_idx = 0
+            while curr:
+                insn_data = self._process_insn(curr, i, insn_idx)
+                insns.append(insn_data)
+                
+                curr = curr.next
+                insn_idx += 1
+                
+        return {
+            "maturity": "MMAT_LVARS", # Assuming we are at this stage if we decompiled
+            "blocks": blocks,
+            "cfg_edges": cfg_edges,
+            "insns": insns
+        }
+
+    def _process_insn(self, insn, block_id, insn_idx):
+        # insn is minsn_t
+        opcode = insn.opcode
+        # Get opcode string name if possible, or use int
+        # There isn't a direct API to get string for opcode enum in python usually, 
+        # but we can try to find a mapping or just use the number for now, 
+        # or manually map common ones.
+        # However, the design doc example shows "m_call".
+        # We might need a map.
+        
+        # Normalized operands
+        reads = []
+        writes = []
+        
+        # Helper to add read/write
+        def add_op(role, index, mop, is_write):
+            norm = self._normalize_operand(mop)
+            if norm:
+                entry = {"role": role, "index": index, "op": norm}
+                if is_write:
+                    writes.append(entry)
+                else:
+                    reads.append(entry)
+
+        # Iterate operands
+        # minsn_t has l (left), r (right), d (dest) usually
+        # But access depends on opcode
+        
+        # Destination (def)
+        add_op("ret", 0, insn.d, True)
+        
+        # Sources (use)
+        add_op("op1", 0, insn.l, False)
+        add_op("op2", 1, insn.r, False)
+        
+        # Handle call specifically
+        call_info = None
+        if ida_hexrays.is_mcode_call(insn.opcode):
+            # Extract call args
+            call_info = {
+                "kind": "unknown",
+                "callee_name": None,
+                "callee_ea": None,
+                "args": [],
+                "ret": None
+            }
+            # For call instructions, 'l' usually holds the callee info if it's a direct call
+            # 'd' is the return value location
+            
+            # We need to dig into call arguments which are usually passed via specific setup
+            # Hex-Rays 'm_call' instruction usually has arguments in 'args' list if fully analyzed?
+            # Actually minsn_t doesn't have 'args' field directly in Python API usually exposed simply.
+            # But let's check `insn.d.t` (type) or similar.
+            pass
+
+        return {
+            "block_id": block_id,
+            "insn_idx": insn_idx,
+            "ea": f"0x{insn.ea:x}",
+            "opcode": str(insn.opcode), # TODO: Map to string
+            "text": str(insn._print()), # Print representation
+            "reads": reads,
+            "writes": writes,
+            "call": call_info
+        }
+
+    def _normalize_operand(self, mop):
+        # mop is mop_t
+        if mop.empty():
+            return None
+            
+        kind = "unknown"
+        bits = mop.size * 8
+        repr_str = str(mop._print())
+        v = {}
+        
+        if mop.t == ida_hexrays.mop_r: # Register
+            kind = "reg"
+            # TODO: Get reg name
+            reg_name = "r" + str(mop.r) # Placeholder
+            v = {"reg": reg_name}
+            
+        elif mop.t == ida_hexrays.mop_n: # Constant
+            kind = "const"
+            # mop.nnn is the value object, value is .value
+            val = mop.nnn.value
+            v = {"value": hex(val)}
+            
+        elif mop.t == ida_hexrays.mop_S: # Stack
+            kind = "stack"
+            # mop.s is stkvar_ref_t, has off
+            off = mop.s.off
+            v = {"base": "fp", "off": off}
+            
+        elif mop.t == ida_hexrays.mop_v: # Global
+            kind = "global"
+            ea = mop.g
+            v = {"ea": f"0x{ea:x}", "rva": f"0x{ea - ida_nalt.get_imagebase():x}"}
+            
+        elif mop.t == ida_hexrays.mop_str: # String
+            kind = "string"
+            ea = mop.cstr # or similar, depends on API
+            v = {"ea": f"0x{ea:x}"} if ea else {}
+            
+        # ... other types
+        
+        return {
+            "kind": kind,
+            "bits": bits,
+            "repr": repr_str,
+            "v": v
+        }
+
+    def export_imports(self):
+        self.log("Exporting imports.jsonl...")
+        out_path = os.path.join(self.output_dir, "imports.jsonl")
+        with open(out_path, "w", encoding="utf-8") as f:
+            for i in range(ida_nalt.get_import_module_qty()):
+                mod_name = ida_nalt.get_import_module_name(i)
+                def cb(ea, name, ordinal):
+                    rec = {
+                        "name": name,
+                        "ea": f"0x{ea:x}",
+                        "module": mod_name
+                    }
+                    f.write(json.dumps(rec) + "\n")
+                    return True
+                ida_nalt.enum_import_names(i, cb)
+
+    def export_exports(self):
+        self.log("Exporting exports.jsonl...")
+        out_path = os.path.join(self.output_dir, "exports.jsonl")
+        with open(out_path, "w", encoding="utf-8") as f:
+            for index, ordinal, ea, name in idautils.Entries():
+                rec = {
+                    "name": name,
+                    "ea": f"0x{ea:x}"
+                }
+                f.write(json.dumps(rec) + "\n")
+
+    def export_strings(self):
+        self.log("Exporting strings.jsonl...")
+        out_path = os.path.join(self.output_dir, "strings.jsonl")
+        with open(out_path, "w", encoding="utf-8") as f:
+            for s in idautils.Strings():
+                try:
+                    val = str(s)
+                    rec = {
+                        "ea": f"0x{s.ea:x}",
+                        "value": val
+                    }
+                    f.write(json.dumps(rec) + "\n")
+                except:
+                    pass

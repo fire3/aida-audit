@@ -48,6 +48,19 @@ Extractor 输出一个目录（V1 不压缩，便于调试与增量）：
 
 - `binary_id` 必须稳定：对输入文件内容做 SHA-256 后编码成 `sha256:<hex>`。
 
+### 3.3 MicroCode 生成策略
+建议在每个函数上：
+- `gen_microcode(func_ea)` 获取 mba
+- 将 maturity 推进到 `MMAT_LOCOPT`（Local Optimization）
+  - 选择理由：此级别已完成基本的控制流图（CFG）构建与死代码消除，但尚未进行高阶的“栈变量映射（LVARS）”与“调用参数折叠”。
+  - 优势：保留了更接近汇编/RISC 的指令形态（明确的 flag 操作、寄存器传递参数），避免了 Hex-Rays 过度优化导致的逻辑合并（如 `setz` + `jnz` 被合并为 `jz`，或复杂的 `call` 嵌套），更适合精确的数据流分析与漏洞挖掘。
+- 遍历 `mba` 的 block 与 insn
+- 尽可能提取 `minsn.ea` 与 `mop` 的来源信息
+
+关键点：
+- **Maturity Level**：锁定在 `MMAT_LOCOPT`。不要使用 `MMAT_LVARS` 或更高，因为高层级会掩盖底层的 flag 依赖与寄存器传输细节。
+- 间接调用：优先结合 IDA 的 xrefs、类型签名、vtable 识别结果、以及 microcode 中的 callee mop 形态做保守解析。
+
 ## 3.4 `functions.jsonl`（函数级导出契约）
 
 `functions.jsonl` 每行一个函数记录。每条记录必须包含下列字段：
@@ -60,7 +73,7 @@ Extractor 输出一个目录（V1 不压缩，便于调试与增量）：
   "status": "ok|failed|skipped",
   "error": null,
   "microcode": {
-    "maturity": "MMAT_LVARS",
+    "maturity": "MMAT_LOCOPT",
     "blocks": [
       {
         "block_id": 0,
@@ -81,26 +94,26 @@ Extractor 输出一个目录（V1 不压缩，便于调试与增量）：
         "insn_idx": 0,
         "ea": "0x401004",
         "opcode": "m_call",
-        "text": "call memcpy(dst, src, n)",
+        "text": "call $memcpy",
         "reads": [
-          {"role": "callee", "index": 0, "op": {"kind": "global", "...": "..."}},
-          {"role": "arg", "index": 0, "op": {"kind": "stack", "...": "..."}},
-          {"role": "arg", "index": 1, "op": {"kind": "stack", "...": "..."}},
-          {"role": "arg", "index": 2, "op": {"kind": "reg", "...": "..."}}
+          {"role": "callee", "index": 0, "op": {"kind": "global", "name": "memcpy", "...": "..."}},
+          {"role": "explicit", "index": 0, "op": {"kind": "reg", "name": "R0", "...": "..."}},
+          {"role": "explicit", "index": 1, "op": {"kind": "reg", "name": "R1", "...": "..."}},
+          {"role": "explicit", "index": 2, "op": {"kind": "reg", "name": "R2", "...": "..."}}
         ],
         "writes": [
-          {"role": "ret", "index": 0, "op": {"kind": "reg", "...": "..."}}
+          {"role": "explicit", "index": 0, "op": {"kind": "reg", "name": "R0", "...": "..."}}
         ],
         "call": {
           "kind": "direct|indirect|unknown",
           "callee_name": "memcpy",
           "callee_ea": null,
           "args": [
-            {"kind": "stack", "...": "..."},
-            {"kind": "stack", "...": "..."},
-            {"kind": "reg", "...": "..."}
+            {"kind": "reg", "name": "R0", "...": "..."},
+            {"kind": "reg", "name": "R1", "...": "..."},
+            {"kind": "reg", "name": "R2", "...": "..."}
           ],
-          "ret": {"kind": "reg", "...": "..."}
+          "ret": {"kind": "reg", "name": "R0", "...": "..."}
         }
       }
     ]
