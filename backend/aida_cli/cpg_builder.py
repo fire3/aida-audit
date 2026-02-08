@@ -206,11 +206,26 @@ class CPGBuilder:
 
     def _normalize_key(self, repr_str):
         if not repr_str: return None
-        # Remove type cast prefix: "type" value
-        # Look for pattern: "..." value
         import re
-        # Pattern: quote, anything, quote, space, rest
-        m = re.match(r'^".*?"\s+(.*)$', repr_str)
-        if m:
-            return m.group(1)
+        
+        # Iteratively remove prefixes until stable
+        while True:
+            original = repr_str
+            
+            # Remove "type" prefix: "int *" var
+            m = re.match(r'^".*?"\s+(.*)$', repr_str)
+            if m:
+                repr_str = m.group(1)
+                continue
+                
+            # Remove size prefix: _QWORD var
+            m = re.match(r'^_(?:QWORD|DWORD|WORD|BYTE|OWORD|TBYTE)\s+(.*)$', repr_str)
+            if m:
+                repr_str = m.group(1)
+                continue
+            
+            # If no change, break
+            if repr_str == original:
+                break
+                
         return repr_str
