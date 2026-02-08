@@ -564,6 +564,12 @@ class IDACPGExporter:
             kind = "string"
             ea = mop.cstr # or similar, depends on API
             v = {"ea": f"0x{ea:x}"} if ea else {}
+
+        elif hasattr(ida_hexrays, "mop_f") and mop.t == ida_hexrays.mop_f:
+            kind = "type"
+            if hasattr(mop, "f") and hasattr(mop.f, "return_type"):
+                repr_str = str(mop.f.return_type)
+                v = {"full_repr": self._strip_tags(str(mop._print()))}
             
         # ... other types
         
