@@ -14,7 +14,8 @@ Extractor 输出一个目录（V1 不压缩，便于调试与增量）：
 - `functions.jsonl`
 - `imports.jsonl`（可选，存在则离线侧加载）
 - `exports.jsonl`（可选）
-- `strings.jsonl`（可选）
+- `globals.jsonl`（推荐，包含全局变量与常量数据）
+- `strings.jsonl`（可选，被 globals.jsonl 覆盖，但可作为纯文本列表存在）
 
 文件编码：
 
@@ -82,7 +83,8 @@ Extractor 的遍历边界必须是：**只把顶层 `minsn_t` 作为“语句（
 推荐的实现形态：
 - `parse_minsn(root_minsn) -> expr_operand`：把 `minsn_t` 规范化为 `kind="expr"` 的 Normalized Operand，其中 `v.op` 是 opcode，`v.args` 递归包含其子操作数。
 - `parse_mop(mop) -> operand`：
-  - 若为寄存器/常量/全局/栈槽/字符串引用：直接落到 `reg/const/global/stack/string`
+  - 若为寄存器/常量/全局/栈槽/字符串引用：直接落到 `reg/const/global/stack/string`。
+    - **注意**：对于 Global，需区分“读取值”与“取地址”。MicroCode 中通常通过 `mop_t` 的引用类型或上下文指令（如 `lea`）区分。Extractor 必须在 operand 中标记 `access_mode="read|addr"`，或通过操作数结构区分（例如 `global` vs `obj_addr`）。
   - 若为内存：落到 `mem`，并对 `mem.v.addr` 递归构建结构化地址表达式（见第 4 章）
   - 若为嵌入指令：递归调用 `parse_minsn(mop.insn)`
   - 其它无法稳定建模的形态：落到 `expr` 或 `unknown`，并尽量保留结构化字段
@@ -198,6 +200,44 @@ Extractor 的遍历边界必须是：**只把顶层 `minsn_t` 作为“语句（
       }
     ]
   },
+}
+```
+
+## 3.6 `globals.jsonl`（全局数据与常量）
+
+为了支持跨函数的常量传播与污点分析，Extractor 必须导出全局数据段的信息。这包括全局变量、静态变量、字符串常量以及其他 `.rodata/.data` 段内容。
+
+`globals.jsonl` 每行一条记录：
+
+```json
+{
+  "ea": "0x403000",
+  "name": "aNoMoreSpace",
+  "demangled_name": null,
+  "type": "char[]",
+  "size": 15,
+  "storage": "static|extern|public",
+  "is_const": true,
+  "content": {
+    "type": "string|bytes|int|ptr|struct",
+    "value": "No more space!",
+    "encoding": "utf-8"
+  },
+  "refs": ["0x401000", "0x401020"]
+}
+```
+
+字段说明：
+- `ea`：数据的起始地址。
+- `name`：符号名（IDA 中的 name）。
+- `is_const`：是否位于只读段（如 `.rodata`）。
+- `content`：
+  - 若为字符串，提供解码后的文本。
+  - 若为指针（如全局对象指针初始化），提供目标地址。
+  - 若为简单标量（int），提供数值。
+- `refs`：可选，列出引用该全局变量的指令地址或函数地址（Data XREF），辅助快速构建引用关系。
+
+对于字符串常量，建议优先在此文件中导出，而非仅依赖 `strings.jsonl`。
   "decompilation": {
     "pseudocode": null,
     "ea_to_line": null
