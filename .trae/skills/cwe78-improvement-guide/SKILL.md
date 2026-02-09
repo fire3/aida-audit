@@ -17,7 +17,7 @@ description: CWE-78 修复与改进工作
 
 ### 1. 开发环境 (Environment)
 - **Project Root**: `/Users/fire3/SRC/aida-mcp`
-- **Python**: `/opt/anaconda3/bin/python` (必须使用此路径)
+- **Python**: `/home/fire3/opt/miniconda3/bin/python` (必须使用此路径)
 - **Test Suite**: `tests_cpg/CWE78/arm64` (包含 900+ `.o` 目标文件)
 - **Results Dir**: `scan_results_cwe78`
 
@@ -48,7 +48,7 @@ description: CWE-78 修复与改进工作
 
 1.  **复现问题**:
     ```bash
-    /opt/anaconda3/bin/python scripts/regression_test_cwe78.py --filter "Specific_Case_Name" --clean
+    /home/fire3/opt/miniconda3/bin/python scripts/regression_test_cwe78.py --filter "Specific_Case_Name" --clean
     ```
 2.  **定位断点**:
     - 修改 `scripts/debug_taint.py`，将 `cpg_path` 指向刚刚生成的 `.cpg_json` 文件。

@@ -86,6 +86,9 @@ class TaintEngine:
                 if edge_data.get("type") == EDGE_DEF:
                     has_def = True
                     results.extend(self._check_instr_source(instr_id, visited, depth+1))
+                    
+                    # Check for alias (AddressOf)
+                    results.extend(self._trace_alias(instr_id, visited, depth+1))
             
             # B. Implicit DEFs (Output Args)
             # Look for USEs where this variable is an output argument
@@ -99,6 +102,12 @@ class TaintEngine:
                     if self._is_propagator_output(cs, node_id):
                         has_def = True
                         results.extend(self._trace_call_inputs(cs, visited, depth+1))
+                    else:
+                        # Check user-defined function output (pass-by-reference)
+                        sources = self._trace_user_func_output(cs, node_id, visited, depth)
+                        if sources:
+                            has_def = True
+                            results.extend(sources)
 
                 # Case 2: Used in an Expression which is an Argument
                 elif edge_type == EDGE_USE:
@@ -110,6 +119,12 @@ class TaintEngine:
                             if self._is_propagator_output(cs, user_node):
                                 has_def = True
                                 results.extend(self._trace_call_inputs(cs, visited, depth+1))
+                            else:
+                                # Check user-defined function output (pass-by-reference)
+                                sources = self._trace_user_func_output(cs, user_node, visited, depth)
+                                if sources:
+                                    has_def = True
+                                    results.extend(sources)
                     
                     # Check if this instr is a CallSite and we are an output arg
                     call_sites = [u for u, _, d in self.graph.in_edges(user_node, data=True) if d.get("type") == EDGE_CALL_OF]
@@ -119,6 +134,24 @@ class TaintEngine:
                             # print(f"DEBUG: Propagator match! {cs}")
                             has_def = True
                             results.extend(self._trace_call_inputs(cs, visited, depth+1))
+                        
+                        # Check user-defined function output for ALL pointer arguments
+                        # This handles cases where node_id is aliased by an argument (e.g. &node_id passed to function)
+                        # We assume if node_id is used in the call, it might be modified via any pointer argument.
+                        for _, arg_node, edge_data in self.graph.out_edges(cs, data=True):
+                            if edge_data.get("type") == EDGE_ARG:
+                                # Check if arg_node looks like a pointer/reference
+                                arg_data = self.graph.nodes[arg_node]
+                                repr_str = arg_data.get("repr", "")
+                                # Heuristic: Starts with & or contains * or type is pointer
+                                # Also simply trace all args if they are outputs?
+                                # But we only want outputs. _trace_user_func_output traces the parameter in callee.
+                                # If callee taints the parameter, we want to know.
+                                if "&" in repr_str or "*" in repr_str or "addr_of" in arg_data.get("op_kind", ""):
+                                     sources = self._trace_user_func_output(cs, arg_node, visited, depth)
+                                     if sources:
+                                         has_def = True
+                                         results.extend(sources)
 
             # C. Expression Operands (Expr -> Var/Expr)
             # If this is an Expr, trace its operands (outgoing EDGE_USE)
@@ -335,3 +368,82 @@ class TaintEngine:
             "name": name,
             "ea": node.get("ea", "unknown")
         }
+
+    def _trace_alias(self, instr_id, visited, depth):
+        """
+        Trace variables aliased by AddressOf operations.
+        If instr is 'mov ptr, &target', trace other variables defined by '&target'.
+        """
+        # print(f"DEBUG: _trace_alias instr={instr_id}")
+        results = []
+        # Find input Exprs
+        # Instr -> USE -> Expr
+        # We need to find Expr nodes that are USED by this Instr.
+        # The graph structure for Instr->Expr is OutEdge(Instr, Expr, type=USE)
+        
+        for _, u, d in self.graph.out_edges(instr_id, data=True):
+            if d.get("type") == EDGE_USE:
+                node_data = self.graph.nodes[u]
+                if node_data.get("kind") == NODE_EXPR:
+                    repr_str = node_data.get("repr", "")
+                    # print(f"DEBUG:   Checking Expr {u} repr={repr_str}")
+                    # Heuristic: AddressOf often has '&' in repr or op_kind='addr_of'
+                    if "&" in repr_str or node_data.get("op_kind") == "addr_of":
+                        # print(f"DEBUG:     AddressOf detected! u={u}")
+                        # This Expr is '&target'.
+                        # We need to find other Instrs that USE this SAME Expr node (or equivalent nodes).
+                        # Assuming Expr nodes are shared or linked?
+                        # If not shared, we must rely on searching.
+                        
+                        # Check in-edges of this Expr (predecessors)
+                        # Predecessors are Instrs that use this Expr.
+                        for instr_other, _, d2 in self.graph.in_edges(u, data=True):
+                            if instr_other == instr_id: continue
+                            if d2.get("type") == EDGE_USE:
+                                # Found another instruction using the same AddressOf Expr.
+                                # Trace the variable defined by this instruction.
+                                # print(f"DEBUG:     Found alias instr {instr_other}")
+                                for v_other, _, d3 in self.graph.out_edges(instr_other, data=True):
+                                    if d3.get("type") == EDGE_DEF:
+                                         # print(f"DEBUG:       Alias variable {v_other}")
+                                         results.extend(self._trace(v_other, visited, depth+1))
+        return results
+
+    def _trace_user_func_output(self, call_id, arg_node_id, visited, depth):
+        # 1. Get Callee
+        name = self._get_callee_name(call_id)
+        if not name: return []
+        func_node = self.func_map.get(name)
+        if not func_node: return []
+        
+        # 2. Get Arg Index
+        arg_index = -1
+        edge_data = self.graph.get_edge_data(call_id, arg_node_id)
+        if edge_data:
+            for key in edge_data:
+                 data = edge_data[key]
+                 if data.get("type") == EDGE_ARG:
+                     arg_index = data.get("index")
+                     break
+        
+        if arg_index == -1: return []
+
+        # 3. Find Parameter in Callee
+        param_node = self._get_func_param(func_node, arg_index)
+        if not param_node: return []
+        
+        # 4. Trace Param in Callee
+        return self._trace(param_node, visited, depth + 1)
+
+    def _get_func_param(self, func_node, index):
+        func_ea = self.graph.nodes[func_node].get("ea")
+        if not func_ea: return None
+        
+        # Heuristic for Aida CPG (ARM64)
+        # Arg 0 corresponds to V:<func_ea>:fp:0
+        if index == 0:
+            param_id = f"V:{func_ea}:fp:0"
+            if param_id in self.graph.nodes:
+                return param_id
+        
+        return None

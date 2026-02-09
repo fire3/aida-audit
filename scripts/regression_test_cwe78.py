@@ -10,7 +10,7 @@ import shutil
 from datetime import datetime
 
 # Configuration
-PYTHON_CMD = "/opt/anaconda3/bin/python"
+PYTHON_CMD = "/home/fire3/opt/miniconda3/bin/python"
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_TEST_DIR = os.path.join(PROJECT_ROOT, "tests_cpg", "CWE78", "arm64")
 DEFAULT_OUTPUT_DIR = os.path.join(PROJECT_ROOT, "scan_results_cwe78")
