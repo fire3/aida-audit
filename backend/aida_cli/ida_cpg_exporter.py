@@ -21,6 +21,7 @@ try:
     import ida_ida
     import ida_auto
     import ida_range
+    import idaapi
 except ImportError:
     pass
 
@@ -42,70 +43,12 @@ class IDACPGExporter:
         s = self._strip_tags(s)
         return s
 
-    def _get_maturity(self):
-        if 'ida_hexrays' in globals():
-            return getattr(ida_hexrays, "MMAT_LVARS", ida_hexrays.MMAT_LOCOPT)
-        return None
-
     def _get_maturity_name(self):
-        if 'ida_hexrays' in globals() and hasattr(ida_hexrays, "MMAT_LVARS"):
-            return "MMAT_LVARS"
-        return "MMAT_LOCOPT"
-
-    def _mba_to_text(self, mba):
-        if mba is None:
-            return None
-        text = None
-        if hasattr(mba, "_print"):
-            try:
-                text = str(mba._print())
-            except Exception:
-                text = None
-        if not text:
-            try:
-                text = str(mba)
-            except Exception:
-                text = None
-        if text:
-            return self._strip_tags(text)
-        return None
-
-    def _mba_dump_text(self, mba):
-        if mba is None:
-            return None
-        text = None
-        if 'ida_hexrays' in globals() and hasattr(ida_hexrays, "hx_mba_t_vdump_mba"):
-            try:
-                dumped = ida_hexrays.hx_mba_t_vdump_mba(mba)
-                if dumped:
-                    text = str(dumped)
-            except Exception:
-                text = None
-        if text:
-            return self._strip_tags(text)
-        if hasattr(mba, "print"):
-            try:
-                mba.print()
-            except Exception:
-                pass
-        return None
+        return "MMAT_LVARS"
 
     def _dump_microcode(self, mba, func_name, func_ea):
         if mba is None:
             return
-        self.log(f"MICROCODE {func_name} {func_ea}")
-        mba_text = self._mba_to_text(mba)
-        if mba_text:
-            self.log(f"MBA_TEXT {func_name} {func_ea}")
-            for line in mba_text.splitlines():
-                if line:
-                    self.log(line)
-        dump_text = self._mba_dump_text(mba)
-        if dump_text:
-            self.log(f"MBA_DUMP {func_name} {func_ea}")
-            for line in dump_text.splitlines():
-                if line:
-                    self.log(line)
         for i in range(mba.qty):
             block = mba.get_mblock(i)
             succ_ids = []
@@ -118,9 +61,9 @@ class IDACPGExporter:
             curr = block.head
             insn_idx = 0
             while curr:
-                #text = self._strip_tags(str(curr._print()))
-                text = str(curr._print())
-                self.log(f"{i}.{insn_idx} {text}")
+                text = curr.dstr()
+                ea_str = f"{curr.ea:x}" if curr.ea != idaapi.BADADDR else "BADADDR"
+                self.log(f"{i}.{insn_idx} [{ea_str}] {text}")
                 curr = curr.next
                 insn_idx += 1
 
@@ -179,7 +122,7 @@ class IDACPGExporter:
         return {
             "kind": "expr",
             "bits": self._insn_bits(insn),
-            "repr": self._strip_tags(str(insn._print())),
+            "repr": self._strip_tags(insn.dstr()),
             "v": {
                 "op": self._opcode_name(insn.opcode),
                 "args": args
@@ -623,36 +566,25 @@ class IDACPGExporter:
             except:
                 cfunc = None
 
-            mba = None
-            if cfunc and hasattr(cfunc, "get_mba"):
-                try:
-                    mba = cfunc.get_mba()
-                except:
-                    mba = None
-            if mba is None and cfunc and hasattr(cfunc, "mba"):
-                mba = cfunc.mba
+            pfn = idaapi.get_func(cfunc.entry_ea)
+            hf = ida_hexrays.hexrays_failure_t()
+            mbr = ida_hexrays.mba_ranges_t(pfn)
 
-            if mba is None:
-                mbr = ida_hexrays.mba_ranges_t()
-                for start, end in idautils.Chunks(func_ea):
-                    mbr.ranges.push_back(ida_range.range_t(start, end))
-
-                hf = ida_hexrays.hexrays_failure_t()
-                mba = ida_hexrays.gen_microcode(
-                    mbr, 
-                    hf, 
-                    None, 
-                    ida_hexrays.DECOMP_WARNINGS, 
-                    self._get_maturity()
-                )
-                
-                if not mba:
-                    res["status"] = "failed"
-                    res["error"] = f"gen_microcode failed: {hf.str}"
+            mba = ida_hexrays.gen_microcode(
+                mbr, 
+                hf, 
+                None, 
+                ida_hexrays.DECOMP_WARNINGS, 
+                ida_hexrays.MMAT_LVARS
+            )
+            
+            if not mba:
+                res["status"] = "failed"
+                res["error"] = f"gen_microcode failed: {hf.str}"
 
             if mba:
                 res["microcode"] = self._extract_microcode(mba)
-                self._dump_microcode(mba, func_name, res["func_ea"])
+                #self._dump_microcode(mba, func_name, res["func_ea"])
 
             if cfunc:
                 res["decompilation"]["pseudocode"] = str(cfunc)
@@ -780,7 +712,7 @@ class IDACPGExporter:
             "insn_idx": insn_idx,
             "ea": f"0x{insn.ea:x}",
             "opcode": self._opcode_name(opcode),
-            "text": self._strip_tags(str(insn._print())), # Print representation
+            "text": self._strip_tags(insn.dstr()), # Print representation
             "reads": reads,
             "writes": writes,
             "calls": calls
@@ -802,7 +734,7 @@ class IDACPGExporter:
                  size = 0
                  
         bits = size * 8
-        repr_str = self._clean_repr(str(mop._print()))
+        repr_str = self._clean_repr(mop.dstr())
         v = {}
         
         if mop.t == ida_hexrays.mop_r: # Register
@@ -899,7 +831,7 @@ class IDACPGExporter:
         elif hasattr(ida_hexrays, "mop_f") and mop.t == ida_hexrays.mop_f:
             kind = "type"
             # Use full representation for mop_f to capture signature
-            repr_str = self._strip_tags(str(mop._print()))
+            repr_str = self._strip_tags(mop.dstr())
             if hasattr(mop, "f") and hasattr(mop.f, "return_type"):
                 # repr_str = str(mop.f.return_type) # Old behavior: only return type
                 v = {"full_repr": repr_str, "return_type": str(mop.f.return_type)}
