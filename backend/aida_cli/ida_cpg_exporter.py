@@ -25,6 +25,27 @@ try:
 except ImportError:
     pass
 
+MopCollectorVisitor = None
+if 'ida_hexrays' in globals():
+    class _MopCollectorVisitor(ida_hexrays.mop_visitor_t):
+        def __init__(self, exporter):
+            ida_hexrays.mop_visitor_t.__init__(self)
+            self.exporter = exporter
+            self.sub_mops = []
+
+        def visit_mop(self, mop, type_id, is_target):
+            # type_id indicates the role of this mop in the parent instruction/structure
+            # is_target is boolean
+            norm = self.exporter._normalize_operand(mop)
+            if norm:
+                self.sub_mops.append({
+                    "role_id": type_id,
+                    "is_target": is_target,
+                    "op": norm
+                })
+            return 0
+    MopCollectorVisitor = _MopCollectorVisitor
+
 class IDACPGExporter:
     def __init__(self, output_dir, logger):
         self.output_dir = output_dir
@@ -718,132 +739,41 @@ class IDACPGExporter:
             "calls": calls
         }
 
+    def _get_mop_type_name(self, t):
+        if not hasattr(self, "_mop_tnames_map"):
+            m = {}
+            if 'ida_hexrays' in globals():
+                for k, v in vars(ida_hexrays).items():
+                    if k.startswith("mop_") and isinstance(v, int):
+                        m[v] = k
+            self._mop_tnames_map = m
+        return self._mop_tnames_map.get(t, str(t))
+
     def _normalize_operand(self, mop):
         # mop is mop_t
         if mop.empty():
             return None
             
-        kind = "unknown"
-        
-        size = mop.size
-        if size < 0:
-            # Handle invalid/unknown size (often -1 for function addresses)
-            if mop.t == ida_hexrays.mop_v and 'ida_ida' in globals():
-                 size = 8 if ida_ida.inf_is_64bit() else 4
-            else:
-                 size = 0
-                 
-        bits = size * 8
+        t = mop.t
         repr_str = self._clean_repr(mop.dstr())
-        v = {}
         
-        if mop.t == ida_hexrays.mop_r: # Register
-            kind = "reg"
-            # TODO: Get reg name
-            reg_name = "r" + str(mop.r) # Placeholder
-            v = {"reg": reg_name}
-            
-        elif mop.t == ida_hexrays.mop_n: # Constant
-            kind = "const"
-            # mop.nnn is the value object, value is .value
-            val = mop.nnn.value
-            v = {"value": hex(val)}
-            
-        elif mop.t == ida_hexrays.mop_S: # Stack
-            kind = "stack"
-            # mop.s is stkvar_ref_t, has off
-            off = mop.s.off
-            v = {"base": "fp", "off": off}
-        elif hasattr(ida_hexrays, "mop_l") and mop.t == ida_hexrays.mop_l:
-            # Local variable (Stack or Register)
-            lvar = mop.l
-            name = "unknown"
-            if hasattr(lvar, "name"):
-                name = lvar.name
-            
-            is_stk = False
-            is_reg = False
-            
-            if hasattr(lvar, "is_stk_var") and lvar.is_stk_var():
-                is_stk = True
-                kind = "stack"
-            elif hasattr(lvar, "is_reg_var") and lvar.is_reg_var():
-                is_reg = True
-                kind = "reg"
-            else:
-                kind = "stack" # Default fallback
-            
-            if is_stk:
-                off = 0
-                if hasattr(lvar, "off"): off = lvar.off
-                
-                # Fallback for name using repr_str if available
-                final_name = name
-                if (not final_name or final_name == "unknown") and repr_str:
-                    final_name = repr_str
-                
-                v = {"base": "fp", "off": off, "name": final_name}
-            elif is_reg:
-                reg_idx = 0
-                if hasattr(lvar, "get_reg"): 
-                     # get_reg() returns mreg_t which is int
-                     reg_idx = lvar.get_reg()
-                
-                final_name = name
-                if (not final_name or final_name == "unknown") and repr_str:
-                    final_name = repr_str
-
-                v = {"reg": f"r{reg_idx}", "name": final_name}
-            else:
-                # Fallback
-                final_name = name
-                if (not final_name or final_name == "unknown") and repr_str:
-                    final_name = repr_str
-
-                v = {"name": final_name}
-                if hasattr(lvar, "off"):
-                     v["off"] = lvar.off
-                     v["base"] = "fp"
-            
-        elif mop.t == ida_hexrays.mop_v: # Global
-            kind = "global"
-            ea = mop.g
-            v = {"ea": f"0x{ea:x}", "rva": f"0x{ea - ida_nalt.get_imagebase():x}"}
-            # Default access mode is read, can be overridden by mop_a handler
-            v["access_mode"] = "read"
-            
-        elif mop.t == ida_hexrays.mop_a: # Address of
-            # Recursively normalize the inner operand
-            if hasattr(mop, "a"):
-                inner = self._normalize_operand(mop.a)
-                if inner:
-                    v = inner # Copy inner fields
-                    kind = inner.get("kind", "unknown")
-                    # Override access_mode
-                    v["access_mode"] = "addr"
-                    # If inner was a global, it now represents &global
-            
-        elif mop.t == ida_hexrays.mop_str: # String
-            kind = "string"
-            # mop.cstr is the string content, not an address
-            v = {"content": mop.cstr}
-
-        elif hasattr(ida_hexrays, "mop_f") and mop.t == ida_hexrays.mop_f:
-            kind = "type"
-            # Use full representation for mop_f to capture signature
-            repr_str = self._strip_tags(mop.dstr())
-            if hasattr(mop, "f") and hasattr(mop.f, "return_type"):
-                # repr_str = str(mop.f.return_type) # Old behavior: only return type
-                v = {"full_repr": repr_str, "return_type": str(mop.f.return_type)}
-            
-        # ... other types
-        
-        return {
-            "kind": kind,
-            "bits": bits,
-            "repr": repr_str,
-            "v": v
+        # 1. Basic Info & Stable Identifier
+        # User requested simple v as identifier, using dstr
+        res = {
+            "t": t,
+            "t_name": self._get_mop_type_name(t),
+            "dstr": repr_str, # Use dstr as the primary identifier
         }
+
+        # 2. Visitor for sub-mops (Complex Types)
+        # Use visitor for complex types that contain other mops
+        if MopCollectorVisitor and t in (ida_hexrays.mop_d, ida_hexrays.mop_f, ida_hexrays.mop_a, ida_hexrays.mop_c, ida_hexrays.mop_p):
+             visitor = MopCollectorVisitor(self)
+             mop.for_all_ops(visitor)
+             if visitor.sub_mops:
+                 res["sub_mops"] = visitor.sub_mops
+                 
+        return res
 
     def export_imports(self):
         self.log("Exporting imports.jsonl...")
