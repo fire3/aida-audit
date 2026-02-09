@@ -52,6 +52,78 @@ class IDACPGExporter:
             return "MMAT_LVARS"
         return "MMAT_LOCOPT"
 
+    def _mba_to_text(self, mba):
+        if mba is None:
+            return None
+        text = None
+        if hasattr(mba, "_print"):
+            try:
+                text = str(mba._print())
+            except Exception:
+                text = None
+        if not text:
+            try:
+                text = str(mba)
+            except Exception:
+                text = None
+        if text:
+            return self._strip_tags(text)
+        return None
+
+    def _mba_dump_text(self, mba):
+        if mba is None:
+            return None
+        text = None
+        if 'ida_hexrays' in globals() and hasattr(ida_hexrays, "hx_mba_t_vdump_mba"):
+            try:
+                dumped = ida_hexrays.hx_mba_t_vdump_mba(mba)
+                if dumped:
+                    text = str(dumped)
+            except Exception:
+                text = None
+        if text:
+            return self._strip_tags(text)
+        if hasattr(mba, "print"):
+            try:
+                mba.print()
+            except Exception:
+                pass
+        return None
+
+    def _dump_microcode(self, mba, func_name, func_ea):
+        if mba is None:
+            return
+        self.log(f"MICROCODE {func_name} {func_ea}")
+        mba_text = self._mba_to_text(mba)
+        if mba_text:
+            self.log(f"MBA_TEXT {func_name} {func_ea}")
+            for line in mba_text.splitlines():
+                if line:
+                    self.log(line)
+        dump_text = self._mba_dump_text(mba)
+        if dump_text:
+            self.log(f"MBA_DUMP {func_name} {func_ea}")
+            for line in dump_text.splitlines():
+                if line:
+                    self.log(line)
+        for i in range(mba.qty):
+            block = mba.get_mblock(i)
+            succ_ids = []
+            for succ in block.succs():
+                succ_id = succ
+                if hasattr(succ, "serial"):
+                    succ_id = succ.serial
+                succ_ids.append(succ_id)
+            self.log(f"BLOCK {i} {block.start:x} {block.end:x} succs={succ_ids}")
+            curr = block.head
+            insn_idx = 0
+            while curr:
+                #text = self._strip_tags(str(curr._print()))
+                text = str(curr._print())
+                self.log(f"{i}.{insn_idx} {text}")
+                curr = curr.next
+                insn_idx += 1
+
     def _opcode_name(self, opcode):
         if 'ida_hexrays' in globals() and hasattr(ida_hexrays, "get_mcode_name"):
             try:
@@ -165,6 +237,41 @@ class IDACPGExporter:
                 args.append(op)
         return args
 
+    def _retloc_to_operand(self, retloc):
+        if retloc is None:
+            return None
+        candidate = retloc
+        if hasattr(retloc, "arg"):
+            candidate = retloc.arg
+        if isinstance(candidate, (list, tuple)):
+            for item in candidate:
+                if hasattr(item, "empty") and not item.empty():
+                    op = self._mop_to_expr_operand(item)
+                    if op:
+                        return op
+            return None
+        if hasattr(candidate, "empty") and candidate.empty():
+            return None
+        try:
+            return self._mop_to_expr_operand(candidate)
+        except Exception:
+            return None
+
+    def _extract_call_retloc(self, insn):
+        candidates = []
+        if hasattr(insn, "d"): candidates.append(insn.d)
+        if hasattr(insn, "l"): candidates.append(insn.l)
+        if hasattr(insn, "r"): candidates.append(insn.r)
+        for mop in candidates:
+            if not mop or mop.empty():
+                continue
+            if hasattr(mop, "t") and hasattr(ida_hexrays, "mop_f") and mop.t == ida_hexrays.mop_f:
+                if hasattr(mop, "f") and hasattr(mop.f, "retloc"):
+                    op = self._retloc_to_operand(mop.f.retloc)
+                    if op:
+                        return op
+        return None
+
     def _record_call(self, insn, reads, calls):
         callee_name = None
         callee_ea = None
@@ -191,6 +298,7 @@ class IDACPGExporter:
         ret = None
         if hasattr(insn, "d") and insn.d and not insn.d.empty():
             ret = self._normalize_operand(insn.d)
+        retloc = self._extract_call_retloc(insn)
         call_info = {
             "index": len(calls),
             "kind": kind,
@@ -198,7 +306,8 @@ class IDACPGExporter:
             "callee_ea": callee_ea,
             "target": target,
             "args": args,
-            "ret": ret
+            "ret": ret,
+            "retloc": retloc
         }
         calls.append(call_info)
 
@@ -543,6 +652,7 @@ class IDACPGExporter:
 
             if mba:
                 res["microcode"] = self._extract_microcode(mba)
+                self._dump_microcode(mba, func_name, res["func_ea"])
 
             if cfunc:
                 res["decompilation"]["pseudocode"] = str(cfunc)
@@ -653,6 +763,17 @@ class IDACPGExporter:
                     writes.append({"role": "dst", "index": 0, "op": norm})
 
         self._collect_reads_from_insn(insn, reads, calls, True)
+
+        if is_call:
+            retloc = self._extract_call_retloc(insn)
+            if retloc:
+                exists = False
+                for w in writes:
+                    if w.get("op", {}).get("repr") == retloc.get("repr"):
+                        exists = True
+                        break
+                if not exists:
+                    writes.append({"role": "dst", "index": len(writes), "op": retloc})
 
         return {
             "block_id": block_id,
