@@ -61,7 +61,19 @@ Builder 必须实现两类 intern：
 - `reads/writes` 为空允许存在；但 call 语义指令必须至少有 `callee/arg` 的 reads。
 - `role` 必须来自一组固定枚举（由实现常量定义）；未知 role 视为导出包不符合契约。
 
-## 6.5 CallSite 构建（只依赖导出包 call 字段）
+## 6.5 指针与内存建模 (Points-To)
+
+为了支持指针分析与别名追踪，Builder 需要显式建模变量与内存的关系：
+
+1.  **栈变量建模**：
+    - 对每个识别到的栈变量节点 `V:<func_ea>:stack:<base>:<off>`，必须创建一个对应的内存节点 `M:<func_ea>:stack:<base>:<off>`。
+    - 建立 `POINTS_TO` 边：`Var -> Mem`。
+    - 意义：表示该变量（指针/引用）指向该栈内存区域。
+
+2.  **全局变量建模**（可选）：
+    - 若全局变量指向已知静态数据，建立 `Global -> Global/String/Const` 的 `POINTS_TO` 边。
+
+## 6.6 CallSite 构建（只依赖导出包 call 字段）
 
 当 insn 含 `call` 字段：
 
@@ -75,7 +87,7 @@ Builder 必须实现两类 intern：
 - 对返回值：
   - 若 `call.ret` 非空：建 `RET(C→node, index=0)`。
 
-## 6.6 一致性校验（V1 强制）
+## 6.7 一致性校验（V1 强制）
 
 构建完成后必须校验：
 
@@ -91,7 +103,7 @@ Builder 必须实现两类 intern：
 - 地址：
   - 所有 `ea/func_ea/start_ea/end_ea` 符合 `0x[0-9a-f]+`
 
-## 6.7 最小索引（V1 必备）
+## 6.8 最小索引（V1 必备）
 
 Builder 必须维护以下索引（内存结构即可）：
 

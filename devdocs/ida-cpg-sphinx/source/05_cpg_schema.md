@@ -56,7 +56,7 @@ V1 固定边集合：
 - `DEF`：Instr → (Var/Mem/Expr/Global)（必须带 `role`）
 - `USE`：Instr → (Var/Mem/Expr/Const/String/Global)（必须带 `role`，可选 `access_mode`）
   - `access_mode`：`"read"` (默认，读取值) | `"addr"` (取地址/LEA)
-- `POINTS_TO`：Global → (String/Global/Const)（表示静态初始化指向）
+- `POINTS_TO`：Global/Var → (String/Global/Const/Mem)（表示静态初始化指向或变量指向的内存区域）
 
 数据流（派生边，由分析阶段生成）：
 

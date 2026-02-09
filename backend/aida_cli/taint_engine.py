@@ -55,6 +55,31 @@ class TaintEngine:
                              self.caller_map[sname] = []
                          self.caller_map[sname].append(node)
 
+    def debug_trace(self, node_id: str) -> List[Dict]:
+        """
+        Debug interface: trace a node with verbose logging.
+        """
+        print(f"[DEBUG] Starting trace for node: {node_id}")
+        return self._trace(node_id, set(), 0, verbose=True)
+
+    def dump_subgraph(self, node_ids: List[str], output_path: str):
+        """
+        Debug interface: export subgraph containing specific nodes and their neighbors.
+        """
+        sub_nodes = set(node_ids)
+        for nid in node_ids:
+            if nid in self.graph:
+                sub_nodes.update(self.graph.predecessors(nid))
+                sub_nodes.update(self.graph.successors(nid))
+        
+        subgraph = self.graph.subgraph(sub_nodes)
+        data = nx.node_link_data(subgraph)
+        
+        import json
+        with open(output_path, 'w') as f:
+            json.dump(data, f, indent=2)
+        print(f"[DEBUG] Subgraph dumped to {output_path}")
+
     def get_taint_sources(self, node_id) -> List[Dict]:
         """
         Trace back from node_id to find taint sources.
@@ -62,7 +87,7 @@ class TaintEngine:
         """
         return self._trace(node_id, set(), 0)
 
-    def _check_implicit_defs(self, node_id, visited, depth):
+    def _check_implicit_defs(self, node_id, visited, depth, verbose=False):
         """
         Check if node_id is an output argument of any function call (Implicit Definition).
         """
@@ -76,10 +101,10 @@ class TaintEngine:
             if edge_type == EDGE_ARG:
                 cs = user_node # user_node is the CallSite source
                 if self._is_propagator_output(cs, node_id):
-                    results.extend(self._trace_call_inputs(cs, visited, depth+1))
+                    results.extend(self._trace_call_inputs(cs, visited, depth+1, verbose))
                 else:
                     # Check user-defined function output (pass-by-reference)
-                    sources = self._trace_user_func_output(cs, node_id, visited, depth)
+                    sources = self._trace_user_func_output(cs, node_id, visited, depth, verbose)
                     if sources:
                         results.extend(sources)
 
@@ -91,10 +116,10 @@ class TaintEngine:
                         # user_node is an argument to cs
                         # Check if user_node is an output argument
                         if self._is_propagator_output(cs, user_node):
-                            results.extend(self._trace_call_inputs(cs, visited, depth+1))
+                            results.extend(self._trace_call_inputs(cs, visited, depth+1, verbose))
                         else:
                             # Check user-defined function output (pass-by-reference)
-                            sources = self._trace_user_func_output(cs, user_node, visited, depth)
+                            sources = self._trace_user_func_output(cs, user_node, visited, depth, verbose)
                             if sources:
                                 results.extend(sources)
                 
@@ -102,7 +127,7 @@ class TaintEngine:
                 call_sites = [u for u, _, d in self.graph.in_edges(user_node, data=True) if d.get("type") == EDGE_CALL_OF]
                 for cs in call_sites:
                     if self._is_propagator_output(cs, node_id):
-                        results.extend(self._trace_call_inputs(cs, visited, depth+1))
+                        results.extend(self._trace_call_inputs(cs, visited, depth+1, verbose))
                     
                     # Check user-defined function output for ALL pointer arguments
                     for _, arg_node, edge_data in self.graph.out_edges(cs, data=True):
@@ -110,15 +135,19 @@ class TaintEngine:
                             arg_data = self.graph.nodes[arg_node]
                             repr_str = arg_data.get("repr", "")
                             if "&" in repr_str or "*" in repr_str or "addr_of" in arg_data.get("op_kind", ""):
-                                 sources = self._trace_user_func_output(cs, arg_node, visited, depth)
+                                 sources = self._trace_user_func_output(cs, arg_node, visited, depth, verbose)
                                  if sources:
                                      results.extend(sources)
         return results
 
-    def _trace(self, node_id, visited, depth):
-        # print(f"DEBUG: _trace {node_id} depth={depth}")
-        if depth > self.max_depth: return []
-        if node_id in visited: return []
+    def _trace(self, node_id, visited, depth, verbose=False):
+        if verbose: print(f"[DEBUG] _trace depth={depth} node={node_id}")
+        if depth > self.max_depth: 
+            if verbose: print(f"[DEBUG] Max depth reached at {node_id}")
+            return []
+        if node_id in visited: 
+            if verbose: print(f"[DEBUG] Visited loop at {node_id}")
+            return []
         visited.add(node_id)
         
         node_data = self.graph.nodes[node_id]
@@ -136,43 +165,46 @@ class TaintEngine:
             # Var has incoming EDGE_DEF from Instr
             for instr_id, _, edge_data in self.graph.in_edges(node_id, data=True):
                 if edge_data.get("type") == EDGE_DEF:
-                    results.extend(self._check_instr_source(instr_id, visited, depth+1))
+                    if verbose: print(f"[DEBUG]   Found DEF from instr {instr_id}")
+                    results.extend(self._check_instr_source(instr_id, visited, depth+1, verbose))
                     
                     # Check for alias (AddressOf)
-                    results.extend(self._trace_alias(instr_id, visited, depth+1))
+                    results.extend(self._trace_alias(instr_id, visited, depth+1, verbose))
             
             # B. Implicit DEFs (Output Args)
-            results.extend(self._check_implicit_defs(node_id, visited, depth))
+            results.extend(self._check_implicit_defs(node_id, visited, depth, verbose))
 
             # NEW: Handle POINTS_TO
             if kind == NODE_VAR:
                  # Trace memory this var points to
                  for _, neighbor, edge_data in self.graph.out_edges(node_id, data=True):
                      if edge_data.get("type") == EDGE_POINTS_TO:
-                         results.extend(self._trace(neighbor, visited, depth))
+                         if verbose: print(f"[DEBUG]   Following POINTS_TO -> {neighbor}")
+                         results.extend(self._trace(neighbor, visited, depth, verbose))
             
             if kind == NODE_MEM:
                  # Trace variables that point to this memory
                  for src_var, _, edge_data in self.graph.in_edges(node_id, data=True):
                      if edge_data.get("type") == EDGE_POINTS_TO:
+                         if verbose: print(f"[DEBUG]   Reverse POINTS_TO <- {src_var}")
                          # Check if src_var is an output argument
-                         results.extend(self._check_implicit_defs(src_var, visited, depth))
+                         results.extend(self._check_implicit_defs(src_var, visited, depth, verbose))
 
             # C. Expression Operands (Expr -> Var/Expr)
             # If this is an Expr, trace its operands (outgoing EDGE_USE)
             if kind == NODE_EXPR:
                 for _, neighbor, edge_data in self.graph.out_edges(node_id, data=True):
                     if edge_data.get("type") == EDGE_USE:
-                        results.extend(self._trace(neighbor, visited, depth+1))
+                        results.extend(self._trace(neighbor, visited, depth+1, verbose))
 
             # D. Interprocedural: Trace Callers (Parameters)
             # If this variable is a parameter, trace back to call sites
             if kind == NODE_VAR:
-                results.extend(self._trace_callers(node_id, visited, depth))
+                results.extend(self._trace_callers(node_id, visited, depth, verbose))
 
         return results
 
-    def _trace_callers(self, node_id, visited, depth):
+    def _trace_callers(self, node_id, visited, depth, verbose=False):
         # 1. Parse EA from node_id
         # node_id format: V:<ea>:... 
         parts = node_id.split(":")
@@ -224,11 +256,11 @@ class TaintEngine:
                  if edge_data.get("type") == EDGE_ARG and edge_data.get("index") == param_index:
                      found_arg = True
                      # Trace this argument in the caller's context
-                     results.extend(self._trace(arg_node, visited, depth + 1))
+                     results.extend(self._trace(arg_node, visited, depth + 1, verbose))
                      
         return results
 
-    def _check_instr_source(self, instr_id, visited, depth):
+    def _check_instr_source(self, instr_id, visited, depth, verbose=False):
         # Is this instr a call to a source?
         # Check for associated CallSites
         call_sites = [u for u, _, d in self.graph.in_edges(instr_id, data=True) if d.get("type") == EDGE_CALL_OF]
@@ -240,11 +272,11 @@ class TaintEngine:
             else:
                 # Return from non-source function.
                 # Try interprocedural trace
-                sources = self._trace_interprocedural(cs, visited, depth)
+                sources = self._trace_interprocedural(cs, visited, depth, verbose)
                 if sources: results.extend(sources)
         return results
 
-    def _trace_interprocedural(self, call_id, visited, depth):
+    def _trace_interprocedural(self, call_id, visited, depth, verbose=False):
         # Find callee function node
         name = self._get_callee_name(call_id)
         if not name: return []
@@ -260,7 +292,7 @@ class TaintEngine:
         # Trace inside the callee
         # We need to ensure we don't loop infinitely if recursion is direct
         # But 'visited' handles nodes. 'return_var' is a different node than caller's var.
-        return self._trace(return_var, visited, depth + 1)
+        return self._trace(return_var, visited, depth + 1, verbose)
 
     def _find_return_var(self, func_node):
         # Heuristic: Find variable in this function that represents x0/rax
@@ -285,7 +317,7 @@ class TaintEngine:
             
         return None
 
-    def _trace_call_inputs(self, call_id, visited, depth):
+    def _trace_call_inputs(self, call_id, visited, depth, verbose=False):
         name = self._get_callee_name(call_id)
         
         # If the function itself is a source (e.g. read), it taints the output
@@ -306,7 +338,7 @@ class TaintEngine:
                 continue
             
             # Recursively trace
-            sources = self._trace(arg_node, visited, depth)
+            sources = self._trace(arg_node, visited, depth, verbose)
             if sources:
                 tainted_inputs.extend(sources)
                 
@@ -374,12 +406,12 @@ class TaintEngine:
             "ea": node.get("ea", "unknown")
         }
 
-    def _trace_alias(self, instr_id, visited, depth):
+    def _trace_alias(self, instr_id, visited, depth, verbose=False):
         """
         Trace variables aliased by AddressOf operations.
         If instr is 'mov ptr, &target', trace other variables defined by '&target'.
         """
-        # print(f"DEBUG: _trace_alias instr={instr_id}")
+        if verbose: print(f"[DEBUG] _trace_alias instr={instr_id}")
         results = []
         # Find input Exprs
         # Instr -> USE -> Expr
@@ -391,10 +423,10 @@ class TaintEngine:
                 node_data = self.graph.nodes[u]
                 if node_data.get("kind") == NODE_EXPR:
                     repr_str = node_data.get("repr", "")
-                    # print(f"DEBUG:   Checking Expr {u} repr={repr_str}")
+                    if verbose: print(f"[DEBUG]   Checking Expr {u} repr={repr_str}")
                     # Heuristic: AddressOf often has '&' in repr or op_kind='addr_of'
                     if "&" in repr_str or node_data.get("op_kind") == "addr_of":
-                        # print(f"DEBUG:     AddressOf detected! u={u}")
+                        if verbose: print(f"[DEBUG]     AddressOf detected! u={u}")
                         # This Expr is '&target'.
                         # We need to find other Instrs that USE this SAME Expr node (or equivalent nodes).
                         # Assuming Expr nodes are shared or linked?
@@ -407,14 +439,14 @@ class TaintEngine:
                             if d2.get("type") == EDGE_USE:
                                 # Found another instruction using the same AddressOf Expr.
                                 # Trace the variable defined by this instruction.
-                                # print(f"DEBUG:     Found alias instr {instr_other}")
+                                if verbose: print(f"[DEBUG]     Found alias instr {instr_other}")
                                 for v_other, _, d3 in self.graph.out_edges(instr_other, data=True):
                                     if d3.get("type") == EDGE_DEF:
-                                         # print(f"DEBUG:       Alias variable {v_other}")
-                                         results.extend(self._trace(v_other, visited, depth+1))
+                                         if verbose: print(f"[DEBUG]       Alias variable {v_other}")
+                                         results.extend(self._trace(v_other, visited, depth+1, verbose))
         return results
 
-    def _trace_user_func_output(self, call_id, arg_node_id, visited, depth):
+    def _trace_user_func_output(self, call_id, arg_node_id, visited, depth, verbose=False):
         # 1. Get Callee
         name = self._get_callee_name(call_id)
         if not name: return []
@@ -438,7 +470,7 @@ class TaintEngine:
         if not param_node: return []
         
         # 4. Trace Param in Callee
-        return self._trace(param_node, visited, depth + 1)
+        return self._trace(param_node, visited, depth + 1, verbose)
 
     def _get_func_param(self, func_node, index):
         func_ea = self.graph.nodes[func_node].get("ea")
