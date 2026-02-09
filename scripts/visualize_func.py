@@ -6,11 +6,11 @@ import json
 import re
 from pathlib import Path
 
-# Add project root to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Add backend directory to path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../backend')))
 
-from backend.aida_cli.cpg_builder import CPGBuilder
-from backend.aida_cli.model import (
+from aida_cli.cpg_builder import CPGBuilder
+from aida_cli.model import (
     NODE_FUNC, NODE_BLOCK, NODE_INSTR, 
     EDGE_HAS_BLOCK, EDGE_HAS_INSTR, EDGE_CFG, EDGE_CALL_OF, EDGE_ARG, EDGE_DEF, EDGE_USE
 )

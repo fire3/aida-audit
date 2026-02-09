@@ -213,6 +213,24 @@ class CPGBuilder:
                 self.graph.add_node(mem_id, kind=NODE_MEM, func_ea=func_ea, region="stack", base=base, off=off)
             self.graph.add_edge(node_id, mem_id, type=EDGE_POINTS_TO)
 
+            # Graph-First: Detect Argument Index from Name (e.g. a1, a2)
+            # Hex-Rays convention: a1, a2, ... are arguments.
+            # Name format: "type name" a1.8{1}
+            name = v_info.get("name", "")
+            # Look for isolated a[0-9]+ token
+            import re
+            # Matches " a1" or "a1." or "a1{" or "a1 "
+            # We use \b but . is not a word boundary for \b in some regex engines if it's part of the word? 
+            # Actually \b works for "a1" in "a1.8" because . is non-word char.
+            m = re.search(r'\ba(\d+)\b', name)
+            if m:
+                try:
+                    arg_idx = int(m.group(1)) - 1 # a1 -> 0
+                    if arg_idx >= 0:
+                         self.graph.nodes[node_id]["arg_index"] = arg_idx
+                except ValueError:
+                    pass
+
             # Identify Return Variable (Graph-First)
             # Even if it's on stack, if it represents a return register (x0/rax), mark it.
             repr_str = op.get("repr", "")

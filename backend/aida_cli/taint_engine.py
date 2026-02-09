@@ -24,6 +24,8 @@ class TaintEngine:
         # Build function map for interprocedural analysis
         self.func_map = {}
         self.ea_map = {}
+        self.param_map = {} # (func_ea, arg_index) -> node_id
+        
         for node, data in self.graph.nodes(data=True):
             if data.get("kind") == "Function":
                 name = data.get("name")
@@ -38,6 +40,15 @@ class TaintEngine:
                     ea = data.get("ea")
                     if ea:
                         self.ea_map[str(ea)] = name
+            
+            # Build Param Map (Graph-First)
+            if data.get("kind") == NODE_VAR:
+                func_ea = data.get("func_ea")
+                idx = data.get("arg_index")
+                if func_ea and idx is not None:
+                    # Ensure func_ea is string for consistency
+                    self.param_map[(str(func_ea), idx)] = node
+
         
         # Build caller map: callee_name -> [call_site_id]
         self.caller_map = {}
@@ -453,11 +464,5 @@ class TaintEngine:
         func_ea = self.graph.nodes[func_node].get("ea")
         if not func_ea: return None
         
-        # Heuristic for Aida CPG (ARM64)
-        # Arg 0 corresponds to V:<func_ea>:fp:0
-        if index == 0:
-            param_id = f"V:{func_ea}:fp:0"
-            if param_id in self.graph.nodes:
-                return param_id
-        
-        return None
+        # Graph-First: Use the pre-built param_map
+        return self.param_map.get((str(func_ea), index))
