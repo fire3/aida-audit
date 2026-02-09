@@ -3,6 +3,7 @@ import json
 import hashlib
 import datetime
 import time
+import re
 
 try:
     import ida_hexrays
@@ -35,6 +36,10 @@ class IDACPGExporter:
     def _strip_tags(self, s):
         if 'ida_lines' in globals():
             return ida_lines.tag_remove(s)
+        return s
+
+    def _clean_repr(self, s):
+        s = self._strip_tags(s)
         return s
 
     def _get_maturity(self):
@@ -630,10 +635,21 @@ class IDACPGExporter:
         writes = []
         calls = []
 
+        is_call = False
+        if 'ida_hexrays' in globals() and ida_hexrays.is_mcode_call(insn.opcode):
+             is_call = True
+
         if hasattr(insn, "d") and insn.d and not insn.d.empty():
             norm = self._normalize_operand(insn.d)
             if norm:
-                writes.append({"role": "dst", "index": 0, "op": norm})
+                skip = False
+                if is_call:
+                     if norm['bits'] == 0: skip = True
+                     if norm['repr'] == "void": skip = True
+                     if "void" in str(norm.get("v", {}).get("full_repr", "")): skip = True
+                
+                if not skip:
+                    writes.append({"role": "dst", "index": 0, "op": norm})
 
         self._collect_reads_from_insn(insn, reads, calls, True)
 
@@ -664,7 +680,7 @@ class IDACPGExporter:
                  size = 0
                  
         bits = size * 8
-        repr_str = self._strip_tags(str(mop._print()))
+        repr_str = self._clean_repr(str(mop._print()))
         v = {}
         
         if mop.t == ida_hexrays.mop_r: # Register
@@ -685,11 +701,55 @@ class IDACPGExporter:
             off = mop.s.off
             v = {"base": "fp", "off": off}
         elif hasattr(ida_hexrays, "mop_l") and mop.t == ida_hexrays.mop_l:
-            kind = "stack"
-            if hasattr(mop, "l") and hasattr(mop.l, "off"):
-                v = {"base": "fp", "off": mop.l.off}
+            # Local variable (Stack or Register)
+            lvar = mop.l
+            name = "unknown"
+            if hasattr(lvar, "name"):
+                name = lvar.name
+            
+            is_stk = False
+            is_reg = False
+            
+            if hasattr(lvar, "is_stk_var") and lvar.is_stk_var():
+                is_stk = True
+                kind = "stack"
+            elif hasattr(lvar, "is_reg_var") and lvar.is_reg_var():
+                is_reg = True
+                kind = "reg"
             else:
-                v = {}
+                kind = "stack" # Default fallback
+            
+            if is_stk:
+                off = 0
+                if hasattr(lvar, "off"): off = lvar.off
+                
+                # Fallback for name using repr_str if available
+                final_name = name
+                if (not final_name or final_name == "unknown") and repr_str:
+                    final_name = repr_str
+                
+                v = {"base": "fp", "off": off, "name": final_name}
+            elif is_reg:
+                reg_idx = 0
+                if hasattr(lvar, "get_reg"): 
+                     # get_reg() returns mreg_t which is int
+                     reg_idx = lvar.get_reg()
+                
+                final_name = name
+                if (not final_name or final_name == "unknown") and repr_str:
+                    final_name = repr_str
+
+                v = {"reg": f"r{reg_idx}", "name": final_name}
+            else:
+                # Fallback
+                final_name = name
+                if (not final_name or final_name == "unknown") and repr_str:
+                    final_name = repr_str
+
+                v = {"name": final_name}
+                if hasattr(lvar, "off"):
+                     v["off"] = lvar.off
+                     v["base"] = "fp"
             
         elif mop.t == ida_hexrays.mop_v: # Global
             kind = "global"
