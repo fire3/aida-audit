@@ -412,7 +412,14 @@ class ExportOrchestrator:
         self.logger.log(f"CPG JSON output: {cpg_out}", context="ORCHESTRATOR")
         
         cmd = f"\"{sys.executable}\" \"{ida_export_script}\" \"{input_path}\" --cpg-json \"{cpg_out}\" --plain-log"
-        return self.run_command(cmd, stream_output=True, context="CPG_JSON")
+        
+        # If input is an IDB, explicit save prevents implicit save to default name on exit
+        if input_path.lower().endswith((".i64", ".idb")):
+            cmd += f" --save-idb \"{input_path}\""
+
+        ret = self.run_command(cmd, stream_output=True, context="CPG_JSON")
+        
+        return ret
 
     def _run_master_analysis(self, master_input, output_db, temp_dir, save_idb=None, export_c_path=None):
         """
@@ -798,6 +805,17 @@ class ExportOrchestrator:
                 return False
             stats['master_time'] = master_res['duration']
             
+            # Update existing_idb if it wasn't set, using the result from Master
+            # This ensures subsequent steps (like CPG export) use the analyzed DB
+            if not existing_idb:
+                ab = master_res.get('analysis_base')
+                if ab:
+                    for ext in [".i64", ".idb"]:
+                        candidate = ab + ext
+                        if os.path.exists(candidate):
+                            existing_idb = candidate
+                            break
+
             # Step 2: Split Work
             split_res = self._split_work(master_res['funcs_json'], temp_dir)
             if not split_res:

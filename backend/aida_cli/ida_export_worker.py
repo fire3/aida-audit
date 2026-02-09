@@ -200,6 +200,12 @@ def main():
             ok = ida_loader.save_database(save_path, 0)
             if ok:
                 logger.log(f"Saved IDA database: {save_path}")
+                # Prevent IDA from saving to default path on exit since we saved explicitly
+                try:
+                    if hasattr(ida_loader, 'DBFL_KILL'):
+                        ida_loader.set_database_flag(ida_loader.DBFL_KILL)
+                except Exception:
+                    pass
             else:
                 logger.log(f"Failed to save IDA database: {save_path}", level="WARN")
         except Exception as e:
