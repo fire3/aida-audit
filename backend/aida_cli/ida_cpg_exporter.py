@@ -32,17 +32,27 @@ if 'ida_hexrays' in globals():
             ida_hexrays.mop_visitor_t.__init__(self)
             self.exporter = exporter
             self.sub_mops = []
+            self.reads = []
+            self.writes = []
 
         def visit_mop(self, mop, type_id, is_target):
             # type_id indicates the role of this mop in the parent instruction/structure
             # is_target is boolean
             norm = self.exporter._normalize_operand(mop)
             if norm:
+                # Add role info to the normalized object for this context
+                # (We don't modify the norm object itself to keep it pure, but wrap it or just use lists)
+                
                 self.sub_mops.append({
                     "role_id": type_id,
                     "is_target": is_target,
                     "op": norm
                 })
+                
+                if is_target:
+                    self.writes.append(norm)
+                else:
+                    self.reads.append(norm)
             return 0
     MopCollectorVisitor = _MopCollectorVisitor
 
@@ -773,6 +783,29 @@ class IDACPGExporter:
              if visitor.sub_mops:
                  res["sub_mops"] = visitor.sub_mops
                  
+             if visitor.reads:
+                 res["reads"] = visitor.reads
+             if visitor.writes:
+                 res["writes"] = visitor.writes
+                 
+             # 3. Semantic Sugar / Aliases
+             
+             # Function Call Info
+             if t == ida_hexrays.mop_f:
+                 res["args"] = visitor.reads
+             
+             # Embedded Instruction (might be a call)
+             elif t == ida_hexrays.mop_d:
+                 if hasattr(ida_hexrays, "is_mcode_call") and hasattr(mop, "d") and ida_hexrays.is_mcode_call(mop.d.opcode):
+                     res["is_call"] = True
+                     res["args"] = visitor.reads
+                     res["ret"] = visitor.writes
+                     
+             # Address Of / Pointer
+             elif t == ida_hexrays.mop_a:
+                 if visitor.reads:
+                     res["pointed_to"] = visitor.reads[0]
+                     
         return res
 
     def export_imports(self):
