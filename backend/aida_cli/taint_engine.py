@@ -133,8 +133,8 @@ class TaintEngine:
                     for _, arg_node, edge_data in self.graph.out_edges(cs, data=True):
                         if edge_data.get("type") == EDGE_ARG:
                             arg_data = self.graph.nodes[arg_node]
-                            repr_str = arg_data.get("repr", "")
-                            if "&" in repr_str or "*" in repr_str or "addr_of" in arg_data.get("op_kind", ""):
+                            # Graph-First: Prioritize op_kind.
+                            if arg_data.get("op_kind") == "addr_of":
                                  sources = self._trace_user_func_output(cs, arg_node, visited, depth, verbose)
                                  if sources:
                                      results.extend(sources)
@@ -205,37 +205,27 @@ class TaintEngine:
         return results
 
     def _trace_callers(self, node_id, visited, depth, verbose=False):
-        # 1. Parse EA from node_id
-        # node_id format: V:<ea>:... 
-        parts = node_id.split(":")
-        if len(parts) < 2: return []
-        ea_str = parts[1]
+        # 1. Get Function Name (Graph-First)
+        node_data = self.graph.nodes[node_id]
+        ea_str = node_data.get("func_ea")
         
+        if not ea_str:
+            # Fallback: Parse EA from node_id
+            # node_id format: V:<ea>:... 
+            parts = node_id.split(":")
+            if len(parts) >= 2:
+                ea_str = parts[1]
+        
+        if not ea_str: return []
+
         # 2. Get Function Name
-        func_name = self.ea_map.get(ea_str)
-        # print(f"DEBUG: _trace_callers node={node_id} ea={ea_str} func={func_name}")
+        func_name = self.ea_map.get(str(ea_str))
         if not func_name: return []
         
-        # 3. Determine Parameter Index
+        # 3. Determine Parameter Index (Graph-First)
         node_data = self.graph.nodes[node_id]
-        repr_str = node_data.get("repr", "")
-        
-        param_index = -1
-        # Heuristic for ARM64 registers
-        # x0-x7 are arguments
-        import re
-        # Match x0, x1... w0, w1... followed by non-digit (to avoid x00)
-        # Handle cases like x0_0.8, x0.8, x0
-        # Debug regex
-        # print(f"DEBUG: repr_raw={repr(repr_str)}")
-        
-        # Relaxed regex: Look for xN or wN preceded by boundary or space, followed by non-digit
-        # Using [^a-zA-Z0-9] instead of \b for safety if needed, but \b should work.
-        # Let's try explicitly handling the underscore issue if any
-        
-        m = re.search(r'(?:^|[\s\W])([xw])([0-7])(?!\d)', repr_str)
-        if m:
-            param_index = int(m.group(2))
+        # Use explicit arg_index attribute populated by CPG Builder
+        param_index = node_data.get("arg_index", -1)
         
         if param_index == -1: return []
         
@@ -251,10 +241,8 @@ class TaintEngine:
         results = []
         for cs in caller_ids:
              # Find argument at param_index
-             found_arg = False
              for _, arg_node, edge_data in self.graph.out_edges(cs, data=True):
                  if edge_data.get("type") == EDGE_ARG and edge_data.get("index") == param_index:
-                     found_arg = True
                      # Trace this argument in the caller's context
                      results.extend(self._trace(arg_node, visited, depth + 1, verbose))
                      
@@ -295,26 +283,10 @@ class TaintEngine:
         return self._trace(return_var, visited, depth + 1, verbose)
 
     def _find_return_var(self, func_node):
-        # Heuristic: Find variable in this function that represents x0/rax
-        # We assume variables are linked to function scope by some means, 
-        # or we scan for vars with specific properties near function start/end.
-        # In this CPG, vars are often named like 'var80.8' or registers.
-        # But we saw 'V:func_addr:fp:0' for x0.
-        
-        func_ea = self.graph.nodes[func_node].get("ea") # e.g. "0x100000a88"
-        if not func_ea: return None
-        
-        # Construct ID prefix? 
-        # Node IDs are strings. 
-        # We can iterate all nodes... (inefficient)
-        # Or check if we can predict the ID.
-        # ID format seems to be V:<ea>:<base>:<off>
-        # e.g. V:0x100000a88:fp:0
-        
-        target_id = f"V:{func_ea}:fp:0"
-        if target_id in self.graph.nodes:
-            return target_id
-            
+        # Graph-First: Use explicit RETURN_VAR edge from CPG
+        for _, neighbor, edge_data in self.graph.out_edges(func_node, data=True):
+            if edge_data.get("type") == "RETURN_VAR":
+                return neighbor
         return None
 
     def _trace_call_inputs(self, call_id, visited, depth, verbose=False):
@@ -344,6 +316,21 @@ class TaintEngine:
                 
         return tainted_inputs
 
+    def _is_reachable_usage(self, root_node, target_node, visited=None):
+        """
+        Check if target_node is used by root_node (traversing USE edges).
+        """
+        if root_node == target_node: return True
+        if visited is None: visited = set()
+        if root_node in visited: return False
+        visited.add(root_node)
+        
+        for _, child, edge_data in self.graph.out_edges(root_node, data=True):
+            if edge_data.get("type") == EDGE_USE:
+                 if self._is_reachable_usage(child, target_node, visited):
+                     return True
+        return False
+
     def _is_propagator_output(self, call_id, var_node_id):
         name = self._get_callee_name(call_id)
         if name not in self.propagators: return False
@@ -353,30 +340,10 @@ class TaintEngine:
         for _, neighbor, edge_data in self.graph.out_edges(call_id, data=True):
             if edge_data.get("type") == EDGE_ARG:
                 if edge_data.get("index") in indices:
-                    if neighbor == var_node_id:
+                    # Graph-First: Check connectivity via USE edges
+                    # If neighbor (Arg) uses var_node_id, then var_node_id is part of the output argument.
+                    if self._is_reachable_usage(neighbor, var_node_id):
                         return True
-                    
-                    # Check partial match for expressions/memory (e.g. buf + offset)
-                    neighbor_data = self.graph.nodes[neighbor]
-                    if neighbor_data.get("kind") in [NODE_EXPR, NODE_MEM]:
-                        var_data = self.graph.nodes[var_node_id]
-                        var_repr = var_data.get("repr") or var_data.get("name")
-                        # Also try to clean up repr (remove type/size suffix like .8)
-                        # But simple substring might work for now
-                        expr_repr = neighbor_data.get("repr")
-                        
-                        if var_repr and expr_repr:
-                             # 1. Direct containment
-                            if var_repr in expr_repr:
-                                return True
-                            
-                            # 2. Try to extract variable name (last token) and check
-                            # e.g. "_QWORD __s.8" -> "__s.8"
-                            var_tokens = var_repr.split()
-                            if len(var_tokens) > 1:
-                                var_name = var_tokens[-1]
-                                if var_name and len(var_name) > 1 and var_name in expr_repr:
-                                    return True
         return False
 
     def _get_callee_name(self, call_id):
@@ -424,8 +391,8 @@ class TaintEngine:
                 if node_data.get("kind") == NODE_EXPR:
                     repr_str = node_data.get("repr", "")
                     if verbose: print(f"[DEBUG]   Checking Expr {u} repr={repr_str}")
-                    # Heuristic: AddressOf often has '&' in repr or op_kind='addr_of'
-                    if "&" in repr_str or node_data.get("op_kind") == "addr_of":
+                    # Graph-First: Strict check on op_kind
+                    if node_data.get("op_kind") == "addr_of":
                         if verbose: print(f"[DEBUG]     AddressOf detected! u={u}")
                         # This Expr is '&target'.
                         # We need to find other Instrs that USE this SAME Expr node (or equivalent nodes).

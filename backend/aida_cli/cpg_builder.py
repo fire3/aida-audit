@@ -147,7 +147,20 @@ class CPGBuilder:
             if not reg_name: return None
             node_id = f"V:{func_ea}:reg:{reg_name}"
             if node_id not in self.graph:
-                self.graph.add_node(node_id, kind=NODE_VAR, var_kind="reg", **get_attrs(op))
+                # ARM64 Argument Detection (Graph-First enrichment)
+                extra_attrs = {}
+                # Check for x0-x7 or w0-w7
+                import re
+                m = re.match(r'^[xw]([0-7])$', reg_name)
+                if m:
+                    extra_attrs["arg_index"] = int(m.group(1))
+                
+                self.graph.add_node(node_id, kind=NODE_VAR, var_kind="reg", func_ea=func_ea, **get_attrs(op), **extra_attrs)
+                
+                # Identify Return Variable (Graph-First)
+                if reg_name in ["x0", "w0", "rax", "eax"]:
+                    func_id = f"F:{func_ea}"
+                    self.graph.add_edge(func_id, node_id, type="RETURN_VAR")
 
         elif kind == "stack":
             # V:<func_ea>:stack:<base>:<off>
@@ -157,12 +170,12 @@ class CPGBuilder:
             if base is None or off is None: return None
             node_id = f"V:{func_ea}:stack:{base}:{off}"
             if node_id not in self.graph:
-                self.graph.add_node(node_id, kind=NODE_VAR, var_kind="stack", **get_attrs(op))
+                self.graph.add_node(node_id, kind=NODE_VAR, var_kind="stack", func_ea=func_ea, **get_attrs(op))
                 
                 # Create MEM node for the stack slot and add POINTS_TO edge
                 mem_id = f"M:{func_ea}:stack:{base}:{off}"
                 if mem_id not in self.graph:
-                    self.graph.add_node(mem_id, kind=NODE_MEM, region="stack", base=base, off=off)
+                    self.graph.add_node(mem_id, kind=NODE_MEM, func_ea=func_ea, region="stack", base=base, off=off)
                 self.graph.add_edge(node_id, mem_id, type=EDGE_POINTS_TO)
 
         elif kind == "global":
@@ -203,7 +216,7 @@ class CPGBuilder:
             
             node_id = f"M:{func_ea}:{region}:{addr_hash}:{bits}"
             if node_id not in self.graph:
-                self.graph.add_node(node_id, kind=NODE_MEM, addr_hash=addr_hash, **get_attrs(op))
+                self.graph.add_node(node_id, kind=NODE_MEM, func_ea=func_ea, addr_hash=addr_hash, **get_attrs(op))
 
         elif kind in ["expr", "unknown"]:
              # E:<func_ea>:<expr_hash>
@@ -213,7 +226,7 @@ class CPGBuilder:
              
              node_id = f"E:{func_ea}:{expr_hash}"
              if node_id not in self.graph:
-                 self.graph.add_node(node_id, kind=NODE_EXPR, expr_hash=expr_hash, **get_attrs(op))
+                 self.graph.add_node(node_id, kind=NODE_EXPR, func_ea=func_ea, expr_hash=expr_hash, **get_attrs(op))
                  
                  # Recursively handle args if present
                  v_data = op.get("v", {})

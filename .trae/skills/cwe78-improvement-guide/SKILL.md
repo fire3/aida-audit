@@ -5,7 +5,7 @@ description: CWE-78 修复与改进工作
 
 # Aida CWE-78 修复与改进工作指引 (Context Prompts)
 
-此文档总结了用于指导后续 CWE-78 扫描引擎修复与改进工作的核心上下文、环境信息、调试方法及代码经验。你可以将以下内容作为“System Prompt”或“Context”提供给 AI 助手，以便快速进入工作状态。
+此文档总结了用于指导后续 CWE-78 扫描引擎修复与改进工作的核心上下文、环境信息、调试方法及代码规范原则。
 
 ---
 
@@ -13,9 +13,10 @@ description: CWE-78 修复与改进工作
 
 **角色**: Aida 静态分析引擎开发专家
 **任务**: 提升 CWE-78 (OS Command Injection) 在 ARM64 架构下的 Juliet 测试集检出率。
-**当前状态**: 已完成基础回归测试脚本搭建，初步修复了 taint 引擎中 propagator output 的识别问题。
+**核心原则**: **Graph-First (图优先)**。所有的分析逻辑应尽可能依赖显式的图结构（节点与边），而非在分析引擎中进行字符串解析、正则匹配或硬编码的启发式推断。
 
 ### 1. 开发环境 (Environment)
+
 - **Project Root**: `/Users/fire3/SRC/aida-mcp`
 - **Python**: `/home/fire3/opt/miniconda3/bin/python` (必须使用此路径)
 - **Test Suite**: `tests_cpg/CWE78/arm64` (包含 900+ `.o` 目标文件)
@@ -33,45 +34,53 @@ description: CWE-78 修复与改进工作
 ### 3. 关键代码文件 (Codebase Map)
 
 - **`backend/aida_cli/taint_engine.py`**: **[核心]** 污点分析引擎。
-    - `_trace()`: 递归追踪污点流的主要逻辑。如果断链，通常需要在这里加 `print` 调试。
-    - `_is_propagator_output()`: 判断函数调用是否将污点从输入参数传递到输出参数（如 `recv(socket, buf, ...)` 中的 `buf`）。**刚修复过此处逻辑。**
-- **`backend/aida_cli/rules/cwe_78.py`**: CWE-78 规则定义。
-    - 定义了 `SOURCES` (如 `recv`, `fgets`) 和 `SINKS` (如 `execl`, `system`)。
-    - 定义了 `PROPAGATORS` (传播者)。
+    - `debug_trace(node_id)`: **[推荐]** 详细追踪指定节点的传播路径，打印每一步的决策逻辑。
+    - `dump_subgraph(node_ids, path)`: **[推荐]** 导出相关子图为 JSON，用于可视化分析。
+    - `_trace()`: 递归追踪污点流的主要逻辑。
+- **`backend/aida_cli/rules/cwe_78.py`**: CWE-78 规则定义 (Sources, Sinks, Propagators)。
 - **`backend/aida_cli/cpg_builder.py`**: 构建 Code Property Graph (CPG) 的逻辑。
-    - 节点类型: `NODE_CALL`, `NODE_VAR`, `NODE_EXPR`, `NODE_INSTR`。
-    - 边类型: `EDGE_ARG`, `EDGE_DEF`, `EDGE_USE`, `EDGE_CALL_OF`。
+    - 负责将底层指令流转换为通用的图结构 (Call, Var, Mem, PointsTo 等)。
 
 ### 4. 调试与改进方法论 (Debugging SOP)
 
-当遇到 **False Negative (漏报)** 时，请遵循以下步骤：
+#### 4.1 调试流程
 
 1.  **复现问题**:
     ```bash
     /home/fire3/opt/miniconda3/bin/python scripts/regression_test_cwe78.py --filter "Specific_Case_Name" --clean
     ```
-2.  **定位断点**:
+2.  **定位断点 (Trace Debugging)**:
     - 修改 `scripts/debug_taint.py`，将 `cpg_path` 指向刚刚生成的 `.cpg_json` 文件。
-    - 运行 `scripts/debug_taint.py`，查看 Source 是否被识别，以及 Taint Trace 在哪里中断。
-    - **技巧**: 在 `taint_engine.py` 的 `_trace` 方法中取消注释 `print(f"DEBUG: _trace ...")` 以查看递归路径。
-3.  **常见原因分析**:
-    - **Propagator 失效**: `_is_propagator_output` 未能正确识别输出参数（例如变量名匹配失败，或表达式结构不匹配）。
-    - **DEF 缺失**: 变量的定义（DEF）边未正确连接到 Instruction。
-    - **别名分析缺失**: 数据通过指针或结构体字段传递，但引擎未追踪该路径。
-    - **Source/Sink 缺失**: 规则文件 `cwe_78.py` 中缺少特定的 API 定义。
-4.  **验证修复**:
-    - 再次运行 `debug_taint.py` 确认 Trace 通路。
-    - 再次运行 `regression_test_cwe78.py` 确认检出。
+    - **启用详细追踪**: 使用 `engine.debug_trace(node_id)` 替代普通的 `_trace`，这将输出类似 `[DEBUG] Following POINTS_TO -> ...` 的详细日志。
+    - **子图导出**: 如果路径复杂，使用 `engine.dump_subgraph([start_node, end_node], "debug_graph.json")` 导出局部图结构，使用外部工具或脚本查看连接关系。
+3.  **分析原因**:
+    - 检查日志中是否出现 `Max depth reached`（深度不够）。
+    - 检查是否在 `POINTS_TO` 或 `DEF` 处断链。
+    - 检查是否因为 `_is_propagator_output` 误判导致未追踪到输出参数。
 
-### 5. 文档撰写规范 (Documentation)
+#### 4.2 改进原则 (Graph-First Refactoring)
 
-每次完成修复工作后，**必须**撰写一份总结报告，并保存至 `devdocs/taint_engine_fix_reports` 目录下。
+在修复 Bug 或增强功能时，**严禁**在 `TaintEngine` 中增加针对特定架构或命名约定的 "Trick"。
 
-**文件名格式**: `cwe78_fix_report_YYYYMMDD.md` (如有多个修复可加后缀)
+**❌ 错误做法 (Anti-Patterns)**:
+- **字符串解析**: 在 Engine 中解析 `node_id` 字符串（如 `V:0x1000:fp:0`）来获取地址或寄存器信息。
+- **正则匹配**: 使用正则表达式匹配 `repr` 字段（如 `x0`, `w1`）来推断参数索引。
+- **模糊匹配**: 在 `_check_implicit_defs` 中通过字符串包含关系（`if var_name in expr_str`）来判断变量是否被修改。
+- **硬编码**: 针对 `__imp_` 或特定编译器生成的符号进行硬编码处理。
 
-**文档结构模板**:
-1.  **修复概览**: 修复对象、相关用例、修复结果（检出率变化）。
-2.  **问题分析**: 详细描述污点传播链条、断链原因、根本原因分析。
-3.  **解决方案**: 核心代码变更说明、新引入的算法或逻辑（附代码片段）。
-4.  **验证结果**: 回归测试命令及输出截图/文本。
-5.  **总结**: 简要总结修复的价值和后续影响。
+**✅ 正确做法 (Best Practices)**:
+- **图增强**: 如果 Engine 需要知道某个变量是 "第0个参数"，CPG Builder 应当在构建时就添加属性（如 `arg_index=0`）或边。
+- **显式边**:
+    - **参数关联**: `CallSite` 到 `Var` (实参) 应有显式的 `EDGE_ARG` 边。
+    - **隐式定义**: 如果函数修改了输出参数，图上应存在 `CallSite -> Var` 的 `EDGE_DEF` (或类似语义的边)，或者 `EDGE_POINTS_TO` 关系明确。
+    - **别名关系**: 指针与内存的关系应通过 `EDGE_POINTS_TO` (Var -> Mem) 显式表达。
+- **通用逻辑**: Engine 只处理 `EDGE_DEF`, `EDGE_USE`, `EDGE_POINTS_TO`, `EDGE_CALL` 等通用图原语。
+
+**具体整改示例**:
+- **Trace Callers**: 目前 `_trace_callers` 依赖解析 `x0` 等字符串。应改为：在加载 CPG 时或构建时，确保函数入口节点与其参数节点有显式的连接（如 `Function -> ARG_0 -> Var`），Engine 只需遍历边。
+- **Implicit Defs**: 目前 `_check_implicit_defs` 依赖字符串包含检查。应改为：在图构建阶段识别输出参数模式，并建立 `CallSite --(DEF)--> Var` 边，Engine 只需检查 `EDGE_DEF`。
+
+### 5. 文档撰写规范
+
+每次完成修复工作后，必须撰写总结报告至 `devdocs/taint_engine_fix_reports`。
+报告中必须包含一节 **"Graph Schema Update"**，说明为了支持该修复，对 CPG 图结构做了哪些增强（新增了什么边、什么节点属性），而非仅仅展示代码变更。
