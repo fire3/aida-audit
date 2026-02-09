@@ -176,8 +176,17 @@ def main():
             continue
             
         # Step 2: Scan
-        # The CPG JSON export creates a subdirectory named <filename>.cpg_json
-        cpg_dir = os.path.join(case_dir, f"{filename}.cpg_json")
+        # The CPG JSON export creates a subdirectory named <filename>.<hash>.cpg_json
+        # We need to find it dynamically
+        cpg_dirs = glob.glob(os.path.join(case_dir, f"{filename}*.cpg_json"))
+        if not cpg_dirs:
+            print(f"Error: Could not find CPG directory for {filename}")
+            results["scan_failures"] += 1
+            case_result["status"] = "scan_failed_no_cpg"
+            results["details"].append(case_result)
+            continue
+            
+        cpg_dir = cpg_dirs[0]
         scan_cmd = f"{PYTHON_CMD} -m backend.aida_cli.cli scan \"{cpg_dir}\" --rules cwe-78"
         scan_res = run_command(scan_cmd, cwd=PROJECT_ROOT)
         case_result["scan_time"] = scan_res["duration"]

@@ -190,6 +190,18 @@ class CPGBuilder:
             if mem_id not in self.graph:
                 self.graph.add_node(mem_id, kind=NODE_MEM, func_ea=func_ea, region="stack", base=base, off=off)
             self.graph.add_edge(node_id, mem_id, type=EDGE_POINTS_TO)
+
+            # Identify Return Variable (Graph-First)
+            # Even if it's on stack, if it represents a return register (x0/rax), mark it.
+            repr_str = op.get("repr", "")
+            import re
+            # Check for x0, w0, rax, eax as whole words or followed by punctuation/underscore
+            # \b matches start of word. (?=[\W_]|$) matches end of word, underscore, or punctuation.
+            # Handle cases like "char *__s" x0_0.8{1} where x0 is not at start and followed by _
+            if re.search(r'\b(x0|w0|rax|eax)(?:[_\W]|$)', repr_str):
+                 func_id = f"F:{func_ea}"
+                 self.graph.add_edge(func_id, node_id, type="RETURN_VAR")
+                 
         return node_id
 
     def _intern_global_operand(self, func_ea, op):

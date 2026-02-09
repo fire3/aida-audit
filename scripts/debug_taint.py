@@ -17,7 +17,7 @@ from backend.aida_cli.model import (
 def debug_trace():
     # cpg_path = "/Users/fire3/SRC/aida-mcp/scan_results_cwe78/CWE78_OS_Command_Injection__char_connect_socket_execl_12-bad/CWE78_OS_Command_Injection__char_connect_socket_execl_12-bad.cpg_json"
     # cpg_path = "/Users/fire3/SRC/aida-mcp/scan_results_cwe78/CWE78_OS_Command_Injection__char_connect_socket_execl_32-bad/CWE78_OS_Command_Injection__char_connect_socket_execl_32-bad.cpg_json"
-    cpg_path = "/home/fire3/SRC/aida-mcp/scan_results_cwe78/CWE78_OS_Command_Injection__char_connect_socket_execl_01-bad/CWE78_OS_Command_Injection__char_connect_socket_execl_01-bad.03950859.cpg_json"
+    cpg_path = "/home/fire3/SRC/aida-mcp/scan_results_cwe78/CWE78_OS_Command_Injection__char_connect_socket_execl_21-bad/CWE78_OS_Command_Injection__char_connect_socket_execl_21-bad.d68a6437.cpg_json"
     
     print(f"Loading CPG from {cpg_path}...")
     builder = CPGBuilder(cpg_path)
