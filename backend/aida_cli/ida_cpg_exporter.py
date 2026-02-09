@@ -508,51 +508,52 @@ class IDACPGExporter:
 
         # Decompile / Microcode
         try:
-            # 1. Generate Microcode (LVARS)
-            # Use gen_microcode to get mba at specific maturity
-            # Construct mba_ranges_t for the function (handles chunks)
-            mbr = ida_hexrays.mba_ranges_t()
-            for start, end in idautils.Chunks(func_ea):
-                mbr.ranges.push_back(ida_range.range_t(start, end))
-
-            hf = ida_hexrays.hexrays_failure_t()
-            # gen_microcode(mba_ranges_t const &, hexrays_failure_t *, mlist_t const *, int, mba_maturity_t)
-            mba = ida_hexrays.gen_microcode(
-                mbr, 
-                hf, 
-                None, 
-                ida_hexrays.DECOMP_WARNINGS, 
-                self._get_maturity()
-            )
-            
-            if mba:
-                res["microcode"] = self._extract_microcode(mba)
-            else:
-                res["status"] = "failed"
-                res["error"] = f"gen_microcode failed: {hf.str}"
-
-            # 2. Get Pseudocode (Optional, best effort)
+            cfunc = None
             try:
                 cfunc = ida_hexrays.decompile(func_ea)
-                if cfunc:
-                    res["decompilation"]["pseudocode"] = str(cfunc)
-                    
-                    # Generate EA to line mapping
-                    ea_to_line = {}
-                    # cfunc.get_pseudocode() returns a list of simpleline_t
-                    # We can iterate and check ea
-                    # Note: str(cfunc) might not perfectly align line numbers with the list
-                    # But usually line index in list corresponds to line number
-                    
-                    pcode = cfunc.get_pseudocode()
-                    for line_idx, sline in enumerate(pcode):
-                         if sline.ea != ida_ida.BADADDR:
-                             ea_to_line[f"0x{sline.ea:x}"] = line_idx + 1 # 1-based line number
-                    
-                    res["decompilation"]["ea_to_line"] = ea_to_line
-                    
             except:
-                pass # Ignore pseudocode failures if microcode succeeded
+                cfunc = None
+
+            mba = None
+            if cfunc and hasattr(cfunc, "get_mba"):
+                try:
+                    mba = cfunc.get_mba()
+                except:
+                    mba = None
+            if mba is None and cfunc and hasattr(cfunc, "mba"):
+                mba = cfunc.mba
+
+            if mba is None:
+                mbr = ida_hexrays.mba_ranges_t()
+                for start, end in idautils.Chunks(func_ea):
+                    mbr.ranges.push_back(ida_range.range_t(start, end))
+
+                hf = ida_hexrays.hexrays_failure_t()
+                mba = ida_hexrays.gen_microcode(
+                    mbr, 
+                    hf, 
+                    None, 
+                    ida_hexrays.DECOMP_WARNINGS, 
+                    self._get_maturity()
+                )
+                
+                if not mba:
+                    res["status"] = "failed"
+                    res["error"] = f"gen_microcode failed: {hf.str}"
+
+            if mba:
+                res["microcode"] = self._extract_microcode(mba)
+
+            if cfunc:
+                res["decompilation"]["pseudocode"] = str(cfunc)
+                
+                ea_to_line = {}
+                pcode = cfunc.get_pseudocode()
+                for line_idx, sline in enumerate(pcode):
+                     if hasattr(sline, "ea") and sline.ea != ida_ida.BADADDR:
+                         ea_to_line[f"0x{sline.ea:x}"] = line_idx + 1
+                
+                res["decompilation"]["ea_to_line"] = ea_to_line
                 
         except Exception as e:
             res["status"] = "failed"
@@ -776,9 +777,11 @@ class IDACPGExporter:
 
         elif hasattr(ida_hexrays, "mop_f") and mop.t == ida_hexrays.mop_f:
             kind = "type"
+            # Use full representation for mop_f to capture signature
+            repr_str = self._strip_tags(str(mop._print()))
             if hasattr(mop, "f") and hasattr(mop.f, "return_type"):
-                repr_str = str(mop.f.return_type)
-                v = {"full_repr": self._strip_tags(str(mop._print()))}
+                # repr_str = str(mop.f.return_type) # Old behavior: only return type
+                v = {"full_repr": repr_str, "return_type": str(mop.f.return_type)}
             
         # ... other types
         
