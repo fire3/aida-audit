@@ -250,8 +250,144 @@ class IDACPGExporter:
         self.export_functions()
         self.export_imports()
         self.export_exports()
+        self.export_globals()
         self.export_strings()
         self.log("CPG JSON export completed.")
+
+    def export_globals(self):
+        self.log("Exporting globals.jsonl...")
+        out_path = os.path.join(self.output_dir, "globals.jsonl")
+        
+        globals_list = []
+        
+        # Iterate over all segments
+        for seg_ea in idautils.Segments():
+            seg = ida_segment.getseg(seg_ea)
+            if not seg: continue
+            
+            # Determine if segment is read-only (const)
+            is_const = (seg.perm & ida_segment.SEGPERM_WRITE) == 0
+            
+            # Iterate over heads in segment
+            for head_ea in idautils.Heads(seg.start_ea, seg.end_ea):
+                # Only process data items
+                flags = ida_bytes.get_flags(head_ea)
+                if not ida_bytes.is_data(flags):
+                    continue
+                
+                # Get name
+                name = ida_name.get_name(head_ea)
+                if not name: 
+                    continue
+                
+                # Get type info
+                tinfo = ida_typeinf.tinfo_t()
+                type_str = "unknown"
+                if ida_nalt.get_tinfo(tinfo, head_ea):
+                    type_str = str(tinfo)
+                
+                # Size
+                size = ida_bytes.get_item_size(head_ea)
+                
+                # Content extraction
+                content = {}
+                str_type = ida_nalt.get_str_type(head_ea)
+                
+                if str_type >= 0: # It's a string
+                    content_bytes = None
+                    try:
+                        # Try standard call
+                        content_bytes = ida_bytes.get_strlit_contents(head_ea, -1, int(str_type))
+                    except Exception:
+                        try:
+                            # Fallback: try without type or with default type if API differs
+                            content_bytes = ida_bytes.get_strlit_contents(head_ea, -1, 0)
+                        except Exception:
+                             pass
+                             
+                    if content_bytes:
+                        try:
+                            content = {
+                                "type": "string",
+                                "value": content_bytes.decode("utf-8"),
+                                "encoding": "utf-8"
+                            }
+                        except:
+                            content = {
+                                "type": "bytes",
+                                "value": content_bytes.hex(),
+                                "encoding": "hex"
+                            }
+                else:
+                    # Check if pointer
+                    is_ptr = False
+                    ptr_val = 0
+                    is_64 = ida_ida.inf_is_64bit()
+                    ptr_size = 8 if is_64 else 4
+                    
+                    if size == ptr_size:
+                         if is_64:
+                             ptr_val = ida_bytes.get_qword(head_ea)
+                         else:
+                             ptr_val = ida_bytes.get_dword(head_ea)
+                         
+                         # Check if points to valid memory
+                         if ida_bytes.is_loaded(ptr_val):
+                             is_ptr = True
+                    
+                    if is_ptr:
+                        content = {
+                            "type": "ptr",
+                            "value": f"0x{ptr_val:x}"
+                        }
+                    elif size <= 8:
+                        # Scalar
+                        val = 0
+                        if size == 1: val = ida_bytes.get_byte(head_ea)
+                        elif size == 2: val = ida_bytes.get_word(head_ea)
+                        elif size == 4: val = ida_bytes.get_dword(head_ea)
+                        elif size == 8: val = ida_bytes.get_qword(head_ea)
+                        content = {
+                            "type": "int",
+                            "value": hex(val)
+                        }
+                    else:
+                         content = {
+                            "type": "blob",
+                            "size": size
+                        }
+
+                # Xrefs
+                refs = []
+                for xref in idautils.XrefsTo(head_ea):
+                     refs.append(f"0x{xref.frm:x}")
+                
+                demangled = None
+                try:
+                    if hasattr(ida_name, "demangle_name"):
+                        demangled = ida_name.demangle_name(name, 0)
+                    elif hasattr(ida_name, "get_demangled_name"):
+                         # Fallback for some versions, though arguments vary
+                         pass
+                except:
+                    pass
+                
+                record = {
+                    "ea": f"0x{head_ea:x}",
+                    "name": name,
+                    "demangled_name": demangled,
+                    "type": type_str,
+                    "size": size,
+                    "storage": "static" if is_const else "public", # Simplified
+                    "is_const": is_const,
+                    "content": content,
+                    "refs": refs
+                }
+                globals_list.append(record)
+                
+        with open(out_path, "w", encoding="utf-8") as f:
+            for g in globals_list:
+                f.write(json.dumps(g) + "\n")
 
     def export_meta(self):
         self.log("Exporting meta.json...")
@@ -559,6 +695,19 @@ class IDACPGExporter:
             kind = "global"
             ea = mop.g
             v = {"ea": f"0x{ea:x}", "rva": f"0x{ea - ida_nalt.get_imagebase():x}"}
+            # Default access mode is read, can be overridden by mop_a handler
+            v["access_mode"] = "read"
+            
+        elif mop.t == ida_hexrays.mop_a: # Address of
+            # Recursively normalize the inner operand
+            if hasattr(mop, "a"):
+                inner = self._normalize_operand(mop.a)
+                if inner:
+                    v = inner # Copy inner fields
+                    kind = inner.get("kind", "unknown")
+                    # Override access_mode
+                    v["access_mode"] = "addr"
+                    # If inner was a global, it now represents &global
             
         elif mop.t == ida_hexrays.mop_str: # String
             kind = "string"
