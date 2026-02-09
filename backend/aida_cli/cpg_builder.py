@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import networkx as nx
 from pathlib import Path
 from .model import (
@@ -15,10 +16,12 @@ class CPGBuilder:
         self.graph = nx.MultiDiGraph()
         self.func_index = {}  # func_ea -> func_node_id
         self.binary_id = "unknown" # Will be loaded from meta.json
-        
+        self.globals_map = {} # name -> global_data
+
     def build(self):
         """Main build process following V1 spec."""
         self._load_meta()
+        self._load_globals()
         self._load_functions()
         return self.graph
 
@@ -31,6 +34,21 @@ class CPGBuilder:
                 self.graph.add_node("P:0", kind=NODE_PROG, **data)
         else:
             self.graph.add_node("P:0", kind=NODE_PROG)
+
+    def _load_globals(self):
+        globals_path = self.cpg_dir / "globals.jsonl"
+        if not globals_path.exists():
+            return
+        
+        with open(globals_path, 'r') as f:
+            for line in f:
+                if not line.strip(): continue
+                data = json.loads(line)
+                name = data.get("name")
+                if name:
+                    self.globals_map[name] = data
+                    # Also map with $ prefix which appears in text
+                    self.globals_map[f"${name}"] = data
 
     def _load_functions(self):
         funcs_path = self.cpg_dir / "functions.jsonl"
@@ -178,6 +196,10 @@ class CPGBuilder:
 
     def _intern_stack_operand(self, func_ea, op):
         v_info = op.get("v", {})
+        # Handle nested stack operand (e.g. address of stack var)
+        if isinstance(v_info, dict) and v_info.get("kind") == "stack":
+            return self._intern_stack_operand(func_ea, v_info)
+
         base = v_info.get("base")
         off = v_info.get("off")
         if base is None or off is None: return None
@@ -206,6 +228,10 @@ class CPGBuilder:
 
     def _intern_global_operand(self, func_ea, op):
         v_info = op.get("v", {})
+        # Handle nested global operand (e.g. address of global)
+        if isinstance(v_info, dict) and v_info.get("kind") == "global":
+            return self._intern_global_operand(func_ea, v_info)
+
         ea = v_info.get("ea")
         if not ea: return None
         node_id = f"G:{self.binary_id}:{ea}"
