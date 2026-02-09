@@ -125,6 +125,11 @@ class CPGBuilder:
             if node:
                 self.graph.add_edge(insn_id, node, type=EDGE_DEF, index=i)
 
+    def _get_op_attrs(self, op_dict):
+        a = op_dict.copy()
+        if "kind" in a: a["op_kind"] = a.pop("kind")
+        return a
+
     def _intern_operand(self, func_ea, op):
         """
         Create or retrieve a node for an operand.
@@ -133,110 +138,117 @@ class CPGBuilder:
         kind = op.get("kind")
         if not kind: return None
         
-        node_id = None
-        
-        # Helper to avoid kind conflict
-        def get_attrs(op_dict):
-            a = op_dict.copy()
-            if "kind" in a: a["op_kind"] = a.pop("kind")
-            return a
-        
         if kind == "reg":
-            # V:<func_ea>:reg:<regname>
-            reg_name = op.get("v", {}).get("reg")
-            if not reg_name: return None
-            node_id = f"V:{func_ea}:reg:{reg_name}"
-            if node_id not in self.graph:
-                # ARM64 Argument Detection (Graph-First enrichment)
-                extra_attrs = {}
-                # Check for x0-x7 or w0-w7
-                import re
-                m = re.match(r'^[xw]([0-7])$', reg_name)
-                if m:
-                    extra_attrs["arg_index"] = int(m.group(1))
-                
-                self.graph.add_node(node_id, kind=NODE_VAR, var_kind="reg", func_ea=func_ea, **get_attrs(op), **extra_attrs)
-                
-                # Identify Return Variable (Graph-First)
-                if reg_name in ["x0", "w0", "rax", "eax"]:
-                    func_id = f"F:{func_ea}"
-                    self.graph.add_edge(func_id, node_id, type="RETURN_VAR")
-
+            return self._intern_reg_operand(func_ea, op)
         elif kind == "stack":
-            # V:<func_ea>:stack:<base>:<off>
-            v_info = op.get("v", {})
-            base = v_info.get("base")
-            off = v_info.get("off")
-            if base is None or off is None: return None
-            node_id = f"V:{func_ea}:stack:{base}:{off}"
-            if node_id not in self.graph:
-                self.graph.add_node(node_id, kind=NODE_VAR, var_kind="stack", func_ea=func_ea, **get_attrs(op))
-                
-                # Create MEM node for the stack slot and add POINTS_TO edge
-                mem_id = f"M:{func_ea}:stack:{base}:{off}"
-                if mem_id not in self.graph:
-                    self.graph.add_node(mem_id, kind=NODE_MEM, func_ea=func_ea, region="stack", base=base, off=off)
-                self.graph.add_edge(node_id, mem_id, type=EDGE_POINTS_TO)
-
+            return self._intern_stack_operand(func_ea, op)
         elif kind == "global":
-            # G:<binary_id>:<ea>
-            v_info = op.get("v", {})
-            ea = v_info.get("ea")
-            if not ea: return None
-            node_id = f"G:{self.binary_id}:{ea}"
-            if node_id not in self.graph:
-                self.graph.add_node(node_id, kind=NODE_GLOBAL, **get_attrs(op))
-
+            return self._intern_global_operand(func_ea, op)
         elif kind == "const":
-            # K:<bits>:<value>
-            v_info = op.get("v", {})
-            val = v_info.get("value")
-            bits = op.get("bits", 0)
-            if val is None: return None
-            node_id = f"K:{bits}:{val}"
-            if node_id not in self.graph:
-                self.graph.add_node(node_id, kind=NODE_CONST, **get_attrs(op))
-                
+            return self._intern_const_operand(func_ea, op)
         elif kind == "string":
-            # S:<ea>
-            v_info = op.get("v", {})
-            ea = v_info.get("ea")
-            if not ea: return None
-            node_id = f"S:{ea}"
-            if node_id not in self.graph:
-                self.graph.add_node(node_id, kind=NODE_STRING, **get_attrs(op))
-
+            return self._intern_string_operand(func_ea, op)
         elif kind == "mem":
-            # M:<func_ea>:<region>:<addr_hash>:<bits>
-            v_info = op.get("v", {})
-            region = v_info.get("region", "unknown")
-            addr_obj = v_info.get("addr", {})
-            addr_hash = self._get_canonical_hash(addr_obj)
-            bits = op.get("bits", 0)
-            
-            node_id = f"M:{func_ea}:{region}:{addr_hash}:{bits}"
-            if node_id not in self.graph:
-                self.graph.add_node(node_id, kind=NODE_MEM, func_ea=func_ea, addr_hash=addr_hash, **get_attrs(op))
-
+            return self._intern_mem_operand(func_ea, op)
         elif kind in ["expr", "unknown"]:
-             # E:<func_ea>:<expr_hash>
-             op_copy = op.copy()
-             op_copy.pop("repr", None)
-             expr_hash = self._get_canonical_hash(op_copy)
-             
-             node_id = f"E:{func_ea}:{expr_hash}"
-             if node_id not in self.graph:
-                 self.graph.add_node(node_id, kind=NODE_EXPR, func_ea=func_ea, expr_hash=expr_hash, **get_attrs(op))
-                 
-                 # Recursively handle args if present
-                 v_data = op.get("v", {})
-                 if isinstance(v_data, dict) and "args" in v_data:
-                     for i, sub_op in enumerate(v_data["args"]):
-                         sub_node_id = self._intern_operand(func_ea, sub_op)
-                         if sub_node_id:
-                             self.graph.add_edge(node_id, sub_node_id, type=EDGE_USE, index=i)
+            return self._intern_expr_operand(func_ea, op)
         
+        return None
+
+    def _intern_reg_operand(self, func_ea, op):
+        reg_name = op.get("v", {}).get("reg")
+        if not reg_name: return None
+        node_id = f"V:{func_ea}:reg:{reg_name}"
+        if node_id not in self.graph:
+            # ARM64 Argument Detection (Graph-First enrichment)
+            extra_attrs = {}
+            # Check for x0-x7 or w0-w7
+            import re
+            m = re.match(r'^[xw]([0-7])$', reg_name)
+            if m:
+                extra_attrs["arg_index"] = int(m.group(1))
+            
+            self.graph.add_node(node_id, kind=NODE_VAR, var_kind="reg", func_ea=func_ea, **self._get_op_attrs(op), **extra_attrs)
+            
+            # Identify Return Variable (Graph-First)
+            if reg_name in ["x0", "w0", "rax", "eax"]:
+                func_id = f"F:{func_ea}"
+                self.graph.add_edge(func_id, node_id, type="RETURN_VAR")
         return node_id
+
+    def _intern_stack_operand(self, func_ea, op):
+        v_info = op.get("v", {})
+        base = v_info.get("base")
+        off = v_info.get("off")
+        if base is None or off is None: return None
+        node_id = f"V:{func_ea}:stack:{base}:{off}"
+        if node_id not in self.graph:
+            self.graph.add_node(node_id, kind=NODE_VAR, var_kind="stack", func_ea=func_ea, **self._get_op_attrs(op))
+            
+            # Create MEM node for the stack slot and add POINTS_TO edge
+            mem_id = f"M:{func_ea}:stack:{base}:{off}"
+            if mem_id not in self.graph:
+                self.graph.add_node(mem_id, kind=NODE_MEM, func_ea=func_ea, region="stack", base=base, off=off)
+            self.graph.add_edge(node_id, mem_id, type=EDGE_POINTS_TO)
+        return node_id
+
+    def _intern_global_operand(self, func_ea, op):
+        v_info = op.get("v", {})
+        ea = v_info.get("ea")
+        if not ea: return None
+        node_id = f"G:{self.binary_id}:{ea}"
+        if node_id not in self.graph:
+            self.graph.add_node(node_id, kind=NODE_GLOBAL, **self._get_op_attrs(op))
+        return node_id
+
+    def _intern_const_operand(self, func_ea, op):
+        v_info = op.get("v", {})
+        val = v_info.get("value")
+        bits = op.get("bits", 0)
+        if val is None: return None
+        node_id = f"K:{bits}:{val}"
+        if node_id not in self.graph:
+            self.graph.add_node(node_id, kind=NODE_CONST, **self._get_op_attrs(op))
+        return node_id
+
+    def _intern_string_operand(self, func_ea, op):
+        v_info = op.get("v", {})
+        ea = v_info.get("ea")
+        if not ea: return None
+        node_id = f"S:{ea}"
+        if node_id not in self.graph:
+            self.graph.add_node(node_id, kind=NODE_STRING, **self._get_op_attrs(op))
+        return node_id
+
+    def _intern_mem_operand(self, func_ea, op):
+        v_info = op.get("v", {})
+        region = v_info.get("region", "unknown")
+        addr_obj = v_info.get("addr", {})
+        addr_hash = self._get_canonical_hash(addr_obj)
+        bits = op.get("bits", 0)
+        
+        node_id = f"M:{func_ea}:{region}:{addr_hash}:{bits}"
+        if node_id not in self.graph:
+            self.graph.add_node(node_id, kind=NODE_MEM, func_ea=func_ea, addr_hash=addr_hash, **self._get_op_attrs(op))
+        return node_id
+
+    def _intern_expr_operand(self, func_ea, op):
+         op_copy = op.copy()
+         op_copy.pop("repr", None)
+         expr_hash = self._get_canonical_hash(op_copy)
+         
+         node_id = f"E:{func_ea}:{expr_hash}"
+         if node_id not in self.graph:
+             self.graph.add_node(node_id, kind=NODE_EXPR, func_ea=func_ea, expr_hash=expr_hash, **self._get_op_attrs(op))
+             
+             # Recursively handle args if present
+             v_data = op.get("v", {})
+             if isinstance(v_data, dict) and "args" in v_data:
+                 for i, sub_op in enumerate(v_data["args"]):
+                     sub_node_id = self._intern_operand(func_ea, sub_op)
+                     if sub_node_id:
+                         self.graph.add_edge(node_id, sub_node_id, type=EDGE_USE, index=i)
+         return node_id
 
     def _get_canonical_hash(self, data):
         """Compute stable hash for data (JSON-compatible)."""

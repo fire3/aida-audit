@@ -99,45 +99,55 @@ class TaintEngine:
             
             # Case 1: Direct Argument
             if edge_type == EDGE_ARG:
-                cs = user_node # user_node is the CallSite source
-                if self._is_propagator_output(cs, node_id):
-                    results.extend(self._trace_call_inputs(cs, visited, depth+1, verbose))
-                else:
-                    # Check user-defined function output (pass-by-reference)
-                    sources = self._trace_user_func_output(cs, node_id, visited, depth, verbose)
-                    if sources:
-                        results.extend(sources)
+                results.extend(self._handle_direct_arg_def(user_node, node_id, visited, depth, verbose))
 
             # Case 2: Used in an Expression which is an Argument
             elif edge_type == EDGE_USE:
-                # Check if user_node is an argument to a CallSite
-                for cs, _, d in self.graph.in_edges(user_node, data=True):
-                    if d.get("type") == EDGE_ARG:
-                        # user_node is an argument to cs
-                        # Check if user_node is an output argument
-                        if self._is_propagator_output(cs, user_node):
-                            results.extend(self._trace_call_inputs(cs, visited, depth+1, verbose))
-                        else:
-                            # Check user-defined function output (pass-by-reference)
-                            sources = self._trace_user_func_output(cs, user_node, visited, depth, verbose)
-                            if sources:
-                                results.extend(sources)
+                results.extend(self._handle_use_def(user_node, node_id, visited, depth, verbose))
                 
-                # Check if this instr is a CallSite and we are an output arg
-                call_sites = [u for u, _, d in self.graph.in_edges(user_node, data=True) if d.get("type") == EDGE_CALL_OF]
-                for cs in call_sites:
-                    if self._is_propagator_output(cs, node_id):
-                        results.extend(self._trace_call_inputs(cs, visited, depth+1, verbose))
-                    
-                    # Check user-defined function output for ALL pointer arguments
-                    for _, arg_node, edge_data in self.graph.out_edges(cs, data=True):
-                        if edge_data.get("type") == EDGE_ARG:
-                            arg_data = self.graph.nodes[arg_node]
-                            # Graph-First: Prioritize op_kind.
-                            if arg_data.get("op_kind") == "addr_of":
-                                 sources = self._trace_user_func_output(cs, arg_node, visited, depth, verbose)
-                                 if sources:
-                                     results.extend(sources)
+        return results
+
+    def _handle_direct_arg_def(self, call_site, arg_node, visited, depth, verbose):
+        results = []
+        if self._is_propagator_output(call_site, arg_node):
+            results.extend(self._trace_call_inputs(call_site, visited, depth+1, verbose))
+        else:
+            # Check user-defined function output (pass-by-reference)
+            sources = self._trace_user_func_output(call_site, arg_node, visited, depth, verbose)
+            if sources:
+                results.extend(sources)
+        return results
+
+    def _handle_use_def(self, user_node, original_node, visited, depth, verbose):
+        results = []
+        
+        # Check if user_node is an argument to a CallSite
+        for cs, _, d in self.graph.in_edges(user_node, data=True):
+            if d.get("type") == EDGE_ARG:
+                # user_node is an argument to cs
+                results.extend(self._handle_direct_arg_def(cs, user_node, visited, depth, verbose))
+        
+        # Check if this instr is a CallSite and we are an output arg
+        call_sites = [u for u, _, d in self.graph.in_edges(user_node, data=True) if d.get("type") == EDGE_CALL_OF]
+        for cs in call_sites:
+             results.extend(self._handle_callsite_output_arg(cs, original_node, visited, depth, verbose))
+             
+        return results
+
+    def _handle_callsite_output_arg(self, cs, original_node, visited, depth, verbose):
+        results = []
+        if self._is_propagator_output(cs, original_node):
+            results.extend(self._trace_call_inputs(cs, visited, depth+1, verbose))
+        
+        # Check user-defined function output for ALL pointer arguments
+        for _, arg_node, edge_data in self.graph.out_edges(cs, data=True):
+            if edge_data.get("type") == EDGE_ARG:
+                arg_data = self.graph.nodes[arg_node]
+                # Graph-First: Prioritize op_kind.
+                if arg_data.get("op_kind") == "addr_of":
+                     sources = self._trace_user_func_output(cs, arg_node, visited, depth, verbose)
+                     if sources:
+                         results.extend(sources)
         return results
 
     def _trace(self, node_id, visited, depth, verbose=False):
