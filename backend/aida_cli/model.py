@@ -12,6 +12,7 @@ NODE_CONST = "Const"
 NODE_STRING = "String"
 NODE_MEM = "Mem"
 NODE_EXPR = "Expr"
+NODE_GLOBAL = "Global"
 
 # Edge Types
 EDGE_HAS_FUNC = "HAS_FUNCTION"
@@ -23,6 +24,7 @@ EDGE_ARG = "ARG"
 EDGE_RET = "RET"
 EDGE_DEF = "DEF"
 EDGE_USE = "USE"
+EDGE_POINTS_TO = "POINTS_TO"
 
 class Finding:
     def __init__(self, rule_id, cwe, title, severity, binary_id, func_ea, sink, sources, evidence):

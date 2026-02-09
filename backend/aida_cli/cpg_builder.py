@@ -3,8 +3,8 @@ import logging
 import networkx as nx
 from pathlib import Path
 from .model import (
-    NODE_PROG, NODE_FUNC, NODE_BLOCK, NODE_INSTR, NODE_CALL, NODE_VAR, NODE_CONST, NODE_STRING, NODE_MEM, NODE_EXPR,
-    EDGE_HAS_FUNC, EDGE_HAS_BLOCK, EDGE_HAS_INSTR, EDGE_CFG, EDGE_CALL_OF, EDGE_ARG, EDGE_RET, EDGE_DEF, EDGE_USE
+    NODE_PROG, NODE_FUNC, NODE_BLOCK, NODE_INSTR, NODE_CALL, NODE_VAR, NODE_CONST, NODE_STRING, NODE_MEM, NODE_EXPR, NODE_GLOBAL,
+    EDGE_HAS_FUNC, EDGE_HAS_BLOCK, EDGE_HAS_INSTR, EDGE_CFG, EDGE_CALL_OF, EDGE_ARG, EDGE_RET, EDGE_DEF, EDGE_USE, EDGE_POINTS_TO
 )
 
 logger = logging.getLogger(__name__)
@@ -14,6 +14,7 @@ class CPGBuilder:
         self.cpg_dir = Path(cpg_dir)
         self.graph = nx.MultiDiGraph()
         self.func_index = {}  # func_ea -> func_node_id
+        self.binary_id = "unknown" # Will be loaded from meta.json
         
     def build(self):
         """Main build process following V1 spec."""
@@ -26,6 +27,7 @@ class CPGBuilder:
         if meta_path.exists():
             with open(meta_path, 'r') as f:
                 data = json.load(f)
+                self.binary_id = data.get("binary_id", "unknown")
                 self.graph.add_node("P:0", kind=NODE_PROG, **data)
         else:
             self.graph.add_node("P:0", kind=NODE_PROG)
@@ -139,109 +141,93 @@ class CPGBuilder:
             if "kind" in a: a["op_kind"] = a.pop("kind")
             return a
         
-        if kind in ["var", "stack", "reg"]:
-            # Var: stable ID within function
-            # V:<func_ea>:<storage>:<id> or similar
-            # Use 'repr' or specific fields for uniqueness
-            # V1 spec: Var/Mem/Expr ID must be stable
-            v_info = op.get("v", {})
-            # Construct a unique key for the variable
-            
-            # IMPROVEMENT: Use structured location if available (base+off)
-            if "base" in v_info and "off" in v_info:
-                var_key = f"{v_info['base']}:{v_info['off']}"
-            else:
-                # e.g., location based
-                var_key = v_info.get("full_repr") or op.get("repr")
-                var_key = self._normalize_key(var_key)
-                
-            if not var_key: return None
-            node_id = f"V:{func_ea}:{var_key}"
+        if kind == "reg":
+            # V:<func_ea>:reg:<regname>
+            reg_name = op.get("v", {}).get("reg")
+            if not reg_name: return None
+            node_id = f"V:{func_ea}:reg:{reg_name}"
             if node_id not in self.graph:
-                self.graph.add_node(node_id, kind=NODE_VAR, **get_attrs(op))
+                self.graph.add_node(node_id, kind=NODE_VAR, var_kind="reg", **get_attrs(op))
+
+        elif kind == "stack":
+            # V:<func_ea>:stack:<base>:<off>
+            v_info = op.get("v", {})
+            base = v_info.get("base")
+            off = v_info.get("off")
+            if base is None or off is None: return None
+            node_id = f"V:{func_ea}:stack:{base}:{off}"
+            if node_id not in self.graph:
+                self.graph.add_node(node_id, kind=NODE_VAR, var_kind="stack", **get_attrs(op))
                 
+                # Create MEM node for the stack slot and add POINTS_TO edge
+                mem_id = f"M:{func_ea}:stack:{base}:{off}"
+                if mem_id not in self.graph:
+                    self.graph.add_node(mem_id, kind=NODE_MEM, region="stack", base=base, off=off)
+                self.graph.add_edge(node_id, mem_id, type=EDGE_POINTS_TO)
+
+        elif kind == "global":
+            # G:<binary_id>:<ea>
+            v_info = op.get("v", {})
+            ea = v_info.get("ea")
+            if not ea: return None
+            node_id = f"G:{self.binary_id}:{ea}"
+            if node_id not in self.graph:
+                self.graph.add_node(node_id, kind=NODE_GLOBAL, **get_attrs(op))
+
         elif kind == "const":
-            # Const: global reuse
-            # K:<val>
-            val = op.get("v", {}).get("val")
+            # K:<bits>:<value>
+            v_info = op.get("v", {})
+            val = v_info.get("value")
+            bits = op.get("bits", 0)
             if val is None: return None
-            node_id = f"K:{val}"
+            node_id = f"K:{bits}:{val}"
             if node_id not in self.graph:
                 self.graph.add_node(node_id, kind=NODE_CONST, **get_attrs(op))
                 
         elif kind == "string":
-            # String: global reuse
-            # S:<content_hash> or S:<addr>
-            s_val = op.get("v", {}).get("str")
-            if s_val is None: return None
-            # simple hashing for ID
-            import hashlib
-            h = hashlib.md5(s_val.encode('utf-8', errors='ignore')).hexdigest()
-            node_id = f"S:{h}"
+            # S:<ea>
+            v_info = op.get("v", {})
+            ea = v_info.get("ea")
+            if not ea: return None
+            node_id = f"S:{ea}"
             if node_id not in self.graph:
-                self.graph.add_node(node_id, kind=NODE_STRING, value=s_val, **get_attrs(op))
+                self.graph.add_node(node_id, kind=NODE_STRING, **get_attrs(op))
 
-        # For V1 simplicity, we might skip detailed Mem/Expr handling unless needed for Taint
-        # But let's handle Mem roughly
-        elif kind in ["mem", "global"]:
-             # M:<func_ea>:<full_repr>
-             m_key = op.get("v", {}).get("full_repr") or op.get("repr")
-             m_key = self._normalize_key(m_key)
-             if m_key:
-                 node_id = f"M:{func_ea}:{m_key}"
-                 if node_id not in self.graph:
-                     self.graph.add_node(node_id, kind=NODE_MEM, **get_attrs(op))
+        elif kind == "mem":
+            # M:<func_ea>:<region>:<addr_hash>:<bits>
+            v_info = op.get("v", {})
+            region = v_info.get("region", "unknown")
+            addr_obj = v_info.get("addr", {})
+            addr_hash = self._get_canonical_hash(addr_obj)
+            bits = op.get("bits", 0)
+            
+            node_id = f"M:{func_ea}:{region}:{addr_hash}:{bits}"
+            if node_id not in self.graph:
+                self.graph.add_node(node_id, kind=NODE_MEM, addr_hash=addr_hash, **get_attrs(op))
 
         elif kind in ["expr", "unknown"]:
-             # E:<func_ea>:<repr>
-             # Use repr as key
-             repr_str = op.get("repr")
-             repr_str = self._normalize_key(repr_str)
-             if repr_str:
-                 node_id = f"E:{func_ea}:{repr_str}"
-                 if node_id not in self.graph:
-                     self.graph.add_node(node_id, kind=NODE_EXPR, **get_attrs(op))
-                     
-                     # Recursively handle args if present
-                     v_data = op.get("v", {})
-                     if isinstance(v_data, dict) and "args" in v_data:
-                         for i, sub_op in enumerate(v_data["args"]):
-                             sub_node_id = self._intern_operand(func_ea, sub_op)
-                             if sub_node_id:
-                                 # Add edge from Expr to Operand
-                                 # This is a USE relationship: Expr uses Operand
-                                 self.graph.add_edge(node_id, sub_node_id, type=EDGE_USE, index=i)
+             # E:<func_ea>:<expr_hash>
+             op_copy = op.copy()
+             op_copy.pop("repr", None)
+             expr_hash = self._get_canonical_hash(op_copy)
+             
+             node_id = f"E:{func_ea}:{expr_hash}"
+             if node_id not in self.graph:
+                 self.graph.add_node(node_id, kind=NODE_EXPR, expr_hash=expr_hash, **get_attrs(op))
+                 
+                 # Recursively handle args if present
+                 v_data = op.get("v", {})
+                 if isinstance(v_data, dict) and "args" in v_data:
+                     for i, sub_op in enumerate(v_data["args"]):
+                         sub_node_id = self._intern_operand(func_ea, sub_op)
+                         if sub_node_id:
+                             self.graph.add_edge(node_id, sub_node_id, type=EDGE_USE, index=i)
         
         return node_id
 
-    def _normalize_key(self, repr_str):
-        if not repr_str: return None
-        import re
-        
-        # Iteratively remove prefixes until stable
-        while True:
-            original = repr_str
-            
-            # Remove "type" prefix: "int *" var
-            m = re.match(r'^".*?"\s+(.*)$', repr_str)
-            if m:
-                repr_str = m.group(1)
-                continue
-                
-            # Remove size prefix: _QWORD var
-            m = re.match(r'^_(?:QWORD|DWORD|WORD|BYTE|OWORD|TBYTE)\s+(.*)$', repr_str)
-            if m:
-                repr_str = m.group(1)
-                continue
-
-            # Remove type cast-like prefix: __int64 var, __int32 var
-            m = re.match(r'^__int\d+\s+(.*)$', repr_str)
-            if m:
-                repr_str = m.group(1)
-                continue
-            
-            # If no change, break
-            if repr_str == original:
-                break
-                
-        return repr_str
+    def _get_canonical_hash(self, data):
+        """Compute stable hash for data (JSON-compatible)."""
+        import hashlib
+        # Canonicalize: sort keys, remove whitespace
+        s = json.dumps(data, sort_keys=True, separators=(',', ':'))
+        return hashlib.sha256(s.encode('utf-8')).hexdigest()
