@@ -395,32 +395,6 @@ class ExportOrchestrator:
         self.logger.plain("=" * 72)
         self.logger.plain("")
 
-    def _run_cpg_json_export(self, input_path, output_dir):
-        current_script_dir = os.path.dirname(os.path.abspath(__file__))
-        ida_export_script = os.path.join(current_script_dir, "ida_export_worker.py")
-        
-        # Output directory for JSON files
-        # We'll create a folder named <binary_name>.cpg_json
-        binary_name = os.path.basename(input_path)
-        # Remove extension if it's .i64 or .idb
-        if binary_name.lower().endswith((".i64", ".idb")):
-             binary_name = os.path.splitext(binary_name)[0]
-             
-        cpg_out = os.path.join(output_dir, f"{binary_name}.cpg_json")
-        _safe_makedirs(cpg_out)
-        
-        self.logger.log(f"CPG JSON output: {cpg_out}", context="ORCHESTRATOR")
-        
-        cmd = f"\"{sys.executable}\" \"{ida_export_script}\" \"{input_path}\" --cpg-json \"{cpg_out}\" --plain-log"
-        
-        # If input is an IDB, explicit save prevents implicit save to default name on exit
-        if input_path.lower().endswith((".i64", ".idb")):
-            cmd += f" --save-idb \"{input_path}\""
-
-        ret = self.run_command(cmd, stream_output=True, context="CPG_JSON")
-        
-        return ret
-
     def _run_master_analysis(self, master_input, output_db, temp_dir, save_idb=None, export_c_path=None):
         """
         Step 1: Run Master (Export Metadata + Dump Functions)
@@ -713,7 +687,7 @@ class ExportOrchestrator:
             self.logger.log(f"Failed to process {name}: {e}", context="ERROR")
             return None
 
-    def process_single_file(self, input_path, output_db, save_idb=None, export_c=False, cpg_json=False):
+    def process_single_file(self, input_path, output_db, save_idb=None, export_c=False):
         input_path = os.path.abspath(input_path)
         if not os.path.exists(input_path):
             self.logger.log(f"Error: Input file '{input_path}' not found.", context="ERROR")
@@ -739,27 +713,7 @@ class ExportOrchestrator:
 
         if os.path.exists(output_db):
             self.logger.log(f"Target database already exists: {output_db}", context="ORCHESTRATOR")
-            if cpg_json:
-                 self.logger.log("Running CPG JSON export...", context="ORCHESTRATOR")
-                 # Use output_db's directory for CPG JSON output
-                 out_dir = os.path.dirname(output_db)
-                 # Determine input for CPG export: prefer IDB if available
-                 base_name = os.path.splitext(input_path)[0]
-                 existing_idb = None
-                 for candidate in [
-                    input_path + ".i64",
-                    input_path + ".idb",
-                    base_name + ".i64",
-                    base_name + ".idb",
-                 ]:
-                    if os.path.exists(candidate):
-                        existing_idb = candidate
-                        break
-                 self._run_cpg_json_export(existing_idb or input_path, out_dir)
-            else:
-                self.logger.log("Skipping export.", context="ORCHESTRATOR")
-            return True
-            
+           
         self.logger.log(f"Input  : {input_path}", context="ORCHESTRATOR")
         self.logger.log(f"Output : {output_db}", context="ORCHESTRATOR")
         self.logger.log(f"Workers: {self.workers}", context="ORCHESTRATOR")
@@ -823,15 +777,6 @@ class ExportOrchestrator:
             stats['total_funcs'] = split_res['total_funcs']
             worker_files = split_res['worker_files']
             
-            if not worker_files:
-                # No functions to process, but metadata exported
-                # If CPG JSON is requested, run it now
-                if cpg_json:
-                    self.logger.log("Running CPG JSON export...", context="ORCHESTRATOR")
-                    out_dir = os.path.dirname(output_db)
-                    self._run_cpg_json_export(existing_idb or input_path, out_dir)
-                return True
-                
             # Step 3: Run Workers
             worker_res = self._run_workers(
                 input_path, 
@@ -862,13 +807,6 @@ class ExportOrchestrator:
                     if wp:
                         worker_perfs.append(wp)
                 self.print_full_performance_summary(stats, master_perf, worker_perfs)
-
-            # CPG JSON Export - LAST STEP
-            if cpg_json:
-                self.logger.log("Running CPG JSON export...", context="ORCHESTRATOR")
-                out_dir = os.path.dirname(output_db)
-                self._run_cpg_json_export(existing_idb or input_path, out_dir)
-
             return True
             
         finally:
@@ -877,7 +815,7 @@ class ExportOrchestrator:
             except:
                  pass
 
-    def process_directory(self, scan_dir, out_dir, target_binary, export_c=False, cpg_json=False):
+    def process_directory(self, scan_dir, out_dir, target_binary, export_c=False):
         scan_dir = os.path.abspath(scan_dir)
         out_dir = os.path.abspath(out_dir)
         
@@ -922,7 +860,6 @@ class ExportOrchestrator:
                     output_db=db_path,
                     save_idb=None,
                     export_c=export_c,
-                    cpg_json=cpg_json,
                 )
                 if path == target_path:
                     out_db = db_path if success else None
@@ -1009,7 +946,6 @@ def main():
                         out_dir=output_dir,
                         target_binary=target_path,
                         export_c=args.export_c,
-                        cpg_json=args.cpg_json,
                     )
         except Exception as e:
             print(f"Error: {e}")
@@ -1039,7 +975,6 @@ def main():
                     output_db=output_db,
                     save_idb=None,
                     export_c=args.export_c,
-                    cpg_json=args.cpg_json,
                 )
             if args.export_c and success and args.backend == "ghidra":
                 # C export is handled by process_single_file_ghidra
