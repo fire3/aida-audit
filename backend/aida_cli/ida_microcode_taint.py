@@ -230,6 +230,15 @@ class MicrocodeAnalyzer:
                 except Exception:
                     pass
 
+        # Post-process calls to fix missing return values for 'mov dst, call(...)'
+        # If this is a move instruction and we found a call but no return value,
+        # the move destination is likely the return value.
+        opname = self._get_opcode_name(insn.opcode)
+        if opname == "mov" and getattr(insn, "d", None):
+            for call in calls:
+                if call["ret"] is None:
+                    call["ret"] = self._mop_entry(insn.d)
+
         return reads, writes, calls
 
     def _record_call(self, insn, calls):
@@ -459,6 +468,7 @@ def analyze_function(pfn, maturity):
     
     # Extract argument variables
     func_args = []
+    return_vars = []
     if mba.vars:
         try:
             # Robust iteration: lvars_t is a sequence in IDAPython
@@ -469,6 +479,17 @@ def analyze_function(pfn, maturity):
                         "name": v.name,
                         "width": v.width
                     })
+                # Check for return variable candidates (heuristic)
+                # Note: v.is_result_var might not exist in all IDA versions, checking name as fallback
+                is_result = False
+                if hasattr(v, "is_result_var") and v.is_result_var:
+                    is_result = True
+                elif v.name and (v.name == "result" or v.name.startswith("retvar")):
+                    is_result = True
+                
+                if is_result:
+                    return_vars.append(i)
+
         except Exception as e:
             # Fallback or silence if iteration fails
             pass
@@ -478,6 +499,7 @@ def analyze_function(pfn, maturity):
         "ea": hex(pfn.start_ea),
         "maturity": maturity,
         "args": func_args,
+        "return_vars": return_vars,
         "insns": [],
     }
 
@@ -744,32 +766,44 @@ class MicrocodeTaintEngine:
         is_source = False
         tainted_out_args = []
         
+        self.logger.debug("summary.gen.start", function=func_name)
+
         # 1. Check Return Value Taint
-        # Look for 'ret' instructions (opcode depends on arch, but hexrays mcode uses specific opcodes)
-        # In microcode, return is usually handled by `return` instruction or implicit flow?
-        # MicrocodeAnalyzer uses `m_ret`? `ida_hexrays.m_ret`
-        # But we only have string opcodes in `insns`.
-        # `MicrocodeAnalyzer` converts opcodes to strings using `get_mcode_name`.
-        # Usually "ret".
-        
+        # If the function returns a value derived from a tainted source, mark it as a dynamic source.
+        # Microcode 'ret' instruction usually takes no operands (uses return registers implicitely).
+        # We need to check if the return register (e.g., R0/X0) is tainted at the end of the function.
+        is_source = False
+        tainted_out_args = []
         for insn in func_info.get("insns", []):
             if insn.get("opcode") == "ret":
+                self.logger.debug("summary.gen.ret_insn", ea=insn.get("ea"), reads=insn.get("reads"))
                 # Check reads of ret
                 for read in insn.get("reads", []):
                     key = self._op_key(read.get("op"))
-                    if state.get_taint(key):
+                    taint = state.get_taint(key)
+                    if taint:
+                        self.logger.debug("summary.gen.ret_taint", key=key, labels=list(taint))
                         is_source = True
                         break
         
+        # 1.5 Check Return Variable Taint (Fallback)
+        if not is_source:
+             for lvar_idx in func_info.get("return_vars", []):
+                 key = f"lvar:{lvar_idx}"
+                 taint = state.get_taint(key)
+                 if taint:
+                     self.logger.debug("summary.gen.ret_var_taint", key=key, labels=list(taint))
+                     is_source = True
+                     break
+
         # 2. Check Out-Arg Taint (Pointer Parameters)
-        # Check if `addr:lvar:IDX` is tainted, where IDX corresponds to an argument
         args_map = {a["lvar_idx"]: i for i, a in enumerate(func_info.get("args", []))}
         
         for lvar_idx, arg_pos in args_map.items():
-            # Check for tainted memory pointed to by this lvar
-            # Key format: "addr:lvar:IDX"
             key = f"addr:lvar:{lvar_idx}"
-            if state.get_taint(key):
+            taint = state.get_taint(key)
+            if taint:
+                self.logger.debug("summary.gen.arg_taint", arg_idx=arg_pos, key=key, labels=list(taint))
                 tainted_out_args.append(arg_pos)
                 is_source = True
 
@@ -780,15 +814,28 @@ class MicrocodeTaintEngine:
                 "name": func_name,
                 "label": f"Dynamic:{func_name}",
                 "out_args": tainted_out_args,
-                "ret": True # If we found it was a source, assume ret is tainted or args are tainted.
-                            # Refinement: Only set ret=True if we actually found ret taint.
+                "ret": True 
             }
             # Add to sources
             self.ruleset.sources.append(new_rule)
+        else:
+            self.logger.debug("summary.gen.no_taint", function=func_name)
 
 
     def _process_instruction(self, state, insn, func_info, findings):
         """Apply instruction-level taint propagation and call handling."""
+        
+        # Heuristic: If this is a mov instruction (op_4) and we have a call with no return value,
+        # assume the mov destination is the return value.
+        calls = insn.get("calls", [])
+        opcode = insn.get("opcode")
+        if calls and (opcode == "op_4" or opcode == "mov"):
+            writes = insn.get("writes", [])
+            if writes:
+                for call in calls:
+                    if call.get("ret") is None:
+                        call["ret"] = writes[0].get("op")
+
         read_labels, read_origins, read_keys = self._collect_reads(state, insn.get("reads", []))
         if read_labels:
             self._propagate_writes(state, insn, read_labels, read_origins, read_keys)
