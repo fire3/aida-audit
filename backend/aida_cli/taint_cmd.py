@@ -304,25 +304,13 @@ class PathFinder:
                     callees.add(ref_func.start_ea)
         return callees
 
-    def find_paths(self):
-        """Find paths from source callers to sink callers using BFS."""
-        if not self.source_eas or not self.sink_eas:
+    def _bfs_search(self, start_nodes, end_nodes):
+        """Reusable BFS search."""
+        if not start_nodes or not end_nodes:
             return []
-
-        start_funcs = self._get_callers(self.source_eas)
-        end_funcs = self._get_callers(self.sink_eas)
-
-        if not start_funcs:
-            self.logger.log("No callers found for sources")
-            return []
-        if not end_funcs:
-            self.logger.log("No callers found for sinks")
-            return []
-
-        self.logger.log(f"Tracing paths from {len(start_funcs)} start functions to {len(end_funcs)} end functions")
-
-        queue = deque([(start, [start]) for start in start_funcs])
-        visited = set(start_funcs)
+        
+        queue = deque([(start, [start]) for start in start_nodes])
+        visited = set(start_nodes)
         found_paths = []
         MAX_DEPTH = 100
         MAX_PATHS = 100
@@ -333,8 +321,8 @@ class PathFinder:
             if len(path) > MAX_DEPTH:
                 continue
 
-            if curr_ea in end_funcs:
-                found_paths.append(self._format_path(path))
+            if curr_ea in end_nodes:
+                found_paths.append(path)
                 if len(found_paths) >= MAX_PATHS:
                     break
                 continue
@@ -344,8 +332,41 @@ class PathFinder:
                 if callee not in visited:
                     visited.add(callee)
                     queue.append((callee, path + [callee]))
-
+        
         return found_paths
+
+    def find_paths(self):
+        """Find paths from source callers to sink callers using bidirectional search."""
+        if not self.source_eas or not self.sink_eas:
+            return []
+
+        source_callers = self._get_callers(self.source_eas)
+        sink_callers = self._get_callers(self.sink_eas)
+
+        if not source_callers:
+            self.logger.log("No callers found for sources")
+        if not sink_callers:
+            self.logger.log("No callers found for sinks")
+
+        if not source_callers or not sink_callers:
+            return []
+
+        self.logger.log(f"Tracing paths from {len(source_callers)} source callers to {len(sink_callers)} sink callers")
+
+        # 1. Forward: Source Caller -> Sink Caller
+        fwd_paths = self._bfs_search(source_callers, sink_callers)
+        
+        # 2. Reverse: Sink Caller -> Source Caller (Return taint flow)
+        rev_paths = self._bfs_search(sink_callers, source_callers)
+        
+        all_paths = []
+        for p in fwd_paths:
+            all_paths.append(self._format_path(p))
+            
+        for p in rev_paths:
+            all_paths.append(self._format_path(p[::-1]))
+            
+        return all_paths
 
     def _format_path(self, path):
         """Format the path for output."""
