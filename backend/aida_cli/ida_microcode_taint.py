@@ -542,7 +542,10 @@ class EngineLogger:
             sys.stdout.flush()
 
     def _format_message(self, event, fields):
-        parts = [f"event={event}"]
+        formatted = self._format_event(event, fields)
+        if formatted:
+            return formatted
+        parts = [f"{event}"]
         for key in sorted(fields.keys()):
             parts.append(f"{key}={self._format_value(fields[key])}")
         return " ".join(parts)
@@ -554,8 +557,66 @@ class EngineLogger:
             suffix = ",..." if len(items) > 8 else ""
             return "[" + ",".join(str(x) for x in head) + suffix + "]"
         if isinstance(value, dict):
-            return json.dumps(value, ensure_ascii=False)
+            items = []
+            for key in sorted(value.keys()):
+                items.append(f"{key}={self._format_value(value[key])}")
+            return ",".join(items)
         return str(value)
+
+    def _format_event(self, event, fields):
+        if event == "scan.global.callers":
+            return f"callers sources={fields.get('sources')} sinks={fields.get('sinks')}"
+        if event == "scan.global.missing_callers":
+            return "callers missing"
+        if event == "scan.global.no_path":
+            return "call-chain none"
+        if event == "scan.global.chain":
+            return f"call-chain functions={fields.get('functions')}"
+        if event == "scan.global.path":
+            return f"call-chain {fields.get('path')}"
+        if event == "scan.function.start":
+            return f"function {fields.get('function')} insns={fields.get('insn_count')}"
+        if event == "taint.source":
+            return (
+                f"taint source label={fields.get('label')} "
+                f"ea={fields.get('ea')} func={fields.get('function')} "
+                f"target={fields.get('target')} key={fields.get('key')}"
+            )
+        if event == "taint.flow":
+            return (
+                f"taint flow ea={fields.get('ea')} reads={self._format_value(fields.get('reads'))} "
+                f"writes={self._format_value(fields.get('writes'))} "
+                f"labels={self._format_value(fields.get('labels'))} "
+                f"origins={self._format_value(fields.get('origins'))}"
+            )
+        if event == "taint.call.in":
+            return (
+                f"taint call-in caller={fields.get('caller')} callee={fields.get('callee')} "
+                f"args={self._format_value(fields.get('args'))} labels={self._format_value(fields.get('labels'))} "
+                f"origins={self._format_value(fields.get('origins'))}"
+            )
+        if event == "taint.call.propagate":
+            return (
+                f"taint call-prop caller={fields.get('caller')} callee={fields.get('callee')} "
+                f"from={self._format_value(fields.get('from_args'))} "
+                f"to={self._format_value(fields.get('to_args'))} "
+                f"labels={self._format_value(fields.get('labels'))} "
+                f"ret={fields.get('ret_key')}"
+            )
+        if event == "taint.call.ret":
+            return (
+                f"taint call-ret caller={fields.get('caller')} callee={fields.get('callee')} "
+                f"ret={fields.get('ret_key')} labels={self._format_value(fields.get('labels'))} "
+                f"origins={self._format_value(fields.get('origins'))}"
+            )
+        if event == "taint.sink.hit":
+            return (
+                f"taint sink func={fields.get('function')} callee={fields.get('callee')} "
+                f"args={self._format_value(fields.get('args'))} "
+                f"labels={self._format_value(fields.get('labels'))} "
+                f"sources={self._format_value(fields.get('sources'))}"
+            )
+        return None
 
 
 class MicrocodeTaintEngine:
@@ -624,35 +685,41 @@ class MicrocodeTaintEngine:
 
     def _process_instruction(self, state, insn, func_info, findings):
         """Apply instruction-level taint propagation and call handling."""
-        self.logger.debug(
-            "scan.insn",
-            ea=insn.get("ea"),
-            opcode=insn.get("opcode"),
-            text=insn.get("text"),
-        )
-        read_labels, read_origins = self._collect_reads(state, insn.get("reads", []))
+        read_labels, read_origins, read_keys = self._collect_reads(state, insn.get("reads", []))
         if read_labels:
-            self._propagate_writes(state, insn, read_labels, read_origins)
+            self._propagate_writes(state, insn, read_labels, read_origins, read_keys)
         for call in insn.get("calls", []):
             findings.extend(self._apply_call(insn, call, state, func_info))
 
-    def _propagate_writes(self, state, insn, labels, origins):
-        self.logger.debug("taint.read", ea=insn.get("ea"), labels=sorted(labels))
+    def _propagate_writes(self, state, insn, labels, origins, read_keys):
+        write_keys = []
         for write in insn.get("writes", []):
             key = self._op_key(write.get("op"))
             state.add_taint(key, labels, origins)
-            self.logger.debug("taint.write", key=key, labels=sorted(labels))
+            if key:
+                write_keys.append(key)
+        if write_keys:
+            self.logger.debug(
+                "taint.flow",
+                ea=insn.get("ea"),
+                reads=read_keys,
+                writes=write_keys,
+                labels=sorted(labels),
+                origins=sorted(origins),
+            )
 
     def _collect_reads(self, state, reads):
         labels = set()
         origins = set()
+        keys = []
         for read in reads:
             key = self._op_key(read.get("op"))
             if not key:
                 continue
+            keys.append(key)
             labels.update(state.get_taint(key))
             origins.update(state.get_origins(key))
-        return labels, origins
+        return labels, origins, keys
 
     def _apply_call(self, insn, call, state, func_info):
         findings = []
@@ -662,15 +729,20 @@ class MicrocodeTaintEngine:
         args = call.get("args") or []
         ret = call.get("ret")
 
-        self.logger.debug(
-            "call.check",
-            callee=callee,
-            callee_ea=hex(callee_ea) if callee_ea else None,
-        )
+        labels, origins = self._collect_arg_taint(state, args, range(len(args)))
+        if labels:
+            self.logger.debug(
+                "taint.call.in",
+                caller=func_info.get("function"),
+                callee=callee,
+                args=[idx for idx in range(len(args))],
+                labels=sorted(labels),
+                origins=sorted(origins),
+            )
 
         self._apply_sources(insn, callee, callee_ea, args, ret, state, func_info)
-        self._apply_propagators(callee, callee_ea, args, ret, state)
-        self._apply_default_return_propagation(args, ret, state)
+        self._apply_propagators(callee, callee_ea, args, ret, state, func_info)
+        self._apply_default_return_propagation(callee, args, ret, state, func_info)
         findings.extend(self._apply_sinks(insn, callee, callee_ea, args, state, func_info))
 
         return findings
@@ -687,7 +759,6 @@ class MicrocodeTaintEngine:
         return labels, origins
 
     def _rule_matches(self, rule, callee, callee_ea=None):
-        self.logger.debug("taint.rule.match", callee=callee, rule=rule)
         if "ea" not in rule:
             return False
         if callee_ea is None:
@@ -798,13 +869,27 @@ class MicrocodeTaintEngine:
                     continue
                 key = self._op_key(args[idx])
                 state.add_taint(key, {label}, origins)
-                self.logger.debug("taint.source.arg", callee=callee, index=idx, key=key, label=label)
+                self.logger.debug(
+                    "taint.source",
+                    label=label,
+                    ea=insn.get("ea"),
+                    function=func_info.get("function"),
+                    target=f"arg[{idx}]",
+                    key=key,
+                )
             if rule.get("ret"):
                 key = self._op_key(ret)
                 state.add_taint(key, {label}, origins)
-                self.logger.debug("taint.source.ret", callee=callee, key=key, label=label)
+                self.logger.debug(
+                    "taint.source",
+                    label=label,
+                    ea=insn.get("ea"),
+                    function=func_info.get("function"),
+                    target="ret",
+                    key=key,
+                )
 
-    def _apply_propagators(self, callee, callee_ea, args, ret, state):
+    def _apply_propagators(self, callee, callee_ea, args, ret, state, func_info):
         for rule in self.ruleset.propagators:
             if not self._rule_matches(rule, callee, callee_ea):
                 continue
@@ -815,25 +900,43 @@ class MicrocodeTaintEngine:
             if not labels:
                 continue
             to_args = rule.get("to_args") or []
+            to_keys = []
             for idx in to_args:
                 if idx < 0 or idx >= len(args):
                     continue
                 key = self._op_key(args[idx])
                 state.add_taint(key, labels, origins)
-                self.logger.debug("taint.propagate.arg", callee=callee, index=idx, key=key)
+                if key:
+                    to_keys.append(key)
+            ret_key = None
             if rule.get("to_ret"):
-                key = self._op_key(ret)
-                state.add_taint(key, labels, origins)
-                self.logger.debug("taint.propagate.ret", callee=callee, key=key)
+                ret_key = self._op_key(ret)
+                state.add_taint(ret_key, labels, origins)
+            self.logger.debug(
+                "taint.call.propagate",
+                caller=func_info.get("function"),
+                callee=callee,
+                from_args=from_args,
+                to_args=to_args,
+                labels=sorted(labels),
+                ret_key=ret_key,
+            )
 
-    def _apply_default_return_propagation(self, args, ret, state):
+    def _apply_default_return_propagation(self, callee, args, ret, state, func_info):
         if not ret:
             return
         labels, origins = self._collect_arg_taint(state, args, range(len(args)))
         if labels:
             key = self._op_key(ret)
             state.add_taint(key, labels, origins)
-            self.logger.debug("taint.default.ret", key=key)
+            self.logger.debug(
+                "taint.call.ret",
+                caller=func_info.get("function"),
+                callee=callee,
+                ret_key=key,
+                labels=sorted(labels),
+                origins=sorted(origins),
+            )
 
     def _apply_sinks(self, insn, callee, callee_ea, args, state, func_info):
         findings = []
@@ -873,5 +976,12 @@ class MicrocodeTaintEngine:
                     ],
                 }
                 findings.append(finding)
-                self.logger.info("taint.finding", callee=callee, args=tainted_args, func=func_info.get("function"))
+                self.logger.info(
+                    "taint.sink.hit",
+                    callee=callee,
+                    args=tainted_args,
+                    function=func_info.get("function"),
+                    labels=sorted(labels),
+                    sources=sorted(origins),
+                )
         return findings
