@@ -52,21 +52,16 @@ The scanner uses a **Microcode-based Taint Engine** (`MicrocodeTaintEngine`) tha
 ### 4.1 Flags & Logs
 -   **`--verbose`**: Enable detailed logging. Critical for tracing the taint engine's decision path.
     -   *Look for*: `taint.flow`, `scan.function.start`, `taint.sink.hit`.
--   **`--keep`**: Preserve temporary artifacts (IDB, logs) in `scan_results_*/`.
-    -   *Files*: `scan.stdout.log` (Engine output), `export.stdout.log` (IDA output).
+    -   *Files*: `scan.stdout.log` (Engine output).
 
 ### 4.2 Key Scripts
 -   **Regression Test**: [regression_test_cwe78.py](scripts/regression_test_cwe78.py)
-    -   Run specific case: `... --filter <case_name> --keep --verbose`
--   **Trace Debugger**: [debug_taint.py](scripts/debug_taint.py)
-    -   Use this to trace taint propagation for a specific node or argument in the graph.
--   **Visualizer**: [visualize_func.py](scripts/visualize_func.py)
-    -   Generate visualizations of the function's Control Flow Graph (CFG) or Data Flow Graph (DFG).
+    -   Run specific case: `... --filter <case_name> --verbose`
 
 ### 4.3 Common Debugging Workflow
-1.  **Reproduce**: Run the specific test case with `--keep --verbose`.
+1.  **Reproduce**: Run the specific test case with ` --verbose`.
     ```bash
-    /home/fire3/opt/miniconda3/bin/python scripts/regression_test_cwe78.py --filter <case_name> --keep --verbose
+    /home/fire3/opt/miniconda3/bin/python scripts/regression_test_cwe78.py --filter <case_name> --verbose
     ```
 2.  **Analyze Logs**: Check `scan.stdout.log` in the result directory.
     -   Did it find the Source? (Search "Source found" or "rules.dynamic.add")

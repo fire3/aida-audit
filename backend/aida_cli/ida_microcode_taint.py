@@ -536,12 +536,26 @@ class TaintState:
     def __init__(self):
         self.taint = {}
         self.origins = {}
+        self.aliases = {}
 
     def get_taint(self, key):
-        return self.taint.get(key, set())
+        labels = self.taint.get(key, set())
+        if not labels and key in self.aliases:
+            # Check if alias target is tainted
+            target = self.aliases[key]
+            labels = self.taint.get(target, set())
+        return labels
 
     def get_origins(self, key):
-        return self.origins.get(key, set())
+        origins = self.origins.get(key, set())
+        if not origins and key in self.aliases:
+            target = self.aliases[key]
+            origins = self.origins.get(target, set())
+        return origins
+
+    def add_alias(self, ptr, target):
+        if ptr and target and ptr != target:
+            self.aliases[ptr] = target
 
     def add_taint(self, key, labels, origins):
         if not key:
@@ -674,6 +688,8 @@ class MicrocodeTaintEngine:
         insns = func_info.get("insns", [])
         self.logger.info("scan.function.start", function=func_info.get("function"), insn_count=len(insns))
         for insn in insns:
+            if self.logger._verbose:
+                self.logger.debug("scan.insn", ea=insn.get("ea"), text=insn.get("text"), opcode=insn.get("opcode"), writes=self.logger._format_value(insn.get("writes")), reads=self.logger._format_value(insn.get("reads")))
             self._process_instruction(state, insn, func_info, findings)
         return findings, state
 
@@ -844,14 +860,38 @@ class MicrocodeTaintEngine:
         # assume the mov destination is the return value.
         calls = insn.get("calls", [])
         opcode = insn.get("opcode")
+        writes = insn.get("writes", [])
+        reads = insn.get("reads", [])
+
         if calls and (opcode == "op_4" or opcode == "mov"):
-            writes = insn.get("writes", [])
             if writes:
                 for call in calls:
                     if call.get("ret") is None:
                         call["ret"] = writes[0].get("op")
 
+        # Alias Analysis: Detect pointer aliases (mov &y, x)
+        if (opcode == "op_4" or opcode == "mov") and len(writes) == 1:
+            w_key = self._op_key(writes[0].get("op"))
+            for r in reads:
+                r_key = self._op_key(r.get("op"))
+                if r_key and r_key.startswith("addr:") and w_key:
+                    target = r_key[5:]
+                    state.add_alias(w_key, target)
+                    if self.logger._verbose:
+                        self.logger.debug("alias.add", ptr=w_key, target=target)
+
         read_labels, read_origins, read_keys = self._collect_reads(state, insn.get("reads", []))
+
+        # Alias Store: Propagate taint through pointers (stx val, seg, ptr)
+        if (opcode == "op_1" or opcode == "stx") and read_labels:
+            for r in reads:
+                r_key = self._op_key(r.get("op"))
+                if r_key and r_key in state.aliases:
+                    target = state.aliases[r_key]
+                    state.add_taint(target, read_labels, read_origins)
+                    if self.logger._verbose:
+                        self.logger.debug("alias.store", ptr=r_key, target=target, labels=list(read_labels))
+
         if read_labels:
             self._propagate_writes(state, insn, read_labels, read_origins, read_keys)
         for call in insn.get("calls", []):
@@ -1161,6 +1201,8 @@ class MicrocodeTaintEngine:
                     continue
                 key = self._op_key(args[idx])
                 t = state.get_taint(key)
+                if self.logger._verbose:
+                     self.logger.debug("sink.check", index=idx, key=key, taint=list(t))
                 if not t:
                     continue
                 tainted_args.append(idx)
