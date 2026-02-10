@@ -314,6 +314,24 @@ class MicrocodeAnalyzer:
             return f"const:{value}"
         if t == ida_hexrays.mop_str:
             return f"str:{self._safe_dstr(mop)}"
+        
+        # Handle instructions (like ADD for pointer arithmetic)
+        if t == ida_hexrays.mop_d:
+            insn = getattr(mop, "d", None)
+            if insn and insn.opcode == ida_hexrays.m_add:
+                # Prefer the operand that looks like a variable/pointer
+                l_key = self._mop_key(insn.l)
+                r_key = self._mop_key(insn.r)
+                
+                # Helper to check if key is a variable
+                def is_var(k):
+                    return k and (k.startswith("lvar:") or k.startswith("reg:") or k.startswith("addr:"))
+
+                if is_var(l_key):
+                    return l_key
+                if is_var(r_key):
+                    return r_key
+        
         return f"expr:{self._safe_dstr(mop)}"
 
 
@@ -411,11 +429,15 @@ class MicrocodeTaintEngine:
     def scan_function(self, func_info):
         state = TaintState()
         findings = []
+        print(f"[DEBUG] Scanning function: {func_info.get('function')}")
         for insn in func_info.get("insns", []):
+            print(f"[DEBUG] Processing insn: {insn.get('text')} (Op: {insn.get('opcode')})")
             read_labels, read_origins = self._collect_reads(state, insn.get("reads", []))
             if read_labels:
+                print(f"[DEBUG] Taint read at {insn.get('text')}: {read_labels}")
                 for write in insn.get("writes", []):
                     key = self._op_key(write.get("op"))
+                    print(f"[DEBUG] Propagating taint to {key}")
                     state.add_taint(key, read_labels, read_origins)
             for call in insn.get("calls", []):
                 findings.extend(self._apply_call(insn, call, state, func_info))
@@ -440,9 +462,12 @@ class MicrocodeTaintEngine:
         args = call.get("args") or []
         ret = call.get("ret")
 
+        print(f"[DEBUG] Checking call to {callee}")
+
         for rule in self.ruleset.sources:
             if not self._rule_matches(rule, callee):
                 continue
+            print(f"[DEBUG] Matched Source: {callee}")
             label = rule.get("label") or callee
             origins = {(label, insn.get("ea"), func_info.get("function"))}
             out_args = rule.get("args") or rule.get("out_args") or []
@@ -450,9 +475,12 @@ class MicrocodeTaintEngine:
                 if idx < 0 or idx >= len(args):
                     continue
                 key = self._op_key(args[idx])
+                print(f"[DEBUG] Tainting arg {idx} ({key}) with {label}")
                 state.add_taint(key, {label}, origins)
             if rule.get("ret"):
-                state.add_taint(self._op_key(ret), {label}, origins)
+                key = self._op_key(ret)
+                print(f"[DEBUG] Tainting ret ({key}) with {label}")
+                state.add_taint(key, {label}, origins)
 
         for rule in self.ruleset.propagators:
             if not self._rule_matches(rule, callee):
@@ -463,21 +491,30 @@ class MicrocodeTaintEngine:
             labels, origins = self._collect_arg_taint(state, args, from_args)
             if not labels:
                 continue
+            print(f"[DEBUG] Matched Propagator: {callee}, propagating {labels}")
             to_args = rule.get("to_args") or []
             for idx in to_args:
                 if idx < 0 or idx >= len(args):
                     continue
-                state.add_taint(self._op_key(args[idx]), labels, origins)
+                key = self._op_key(args[idx])
+                print(f"[DEBUG] Tainting arg {idx} ({key})")
+                state.add_taint(key, labels, origins)
             if rule.get("to_ret"):
-                state.add_taint(self._op_key(ret), labels, origins)
+                key = self._op_key(ret)
+                print(f"[DEBUG] Tainting ret ({key})")
+                state.add_taint(key, labels, origins)
 
+        # Default propagation (all args -> ret)
         labels, origins = self._collect_arg_taint(state, args, range(len(args)))
         if labels and ret:
-            state.add_taint(self._op_key(ret), labels, origins)
+            key = self._op_key(ret)
+            # print(f"[DEBUG] Default propagation to ret ({key}): {labels}")
+            state.add_taint(key, labels, origins)
 
         for rule in self.ruleset.sinks:
             if not self._rule_matches(rule, callee):
                 continue
+            # print(f"[DEBUG] Matched Sink: {callee}")
             arg_indexes = rule.get("args")
             if arg_indexes is None:
                 arg_indexes = list(range(len(args)))
@@ -491,10 +528,12 @@ class MicrocodeTaintEngine:
                 t = state.get_taint(key)
                 if not t:
                     continue
+                print(f"[DEBUG] Taint reach Sink at arg {idx} ({key}): {t}")
                 tainted_args.append(idx)
                 labels.update(t)
                 origins.update(state.get_origins(key))
             if tainted_args:
+                print(f"[DEBUG] FOUND VULNERABILITY in {callee}")
                 finding = {
                     "rule_id": self.ruleset.rule_id,
                     "cwe": self.ruleset.cwe,
@@ -529,6 +568,23 @@ class MicrocodeTaintEngine:
         if name:
             if callee == name or callee.lower() == name.lower():
                 return True
+            # Handle prefixes like _, $, ., __imp__
+            sanitized = callee
+            if sanitized.startswith("$"):
+                sanitized = sanitized[1:]
+            if sanitized.startswith("."):
+                sanitized = sanitized[1:]
+            while sanitized.startswith("_"):
+                sanitized = sanitized[1:]
+            
+            # Special handling for import thunks if they weren't caught by simple lstrip
+            if "imp_" in sanitized:
+                 # e.g. __imp__execl -> imp__execl -> execl (after lstrip)
+                 pass 
+            
+            if sanitized == name or sanitized.lower() == name.lower():
+                return True
+                
         regex = rule.get("regex")
         if regex and regex.search(callee):
             return True
