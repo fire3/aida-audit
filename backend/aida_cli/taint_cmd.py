@@ -297,11 +297,22 @@ class PathFinder:
 
         callees = set()
         for head in idautils.Heads(func.start_ea, func.end_ea):
+            # 1. Code Refs (Direct calls)
             refs = idautils.CodeRefsFrom(head, 0)
             for ref in refs:
                 ref_func = ida_funcs.get_func(ref)
                 if ref_func and ref_func.start_ea == ref:
                     callees.add(ref_func.start_ea)
+
+            # 2. Data Refs (Indirect calls via vtables/globals)
+            drefs = idautils.DataRefsFrom(head)
+            for dref in drefs:
+                # Check if the data item refers to a function
+                sub_drefs = idautils.DataRefsFrom(dref)
+                for sub_dref in sub_drefs:
+                    ref_func = ida_funcs.get_func(sub_dref)
+                    if ref_func and ref_func.start_ea == sub_dref:
+                        callees.add(ref_func.start_ea)
         return callees
 
     def _bfs_search(self, start_nodes, end_nodes):
