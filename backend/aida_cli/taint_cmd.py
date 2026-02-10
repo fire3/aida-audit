@@ -208,7 +208,9 @@ def _run_single_scan(target, args, ruleset, logger):
             for p in paths:
                 findings.append({
                     "type": "path",
-                    "path": p,
+                    "path": p.get("path"),
+                    "source": p.get("source"),
+                    "sink": p.get("sink"),
                     "input_path": input_path
                 })
         except Exception as e:
