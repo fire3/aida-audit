@@ -1,5 +1,6 @@
 import json
 import re
+import sys
 
 
 # Try to import IDA modules
@@ -16,9 +17,43 @@ try:
     import ida_nalt
     import ida_hexrays
     import ida_funcs
+    import idautils
+    import ida_gdl
+    import ida_idaapi
+except ImportError as e:
+    print(f"Warning: Failed to import main IDA modules: {e}")
+    ida_auto = None
+    ida_pro = None
+    ida_ida = None
+    idc = None
+    ida_nalt = None
+    ida_hexrays = None
+    ida_funcs = None
+    idautils = None
+    ida_gdl = None
+    ida_idaapi = None
+
+# ...
+
+def get_badaddr():
+    if ida_idaapi and hasattr(ida_idaapi, "BADADDR"):
+        return ida_idaapi.BADADDR
+    if idc and hasattr(idc, "BADADDR"):
+        return idc.BADADDR
+    return 0xFFFFFFFFFFFFFFFF
+
+BADADDR = get_badaddr()
+
+
+try:
+    import ida_names
 except ImportError:
-    print("Error: This script must be run within IDA Pro.")
-    sys.exit(1)
+    ida_names = None
+
+try:
+    import ida_xref
+except ImportError:
+    ida_xref = None
 
 
 
@@ -281,7 +316,26 @@ class MicrocodeAnalyzer:
         key = self._mop_key(mop)
         if key is None:
             return None
-        return {"key": key, "text": self._safe_dstr(mop)}
+        res = {"key": key, "text": self._safe_dstr(mop)}
+        if mop and ida_hexrays:
+             t = getattr(mop, "t", None)
+             if t == ida_hexrays.mop_v:
+                 g = getattr(mop, "g", None)
+                 if g:
+                     res["ea"] = self._to_int(getattr(g, "ea", None))
+             elif t == ida_hexrays.mop_h:
+                 helper = getattr(mop, "helper", None)
+                 if helper:
+                     # Try to resolve helper name to EA
+                     if ida_names:
+                         ea = ida_names.get_name_ea(ida_ida.inf_get_min_ea(), helper)
+                         if ea != BADADDR:
+                             res["ea"] = ea
+                     elif idc:
+                         ea = idc.get_name_ea_simple(helper)
+                         if ea != BADADDR:
+                             res["ea"] = ea
+        return res
 
     def _mop_key(self, mop):
         if mop is None or ida_hexrays is None:
@@ -443,6 +497,145 @@ class MicrocodeTaintEngine:
                 findings.extend(self._apply_call(insn, call, state, func_info))
         return findings
 
+    def resolve_rules(self):
+        print("[DEBUG] Resolving rule addresses...")
+        if not ida_names and not idc:
+            print("[DEBUG] ida_names and idc modules not available.")
+            return
+        
+        # Debug: Print first 10 names in IDB
+        # print("[DEBUG] Sample names in IDB:")
+        # try:
+        #     count = 0
+        #     for ea, name in idautils.Names():
+        #         print(f"  {hex(ea)}: {name}")
+        #         count += 1
+        #         if count >= 10: break
+        # except Exception as e:
+        #     print(f"[DEBUG] Failed to list names: {e}")
+
+        def _resolve(rules):
+            for rule in rules:
+                name = rule.get("name")
+                if not name:
+                    continue
+                
+                ea = BADADDR
+                
+                # Helper to try to resolve a name
+                def try_name(n):
+                    if ida_names and ida_ida:
+                        return ida_names.get_name_ea(ida_ida.inf_get_min_ea(), n)
+                    if idc:
+                         # Fallback to idc
+                         return idc.get_name_ea_simple(n)
+                    return BADADDR
+
+                # Try exact match
+                ea = try_name(name)
+                if ea == BADADDR:
+                    ea = try_name("_" + name)
+                if ea == BADADDR:
+                    ea = try_name("__imp_" + name)
+                if ea == BADADDR:
+                    ea = try_name("__imp__" + name)
+                if ea == BADADDR:
+                     ea = try_name("." + name)
+
+                if ea != BADADDR:
+                    rule["ea"] = ea
+                    print(f"[DEBUG] Resolved {name} -> {hex(ea)}")
+                # else:
+                #    print(f"[DEBUG] Failed to resolve {name}")
+
+        _resolve(self.ruleset.sources)
+        _resolve(self.ruleset.sinks)
+        _resolve(self.ruleset.propagators)
+
+    def scan_global(self, maturity):
+        self.resolve_rules()
+        
+        # 1. Find Callers
+        source_callers = set()
+        sink_callers = set()
+        
+        def find_callers(rules, caller_set, type_name):
+            for rule in rules:
+                ea = rule.get("ea")
+                if not ea:
+                    continue
+                for ref in idautils.CodeRefsTo(ea, 0):
+                    func = ida_funcs.get_func(ref)
+                    if func:
+                        caller_set.add(func.start_ea)
+
+        find_callers(self.ruleset.sources, source_callers, "source")
+        find_callers(self.ruleset.sinks, sink_callers, "sink")
+        
+        print(f"[DEBUG] Source callers: {len(source_callers)}")
+        print(f"[DEBUG] Sink callers: {len(sink_callers)}")
+        
+        if not source_callers or not sink_callers:
+            print("[DEBUG] Missing sources or sinks. Aborting.")
+            return []
+            
+        # 2. Find Paths (BFS)
+        print("[DEBUG] Analyzing call graph connectivity...")
+        
+        reachable_sinks = set()
+        chain_functions = set()
+        
+        for src in source_callers:
+            queue = [src]
+            visited = {src}
+            parent = {src: None}
+            
+            while queue:
+                curr = queue.pop(0)
+                if curr in sink_callers:
+                    reachable_sinks.add(curr)
+                    path = []
+                    t = curr
+                    while t is not None:
+                        path.append(t)
+                        t = parent[t]
+                    path.reverse()
+                    chain_functions.update(path)
+                    names = [ida_funcs.get_func_name(x) for x in path]
+                    print(f"[DEBUG] Found Path: {' -> '.join(names)}")
+                
+                func = ida_funcs.get_func(curr)
+                if not func: continue
+                
+                callees = set()
+                for head in idautils.Heads(func.start_ea, func.end_ea):
+                    for ref in idautils.CodeRefsFrom(head, 0):
+                        f = ida_funcs.get_func(ref)
+                        if f and f.start_ea == ref:
+                             callees.add(f.start_ea)
+                
+                for callee in callees:
+                    if callee not in visited:
+                        visited.add(callee)
+                        parent[callee] = curr
+                        queue.append(callee)
+
+        if not chain_functions:
+             print("[DEBUG] No path found between source callers and sink callers.")
+             return []
+             
+        # 3. Analyze functions in the chain
+        print(f"[DEBUG] Analyzing {len(chain_functions)} functions in the call chain...")
+        findings = []
+        for ea in chain_functions:
+             func = ida_funcs.get_func(ea)
+             if not func: continue
+             func_info = analyze_function(func, maturity)
+             if func_info:
+                 findings.extend(self.scan_function(func_info))
+                 
+        return findings
+
     def _collect_reads(self, state, reads):
         labels = set()
         origins = set()
@@ -457,15 +650,20 @@ class MicrocodeTaintEngine:
     def _apply_call(self, insn, call, state, func_info):
         findings = []
         callee = call.get("callee_name") or ""
-        if not callee:
+        callee_ea = None
+        target = call.get("target")
+        if target:
+             callee_ea = target.get("ea")
+
+        if not callee and not callee_ea:
             return findings
         args = call.get("args") or []
         ret = call.get("ret")
 
-        print(f"[DEBUG] Checking call to {callee}")
+        print(f"[DEBUG] Checking call to {callee} (EA: {hex(callee_ea) if callee_ea else 'None'})")
 
         for rule in self.ruleset.sources:
-            if not self._rule_matches(rule, callee):
+            if not self._rule_matches(rule, callee, callee_ea):
                 continue
             print(f"[DEBUG] Matched Source: {callee}")
             label = rule.get("label") or callee
@@ -483,7 +681,7 @@ class MicrocodeTaintEngine:
                 state.add_taint(key, {label}, origins)
 
         for rule in self.ruleset.propagators:
-            if not self._rule_matches(rule, callee):
+            if not self._rule_matches(rule, callee, callee_ea):
                 continue
             from_args = rule.get("from_args")
             if from_args is None:
@@ -512,9 +710,9 @@ class MicrocodeTaintEngine:
             state.add_taint(key, labels, origins)
 
         for rule in self.ruleset.sinks:
-            if not self._rule_matches(rule, callee):
+            if not self._rule_matches(rule, callee, callee_ea):
                 continue
-            # print(f"[DEBUG] Matched Sink: {callee}")
+            print(f"[DEBUG] Matched Sink: {callee}")
             arg_indexes = rule.get("args")
             if arg_indexes is None:
                 arg_indexes = list(range(len(args)))
@@ -563,7 +761,10 @@ class MicrocodeTaintEngine:
             origins.update(state.get_origins(key))
         return labels, origins
 
-    def _rule_matches(self, rule, callee):
+    def _rule_matches(self, rule, callee, callee_ea=None):
+        if callee_ea is not None and "ea" in rule:
+            if rule["ea"] == callee_ea:
+                return True
         name = rule.get("name")
         if name:
             if callee == name or callee.lower() == name.lower():
@@ -614,12 +815,12 @@ def default_cwe78_rules():
     sinks = [
         {"name": "system", "args": [0]},
         {"name": "popen", "args": [0]},
-        {"name": "execl", "args": [0, 1]},
-        {"name": "execlp", "args": [0, 1]},
-        {"name": "execle", "args": [0, 1]},
-        {"name": "execv", "args": [0, 1]},
-        {"name": "execve", "args": [0, 1]},
-        {"name": "execvp", "args": [0, 1]},
+        {"name": "execl", "args": None},
+        {"name": "execlp", "args": None},
+        {"name": "execle", "args": None},
+        {"name": "execv", "args": None},
+        {"name": "execve", "args": None},
+        {"name": "execvp", "args": None},
         {"name": "CreateProcessA", "args": [1]},
         {"name": "CreateProcessW", "args": [1]},
         {"name": "WinExec", "args": [0]},

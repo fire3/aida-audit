@@ -233,21 +233,17 @@ def main():
             if scan_path:
                 _close_database()
             continue
-        functions = _collect_functions()
-        if not functions:
-            logger.log("No functions found", level="WARN")
-        for ea, name in functions:
-            func = ida_funcs.get_func(ea)
-            if not func:
-                continue
-            func_info = analyze_function(func, maturity)
-            if not func_info:
-                continue
-            result = engine.scan_function(func_info)
+        logger.log("Starting global taint analysis...")
+        try:
+            result = engine.scan_global(maturity)
             if input_path:
                 for item in result:
                     item["input_path"] = input_path
             findings.extend(result)
+        except Exception as e:
+            logger.log(f"Global scan failed: {e}", level="ERROR")
+            import traceback
+            traceback.print_exc()
         if scan_path:
             _close_database()
 
