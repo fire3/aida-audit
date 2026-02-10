@@ -707,12 +707,23 @@ class MicrocodeTaintEngine:
             self.logger.warn("scan.global.missing_callers")
             return []
 
-        chain_functions = self._find_call_chain(source_callers, sink_callers)
+        chain_functions, raw_chains = self._find_call_chain(source_callers, sink_callers)
         if not chain_functions:
             self.logger.warn("scan.global.no_path")
             return []
 
         self.logger.info("scan.global.chain", functions=len(chain_functions))
+        
+        # Format call chains for output
+        formatted_chains = []
+        for path in raw_chains:
+            chain_info = []
+            for ea in path:
+                chain_info.append({
+                    "ea": hex(ea),
+                    "name": ida_funcs.get_func_name(ea) or f"sub_{ea:x}"
+                })
+            formatted_chains.append(chain_info)
         
         # Sort functions by dependency (Callees first) to support cross-function taint propagation
         sorted_chain = self._sort_call_chain(chain_functions)
@@ -727,6 +738,10 @@ class MicrocodeTaintEngine:
                 f_findings, state = self.scan_function(func_info)
                 findings.extend(f_findings)
                 self._generate_summary(func_info, state)
+
+        # Attach call chains to findings
+        for finding in findings:
+            finding["call_chains"] = formatted_chains
 
         return findings
 
@@ -965,24 +980,31 @@ class MicrocodeTaintEngine:
         2. Upstream flow: SinkCaller -> ... -> SourceCaller (Return propagation)
         """
         chain_functions = set()
+        all_paths = []
         
         # 1. Search Source -> Sink (Standard forward flow)
         self.logger.info("scan.global.bfs.fwd", sources=len(source_callers), sinks=len(sink_callers))
-        fwd_chain = self._bfs_search(source_callers, sink_callers, "Forward")
-        chain_functions.update(fwd_chain)
+        fwd_nodes, fwd_paths = self._bfs_search(source_callers, sink_callers, "Forward")
+        chain_functions.update(fwd_nodes)
+        all_paths.extend(fwd_paths)
         
         # 2. Search Sink -> Source (Return taint flow, e.g. A calls B(source), A calls Sink)
         # This handles the case where the "Coordinator" (A) calls the Source Wrapper (B)
         self.logger.info("scan.global.bfs.rev", sources=len(source_callers), sinks=len(sink_callers))
-        rev_chain = self._bfs_search(sink_callers, source_callers, "Reverse")
-        chain_functions.update(rev_chain)
+        rev_nodes, rev_paths = self._bfs_search(sink_callers, source_callers, "Reverse")
+        chain_functions.update(rev_nodes)
         
-        return chain_functions
+        # For reverse paths (Sink -> Source), we should reverse them back to Source -> Sink order for display
+        for path in rev_paths:
+            all_paths.append(path[::-1])
+        
+        return chain_functions, all_paths
 
     def _bfs_search(self, start_nodes, end_nodes, direction_name):
         """Reusable BFS with robustness checks."""
         MAX_DEPTH = 10
-        found_paths = set()
+        found_nodes = set()
+        found_paths = []
         
         queue = deque()
         for ea in start_nodes:
@@ -994,7 +1016,8 @@ class MicrocodeTaintEngine:
             curr_ea, path = queue.popleft()
             
             if curr_ea in end_nodes:
-                found_paths.update(path)
+                found_nodes.update(path)
+                found_paths.append(path)
                 names = [ida_funcs.get_func_name(x) for x in path]
                 self.logger.debug(f"scan.global.path.{direction_name.lower()}", path=" -> ".join(names))
                 continue
@@ -1023,7 +1046,7 @@ class MicrocodeTaintEngine:
                     visited.add(callee)
                     queue.append((callee, path + [callee]))
                     
-        return found_paths
+        return found_nodes, found_paths
 
     def _resolve_callee(self, call):
         callee = call.get("callee_name") or ""
