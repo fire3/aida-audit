@@ -7,7 +7,8 @@ import tempfile
 
 from . import ida_utils
 from . import ida_microcode_taint as taint_mod
-from .ida_microcode_taint import analyze_function, default_cwe78_rules, RuleSet, MicrocodeTaintEngine
+from .ida_microcode_taint import analyze_function, MicrocodeTaintEngine
+from .taint_rules import RuleSet, default_cwe78_rules
 
 try:
     import idapro
@@ -216,7 +217,7 @@ def main():
         logger.log("Hex-Rays decompiler not available", level="ERROR")
         sys.exit(1)
 
-    engine = MicrocodeTaintEngine(ruleset)
+    engine = MicrocodeTaintEngine(ruleset, logger=logger, verbose=args.verbose)
     findings = []
     for target in _iter_targets(args.target):
         scan_path = target

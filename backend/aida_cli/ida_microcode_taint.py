@@ -1,5 +1,4 @@
 import json
-import re
 import sys
 
 
@@ -33,7 +32,6 @@ except ImportError as e:
     ida_gdl = None
     ida_idaapi = None
 
-# ...
 
 def get_badaddr():
     if ida_idaapi and hasattr(ida_idaapi, "BADADDR"):
@@ -61,6 +59,7 @@ _mop_visitor_base = ida_hexrays.mop_visitor_t if ida_hexrays else object
 
 
 class MopUsageVisitor(_mop_visitor_base):
+    """Collect reads, writes, and call operands from a microcode instruction."""
     def __init__(self, analyzer, reads, writes, calls):
         if ida_hexrays:
             ida_hexrays.mop_visitor_t.__init__(self)
@@ -116,6 +115,7 @@ class MopUsageVisitor(_mop_visitor_base):
 
 
 class MicrocodeAnalyzer:
+    """Normalize microcode instructions into read/write/call summaries."""
     def __init__(self, mba):
         self.mba = mba
 
@@ -390,6 +390,7 @@ class MicrocodeAnalyzer:
 
 
 def analyze_function(pfn, maturity):
+    """Extract microcode summaries for a single function."""
     hf = ida_hexrays.hexrays_failure_t()
     mbr = ida_hexrays.mba_ranges_t(pfn)
     mba = ida_hexrays.gen_microcode(mbr, hf, None, ida_hexrays.DECOMP_WARNINGS, maturity)
@@ -434,28 +435,8 @@ def analyze_function(pfn, maturity):
     return output
 
 
-class RuleSet:
-    def __init__(self, rule_id, cwe, title, severity, sources, sinks, propagators):
-        self.rule_id = rule_id
-        self.cwe = cwe
-        self.title = title
-        self.severity = severity
-        self.sources = self._compile_rules(sources)
-        self.sinks = self._compile_rules(sinks)
-        self.propagators = self._compile_rules(propagators)
-
-    def _compile_rules(self, rules):
-        compiled = []
-        for rule in rules or []:
-            entry = dict(rule)
-            pattern = entry.get("pattern")
-            if pattern:
-                entry["regex"] = re.compile(pattern, re.IGNORECASE)
-            compiled.append(entry)
-        return compiled
-
-
 class TaintState:
+    """Track taint labels and their origins for operand keys."""
     def __init__(self):
         self.taint = {}
         self.origins = {}
@@ -476,165 +457,136 @@ class TaintState:
             origin_set.update(origins)
 
 
+class EngineLogger:
+    """Structured logging helper for taint tracing and debugging."""
+
+    def __init__(self, logger=None, verbose=False):
+        self._logger = logger
+        self._verbose = verbose
+
+    def debug(self, event, **fields):
+        self._emit("DEBUG", event, fields, verbose_only=True)
+
+    def info(self, event, **fields):
+        self._emit("INFO", event, fields)
+
+    def warn(self, event, **fields):
+        self._emit("WARN", event, fields)
+
+    def error(self, event, **fields):
+        self._emit("ERROR", event, fields)
+
+    def _emit(self, level, event, fields, verbose_only=False):
+        if verbose_only and not self._verbose:
+            return
+        message = self._format_message(event, fields)
+        if self._logger and hasattr(self._logger, "log"):
+            self._logger.log(message, level=level)
+        else:
+            print(f"[{level}] {message}")
+            sys.stdout.flush()
+
+    def _format_message(self, event, fields):
+        parts = [f"event={event}"]
+        for key in sorted(fields.keys()):
+            parts.append(f"{key}={self._format_value(fields[key])}")
+        return " ".join(parts)
+
+    def _format_value(self, value):
+        if isinstance(value, (list, tuple, set)):
+            items = list(value)
+            head = items[:8]
+            suffix = ",..." if len(items) > 8 else ""
+            return "[" + ",".join(str(x) for x in head) + suffix + "]"
+        if isinstance(value, dict):
+            return json.dumps(value, ensure_ascii=False)
+        return str(value)
+
+
 class MicrocodeTaintEngine:
-    def __init__(self, ruleset):
+    """Run taint propagation over microcode summaries using rule sets."""
+
+    def __init__(self, ruleset, logger=None, verbose=False):
         self.ruleset = ruleset
+        self.logger = EngineLogger(logger=logger, verbose=verbose)
 
     def scan_function(self, func_info):
+        """Run taint propagation for a single function summary."""
         state = TaintState()
         findings = []
-        print(f"[DEBUG] Scanning function: {func_info.get('function')}")
-        for insn in func_info.get("insns", []):
-            print(f"[DEBUG] Processing insn: {insn.get('text')} (Op: {insn.get('opcode')})")
-            read_labels, read_origins = self._collect_reads(state, insn.get("reads", []))
-            if read_labels:
-                print(f"[DEBUG] Taint read at {insn.get('text')}: {read_labels}")
-                for write in insn.get("writes", []):
-                    key = self._op_key(write.get("op"))
-                    print(f"[DEBUG] Propagating taint to {key}")
-                    state.add_taint(key, read_labels, read_origins)
-            for call in insn.get("calls", []):
-                findings.extend(self._apply_call(insn, call, state, func_info))
+        insns = func_info.get("insns", [])
+        self.logger.info("scan.function.start", function=func_info.get("function"), insn_count=len(insns))
+        for insn in insns:
+            self._process_instruction(state, insn, func_info, findings)
         return findings
 
     def resolve_rules(self):
-        print("[DEBUG] Resolving rule addresses...")
+        """Resolve rule symbol names to addresses in the current IDB."""
         if not ida_names and not idc:
-            print("[DEBUG] ida_names and idc modules not available.")
+            self.logger.warn("rules.resolve.unavailable")
             return
-        
-        # Debug: Print first 10 names in IDB
-        # print("[DEBUG] Sample names in IDB:")
-        # try:
-        #     count = 0
-        #     for ea, name in idautils.Names():
-        #         print(f"  {hex(ea)}: {name}")
-        #         count += 1
-        #         if count >= 10: break
-        # except Exception as e:
-        #     print(f"[DEBUG] Failed to list names: {e}")
-
-        def _resolve(rules):
-            for rule in rules:
-                name = rule.get("name")
-                if not name:
-                    continue
-                
-                ea = BADADDR
-                
-                # Helper to try to resolve a name
-                def try_name(n):
-                    if ida_names and ida_ida:
-                        return ida_names.get_name_ea(ida_ida.inf_get_min_ea(), n)
-                    if idc:
-                         # Fallback to idc
-                         return idc.get_name_ea_simple(n)
-                    return BADADDR
-
-                # Try exact match
-                ea = try_name(name)
-                if ea == BADADDR:
-                    ea = try_name("_" + name)
-                if ea == BADADDR:
-                    ea = try_name("__imp_" + name)
-                if ea == BADADDR:
-                    ea = try_name("__imp__" + name)
-                if ea == BADADDR:
-                     ea = try_name("." + name)
-
-                if ea != BADADDR:
-                    rule["ea"] = ea
-                    print(f"[DEBUG] Resolved {name} -> {hex(ea)}")
-                # else:
-                #    print(f"[DEBUG] Failed to resolve {name}")
-
-        _resolve(self.ruleset.sources)
-        _resolve(self.ruleset.sinks)
-        _resolve(self.ruleset.propagators)
+        self.logger.info("rules.resolve.start")
+        for rule in self._iter_rules():
+            name = rule.get("name")
+            if not name:
+                continue
+            ea = self._resolve_rule_ea(name)
+            if ea is not None:
+                rule["ea"] = ea
+                self.logger.debug("rules.resolve.hit", name=name, ea=hex(ea))
 
     def scan_global(self, maturity):
+        """Find reachable call chains between sources and sinks, then scan them."""
         self.resolve_rules()
-        
-        # 1. Find Callers
+
         source_callers = set()
         sink_callers = set()
-        
-        def find_callers(rules, caller_set, type_name):
-            for rule in rules:
-                ea = rule.get("ea")
-                if not ea:
-                    continue
-                for ref in idautils.CodeRefsTo(ea, 0):
-                    func = ida_funcs.get_func(ref)
-                    if func:
-                        caller_set.add(func.start_ea)
 
-        find_callers(self.ruleset.sources, source_callers, "source")
-        find_callers(self.ruleset.sinks, sink_callers, "sink")
-        
-        print(f"[DEBUG] Source callers: {len(source_callers)}")
-        print(f"[DEBUG] Sink callers: {len(sink_callers)}")
-        
+        self._collect_callers(self.ruleset.sources, source_callers)
+        self._collect_callers(self.ruleset.sinks, sink_callers)
+        self.logger.info("scan.global.callers", sources=len(source_callers), sinks=len(sink_callers))
+
         if not source_callers or not sink_callers:
-            print("[DEBUG] Missing sources or sinks. Aborting.")
+            self.logger.warn("scan.global.missing_callers")
             return []
-            
-        # 2. Find Paths (BFS)
-        print("[DEBUG] Analyzing call graph connectivity...")
-        
-        reachable_sinks = set()
-        chain_functions = set()
-        
-        for src in source_callers:
-            queue = [src]
-            visited = {src}
-            parent = {src: None}
-            
-            while queue:
-                curr = queue.pop(0)
-                if curr in sink_callers:
-                    reachable_sinks.add(curr)
-                    path = []
-                    t = curr
-                    while t is not None:
-                        path.append(t)
-                        t = parent[t]
-                    path.reverse()
-                    chain_functions.update(path)
-                    names = [ida_funcs.get_func_name(x) for x in path]
-                    print(f"[DEBUG] Found Path: {' -> '.join(names)}")
-                
-                func = ida_funcs.get_func(curr)
-                if not func: continue
-                
-                callees = set()
-                for head in idautils.Heads(func.start_ea, func.end_ea):
-                    for ref in idautils.CodeRefsFrom(head, 0):
-                        f = ida_funcs.get_func(ref)
-                        if f and f.start_ea == ref:
-                             callees.add(f.start_ea)
-                
-                for callee in callees:
-                    if callee not in visited:
-                        visited.add(callee)
-                        parent[callee] = curr
-                        queue.append(callee)
 
+        chain_functions = self._find_call_chain(source_callers, sink_callers)
         if not chain_functions:
-             print("[DEBUG] No path found between source callers and sink callers.")
-             return []
-             
-        # 3. Analyze functions in the chain
-        print(f"[DEBUG] Analyzing {len(chain_functions)} functions in the call chain...")
+            self.logger.warn("scan.global.no_path")
+            return []
+
+        self.logger.info("scan.global.chain", functions=len(chain_functions))
         findings = []
         for ea in chain_functions:
-             func = ida_funcs.get_func(ea)
-             if not func: continue
-             func_info = analyze_function(func, maturity)
-             if func_info:
-                 findings.extend(self.scan_function(func_info))
-                 
+            func = ida_funcs.get_func(ea)
+            if not func:
+                continue
+            func_info = analyze_function(func, maturity)
+            if func_info:
+                findings.extend(self.scan_function(func_info))
+
         return findings
+
+    def _process_instruction(self, state, insn, func_info, findings):
+        """Apply instruction-level taint propagation and call handling."""
+        self.logger.debug(
+            "scan.insn",
+            ea=insn.get("ea"),
+            opcode=insn.get("opcode"),
+            text=insn.get("text"),
+        )
+        read_labels, read_origins = self._collect_reads(state, insn.get("reads", []))
+        if read_labels:
+            self._propagate_writes(state, insn, read_labels, read_origins)
+        for call in insn.get("calls", []):
+            findings.extend(self._apply_call(insn, call, state, func_info))
+
+    def _propagate_writes(self, state, insn, labels, origins):
+        self.logger.debug("taint.read", ea=insn.get("ea"), labels=sorted(labels))
+        for write in insn.get("writes", []):
+            key = self._op_key(write.get("op"))
+            state.add_taint(key, labels, origins)
+            self.logger.debug("taint.write", key=key, labels=sorted(labels))
 
     def _collect_reads(self, state, reads):
         labels = set()
@@ -649,104 +601,22 @@ class MicrocodeTaintEngine:
 
     def _apply_call(self, insn, call, state, func_info):
         findings = []
-        callee = call.get("callee_name") or ""
-        callee_ea = None
-        target = call.get("target")
-        if target:
-             callee_ea = target.get("ea")
-
+        callee, callee_ea = self._resolve_callee(call)
         if not callee and not callee_ea:
             return findings
         args = call.get("args") or []
         ret = call.get("ret")
 
-        print(f"[DEBUG] Checking call to {callee} (EA: {hex(callee_ea) if callee_ea else 'None'})")
+        self.logger.debug(
+            "call.check",
+            callee=callee,
+            callee_ea=hex(callee_ea) if callee_ea else None,
+        )
 
-        for rule in self.ruleset.sources:
-            if not self._rule_matches(rule, callee, callee_ea):
-                continue
-            print(f"[DEBUG] Matched Source: {callee}")
-            label = rule.get("label") or callee
-            origins = {(label, insn.get("ea"), func_info.get("function"))}
-            out_args = rule.get("args") or rule.get("out_args") or []
-            for idx in out_args:
-                if idx < 0 or idx >= len(args):
-                    continue
-                key = self._op_key(args[idx])
-                print(f"[DEBUG] Tainting arg {idx} ({key}) with {label}")
-                state.add_taint(key, {label}, origins)
-            if rule.get("ret"):
-                key = self._op_key(ret)
-                print(f"[DEBUG] Tainting ret ({key}) with {label}")
-                state.add_taint(key, {label}, origins)
-
-        for rule in self.ruleset.propagators:
-            if not self._rule_matches(rule, callee, callee_ea):
-                continue
-            from_args = rule.get("from_args")
-            if from_args is None:
-                from_args = list(range(len(args)))
-            labels, origins = self._collect_arg_taint(state, args, from_args)
-            if not labels:
-                continue
-            print(f"[DEBUG] Matched Propagator: {callee}, propagating {labels}")
-            to_args = rule.get("to_args") or []
-            for idx in to_args:
-                if idx < 0 or idx >= len(args):
-                    continue
-                key = self._op_key(args[idx])
-                print(f"[DEBUG] Tainting arg {idx} ({key})")
-                state.add_taint(key, labels, origins)
-            if rule.get("to_ret"):
-                key = self._op_key(ret)
-                print(f"[DEBUG] Tainting ret ({key})")
-                state.add_taint(key, labels, origins)
-
-        # Default propagation (all args -> ret)
-        labels, origins = self._collect_arg_taint(state, args, range(len(args)))
-        if labels and ret:
-            key = self._op_key(ret)
-            # print(f"[DEBUG] Default propagation to ret ({key}): {labels}")
-            state.add_taint(key, labels, origins)
-
-        for rule in self.ruleset.sinks:
-            if not self._rule_matches(rule, callee, callee_ea):
-                continue
-            print(f"[DEBUG] Matched Sink: {callee}")
-            arg_indexes = rule.get("args")
-            if arg_indexes is None:
-                arg_indexes = list(range(len(args)))
-            tainted_args = []
-            labels = set()
-            origins = set()
-            for idx in arg_indexes:
-                if idx < 0 or idx >= len(args):
-                    continue
-                key = self._op_key(args[idx])
-                t = state.get_taint(key)
-                if not t:
-                    continue
-                print(f"[DEBUG] Taint reach Sink at arg {idx} ({key}): {t}")
-                tainted_args.append(idx)
-                labels.update(t)
-                origins.update(state.get_origins(key))
-            if tainted_args:
-                print(f"[DEBUG] FOUND VULNERABILITY in {callee}")
-                finding = {
-                    "rule_id": self.ruleset.rule_id,
-                    "cwe": self.ruleset.cwe,
-                    "title": self.ruleset.title,
-                    "severity": self.ruleset.severity,
-                    "func_name": func_info.get("function"),
-                    "func_ea": func_info.get("ea"),
-                    "sink": {"name": callee, "ea": insn.get("ea")},
-                    "arg_indexes": tainted_args,
-                    "taint_labels": sorted(labels),
-                    "sources": [
-                        {"label": o[0], "ea": o[1], "function": o[2]} for o in sorted(origins)
-                    ],
-                }
-                findings.append(finding)
+        self._apply_sources(insn, callee, callee_ea, args, ret, state, func_info)
+        self._apply_propagators(callee, callee_ea, args, ret, state)
+        self._apply_default_return_propagation(args, ret, state)
+        findings.extend(self._apply_sinks(insn, callee, callee_ea, args, state, func_info))
 
         return findings
 
@@ -762,30 +632,15 @@ class MicrocodeTaintEngine:
         return labels, origins
 
     def _rule_matches(self, rule, callee, callee_ea=None):
-        if callee_ea is not None and "ea" in rule:
-            if rule["ea"] == callee_ea:
-                return True
+        if callee_ea is not None and "ea" in rule and rule["ea"] == callee_ea:
+            return True
         name = rule.get("name")
         if name:
             if callee == name or callee.lower() == name.lower():
                 return True
-            # Handle prefixes like _, $, ., __imp__
-            sanitized = callee
-            if sanitized.startswith("$"):
-                sanitized = sanitized[1:]
-            if sanitized.startswith("."):
-                sanitized = sanitized[1:]
-            while sanitized.startswith("_"):
-                sanitized = sanitized[1:]
-            
-            # Special handling for import thunks if they weren't caught by simple lstrip
-            if "imp_" in sanitized:
-                 # e.g. __imp__execl -> imp__execl -> execl (after lstrip)
-                 pass 
-            
+            sanitized = self._sanitize_callee(callee)
             if sanitized == name or sanitized.lower() == name.lower():
                 return True
-                
         regex = rule.get("regex")
         if regex and regex.search(callee):
             return True
@@ -800,51 +655,175 @@ class MicrocodeTaintEngine:
         text = op.get("text")
         return text or None
 
+    def _resolve_rule_ea(self, name):
+        def try_name(value):
+            if ida_names and ida_ida:
+                return ida_names.get_name_ea(ida_ida.inf_get_min_ea(), value)
+            if idc:
+                return idc.get_name_ea_simple(value)
+            return BADADDR
 
-def default_cwe78_rules():
-    sources = [
-        {"name": "recv", "args": [1], "label": "recv"},
-        {"name": "recvfrom", "args": [1], "label": "recvfrom"},
-        {"name": "read", "args": [1], "label": "read"},
-        {"name": "fgets", "args": [0], "label": "fgets"},
-        {"name": "gets", "args": [0], "label": "gets"},
-        {"name": "scanf", "args": [1], "label": "scanf"},
-        {"name": "fscanf", "args": [1], "label": "fscanf"},
-        {"name": "getenv", "ret": True, "label": "getenv"},
-    ]
-    sinks = [
-        {"name": "system", "args": [0]},
-        {"name": "popen", "args": [0]},
-        {"name": "execl", "args": None},
-        {"name": "execlp", "args": None},
-        {"name": "execle", "args": None},
-        {"name": "execv", "args": None},
-        {"name": "execve", "args": None},
-        {"name": "execvp", "args": None},
-        {"name": "CreateProcessA", "args": [1]},
-        {"name": "CreateProcessW", "args": [1]},
-        {"name": "WinExec", "args": [0]},
-        {"name": "ShellExecuteA", "args": [2]},
-        {"name": "ShellExecuteW", "args": [2]},
-        {"name": "ShellExecuteExA", "args": [0]},
-        {"name": "ShellExecuteExW", "args": [0]},
-    ]
-    propagators = [
-        {"name": "strcpy", "from_args": [1], "to_args": [0]},
-        {"name": "strncpy", "from_args": [1], "to_args": [0]},
-        {"name": "strcat", "from_args": [1], "to_args": [0]},
-        {"name": "strncat", "from_args": [1], "to_args": [0]},
-        {"name": "sprintf", "from_args": [1], "to_args": [0]},
-        {"name": "snprintf", "from_args": [2], "to_args": [0]},
-        {"name": "memcpy", "from_args": [1], "to_args": [0]},
-        {"name": "memmove", "from_args": [1], "to_args": [0]},
-    ]
-    return RuleSet(
-        rule_id="cwe-78",
-        cwe="CWE-78",
-        title="OS Command Injection",
-        severity="high",
-        sources=sources,
-        sinks=sinks,
-        propagators=propagators,
-    )
+        for candidate in (name, "_" + name, "__imp_" + name, "__imp__" + name, "." + name):
+            ea = try_name(candidate)
+            if ea != BADADDR:
+                return ea
+        return None
+
+    def _iter_rules(self):
+        for rule in self.ruleset.sources:
+            yield rule
+        for rule in self.ruleset.sinks:
+            yield rule
+        for rule in self.ruleset.propagators:
+            yield rule
+
+    def _collect_callers(self, rules, caller_set):
+        for rule in rules:
+            ea = rule.get("ea")
+            if not ea:
+                continue
+            for ref in idautils.CodeRefsTo(ea, 0):
+                func = ida_funcs.get_func(ref)
+                if func:
+                    caller_set.add(func.start_ea)
+
+    def _find_call_chain(self, source_callers, sink_callers):
+        """Search for source→sink paths in the call graph using BFS."""
+        chain_functions = set()
+        for src in source_callers:
+            queue = [src]
+            visited = {src}
+            parent = {src: None}
+            while queue:
+                curr = queue.pop(0)
+                if curr in sink_callers:
+                    path = []
+                    t = curr
+                    while t is not None:
+                        path.append(t)
+                        t = parent[t]
+                    path.reverse()
+                    chain_functions.update(path)
+                    names = [ida_funcs.get_func_name(x) for x in path]
+                    self.logger.debug("scan.global.path", path=" -> ".join(names))
+                func = ida_funcs.get_func(curr)
+                if not func:
+                    continue
+                callees = set()
+                for head in idautils.Heads(func.start_ea, func.end_ea):
+                    for ref in idautils.CodeRefsFrom(head, 0):
+                        f = ida_funcs.get_func(ref)
+                        if f and f.start_ea == ref:
+                            callees.add(f.start_ea)
+                for callee in callees:
+                    if callee not in visited:
+                        visited.add(callee)
+                        parent[callee] = curr
+                        queue.append(callee)
+        return chain_functions
+
+    def _resolve_callee(self, call):
+        callee = call.get("callee_name") or ""
+        target = call.get("target")
+        callee_ea = target.get("ea") if target else None
+        return callee, callee_ea
+
+    def _apply_sources(self, insn, callee, callee_ea, args, ret, state, func_info):
+        for rule in self.ruleset.sources:
+            if not self._rule_matches(rule, callee, callee_ea):
+                continue
+            label = rule.get("label") or callee
+            origins = {(label, insn.get("ea"), func_info.get("function"))}
+            out_args = rule.get("args") or rule.get("out_args") or []
+            for idx in out_args:
+                if idx < 0 or idx >= len(args):
+                    continue
+                key = self._op_key(args[idx])
+                state.add_taint(key, {label}, origins)
+                self.logger.debug("taint.source.arg", callee=callee, index=idx, key=key, label=label)
+            if rule.get("ret"):
+                key = self._op_key(ret)
+                state.add_taint(key, {label}, origins)
+                self.logger.debug("taint.source.ret", callee=callee, key=key, label=label)
+
+    def _apply_propagators(self, callee, callee_ea, args, ret, state):
+        for rule in self.ruleset.propagators:
+            if not self._rule_matches(rule, callee, callee_ea):
+                continue
+            from_args = rule.get("from_args")
+            if from_args is None:
+                from_args = list(range(len(args)))
+            labels, origins = self._collect_arg_taint(state, args, from_args)
+            if not labels:
+                continue
+            to_args = rule.get("to_args") or []
+            for idx in to_args:
+                if idx < 0 or idx >= len(args):
+                    continue
+                key = self._op_key(args[idx])
+                state.add_taint(key, labels, origins)
+                self.logger.debug("taint.propagate.arg", callee=callee, index=idx, key=key)
+            if rule.get("to_ret"):
+                key = self._op_key(ret)
+                state.add_taint(key, labels, origins)
+                self.logger.debug("taint.propagate.ret", callee=callee, key=key)
+
+    def _apply_default_return_propagation(self, args, ret, state):
+        if not ret:
+            return
+        labels, origins = self._collect_arg_taint(state, args, range(len(args)))
+        if labels:
+            key = self._op_key(ret)
+            state.add_taint(key, labels, origins)
+            self.logger.debug("taint.default.ret", key=key)
+
+    def _apply_sinks(self, insn, callee, callee_ea, args, state, func_info):
+        findings = []
+        for rule in self.ruleset.sinks:
+            if not self._rule_matches(rule, callee, callee_ea):
+                continue
+            arg_indexes = rule.get("args")
+            if arg_indexes is None:
+                arg_indexes = list(range(len(args)))
+            tainted_args = []
+            labels = set()
+            origins = set()
+            for idx in arg_indexes:
+                if idx < 0 or idx >= len(args):
+                    continue
+                key = self._op_key(args[idx])
+                t = state.get_taint(key)
+                if not t:
+                    continue
+                tainted_args.append(idx)
+                labels.update(t)
+                origins.update(state.get_origins(key))
+                self.logger.debug("taint.sink.arg", callee=callee, index=idx, key=key)
+            if tainted_args:
+                finding = {
+                    "rule_id": self.ruleset.rule_id,
+                    "cwe": self.ruleset.cwe,
+                    "title": self.ruleset.title,
+                    "severity": self.ruleset.severity,
+                    "func_name": func_info.get("function"),
+                    "func_ea": func_info.get("ea"),
+                    "sink": {"name": callee, "ea": insn.get("ea")},
+                    "arg_indexes": tainted_args,
+                    "taint_labels": sorted(labels),
+                    "sources": [
+                        {"label": o[0], "ea": o[1], "function": o[2]} for o in sorted(origins)
+                    ],
+                }
+                findings.append(finding)
+                self.logger.info("taint.finding", callee=callee, args=tainted_args, func=func_info.get("function"))
+        return findings
+
+    def _sanitize_callee(self, callee):
+        sanitized = callee or ""
+        if sanitized.startswith("$"):
+            sanitized = sanitized[1:]
+        if sanitized.startswith("."):
+            sanitized = sanitized[1:]
+        while sanitized.startswith("_"):
+            sanitized = sanitized[1:]
+        return sanitized
