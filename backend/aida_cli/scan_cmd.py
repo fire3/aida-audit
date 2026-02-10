@@ -199,6 +199,7 @@ def main():
     parser.add_argument("--maturity", default="MMAT_LVARS", help="Microcode maturity level")
     parser.add_argument("--output", help="Write findings JSONL to this path")
     parser.add_argument("--workdir", help="Root directory for scan workspaces")
+    parser.add_argument("--keep", action="store_true", help="Keep temporary workspace")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     args = parser.parse_args()
 
@@ -222,31 +223,38 @@ def main():
     for target in _iter_targets(args.target):
         scan_path = target
         input_path = target
-        if target:
-            scan_path, workdir, input_path = _prepare_scan_input(target, args.workdir, logger)
-            if not _open_database(scan_path, logger):
+        workdir = None
+        try:
+            if target:
+                scan_path, workdir, input_path = _prepare_scan_input(target, args.workdir, logger)
+                if not _open_database(scan_path, logger):
+                    continue
+                _wait_analysis(logger)
+                _ensure_function_analysis(logger)
+            hexrays = taint_mod.ida_hexrays or ida_hexrays
+            if hexrays is None or not hexrays.init_hexrays_plugin():
+                logger.log("Hex-Rays decompiler not available", level="ERROR")
                 continue
-            _wait_analysis(logger)
-            _ensure_function_analysis(logger)
-        hexrays = taint_mod.ida_hexrays or ida_hexrays
-        if hexrays is None or not hexrays.init_hexrays_plugin():
-            logger.log("Hex-Rays decompiler not available", level="ERROR")
+            logger.log("Starting global taint analysis...")
+            try:
+                result = engine.scan_global(maturity)
+                if input_path:
+                    for item in result:
+                        item["input_path"] = input_path
+                findings.extend(result)
+            except Exception as e:
+                logger.log(f"Global scan failed: {e}", level="ERROR")
+                import traceback
+                traceback.print_exc()
+        finally:
             if scan_path:
                 _close_database()
-            continue
-        logger.log("Starting global taint analysis...")
-        try:
-            result = engine.scan_global(maturity)
-            if input_path:
-                for item in result:
-                    item["input_path"] = input_path
-            findings.extend(result)
-        except Exception as e:
-            logger.log(f"Global scan failed: {e}", level="ERROR")
-            import traceback
-            traceback.print_exc()
-        if scan_path:
-            _close_database()
+            
+            if workdir and not args.keep and os.path.exists(workdir):
+                try:
+                    shutil.rmtree(workdir)
+                except Exception as e:
+                    logger.log(f"Failed to cleanup workdir {workdir}: {e}", level="WARN")
 
     _print_findings(findings, args.output)
 

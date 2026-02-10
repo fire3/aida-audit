@@ -7,15 +7,20 @@ import argparse
 import time
 import glob
 import shutil
+import concurrent.futures
+import threading
 from datetime import datetime
 
 # Configuration
 PYTHON_CMD = "/home/fire3/opt/miniconda3/bin/python"
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BACKEND_DIR = os.path.join(PROJECT_ROOT, "backend")
 DEFAULT_TEST_DIR = os.path.join(PROJECT_ROOT, "tests_cpg", "CWE78", "arm64")
 DEFAULT_OUTPUT_DIR = os.path.join(PROJECT_ROOT, "scan_results_cwe78")
 
-def run_command(cmd, cwd=None, timeout=None):
+print_lock = threading.Lock()
+
+def run_command(cmd, cwd=None, timeout=None, env=None):
     """Run a shell command and return result."""
     try:
         start_time = time.time()
@@ -25,7 +30,8 @@ def run_command(cmd, cwd=None, timeout=None):
             shell=True,
             capture_output=True,
             text=True,
-            timeout=timeout
+            timeout=timeout,
+            env=env
         )
         duration = time.time() - start_time
         return {
@@ -87,6 +93,94 @@ def parse_scan_output(output):
                 
     return findings
 
+def process_test_case(file_path, output_dir, clean, keep):
+    filename = os.path.basename(file_path)
+    
+    case_dir = os.path.join(output_dir, filename)
+    os.makedirs(case_dir, exist_ok=True)
+    
+    case_result = {
+        "file": filename,
+        "status": "unknown",
+        "export_time": 0,
+        "scan_time": 0,
+        "findings": []
+    }
+    
+    # Prepare environment with backend in PYTHONPATH
+    env = os.environ.copy()
+    if "PYTHONPATH" in env:
+        env["PYTHONPATH"] = f"{BACKEND_DIR}:{env['PYTHONPATH']}"
+    else:
+        env["PYTHONPATH"] = BACKEND_DIR
+        
+    # Step 1: Export
+    # Use python -m aida_cli.cli export
+    # Removed --workers as requested
+    export_cmd = f"{PYTHON_CMD} -m aida_cli.cli export \"{file_path}\" -o \"{case_dir}\""
+    export_res = run_command(export_cmd, cwd=PROJECT_ROOT, env=env)
+    case_result["export_time"] = export_res["duration"]
+    
+    # Save export logs
+    with open(os.path.join(case_dir, "export.stdout.log"), "w") as f:
+        f.write(export_res["stdout"])
+    with open(os.path.join(case_dir, "export.stderr.log"), "w") as f:
+        f.write(export_res["stderr"])
+        
+    if not export_res["success"]:
+        case_result["status"] = "export_failed"
+        return case_result
+        
+    # Step 2: Scan
+    # The export creates an IDB file (*.i64 or *.idb)
+    # We need to find it dynamically
+    idb_files = glob.glob(os.path.join(case_dir, f"{filename}*.i64")) + glob.glob(os.path.join(case_dir, f"{filename}*.idb"))
+    if not idb_files:
+        case_result["status"] = "scan_failed_no_idb"
+        return case_result
+        
+    idb_file = idb_files[0]
+    # Use new python -m aida_cli.cli scan command
+    scan_cmd = f"{PYTHON_CMD} -m aida_cli.cli scan \"{idb_file}\" --rules cwe-78"
+    if keep:
+        scan_cmd += " --keep"
+    scan_res = run_command(scan_cmd, cwd=PROJECT_ROOT, env=env)
+    case_result["scan_time"] = scan_res["duration"]
+    
+    # Save scan logs
+    with open(os.path.join(case_dir, "scan.stdout.log"), "w") as f:
+        f.write(scan_res["stdout"])
+    with open(os.path.join(case_dir, "scan.stderr.log"), "w") as f:
+        f.write(scan_res["stderr"])
+        
+    if not scan_res["success"]:
+        case_result["status"] = "scan_failed"
+        return case_result
+        
+    # Step 3: Analyze
+    findings = parse_scan_output(scan_res["stdout"])
+    case_result["findings"] = findings
+    
+    has_cwe78 = any(f.get("rule_id") == "cwe-78" or f.get("rule") == "cwe-78" for f in findings)
+    
+    # Fallback check if rule_id is not in top level, check full dict
+    if not has_cwe78 and findings:
+         has_cwe78 = True # Since we only requested cwe-78 rules.
+    
+    if has_cwe78:
+        case_result["status"] = "detected"
+    else:
+        case_result["status"] = "missed"
+        
+    if not keep:
+        try:
+            shutil.rmtree(case_dir)
+        except Exception as e:
+            # Can't print easily in thread
+            pass
+            
+    return case_result
+
 def main():
     parser = argparse.ArgumentParser(description="Regression Test for CWE78")
     parser.add_argument("--test-dir", default=DEFAULT_TEST_DIR, help="Directory containing test binaries")
@@ -94,7 +188,8 @@ def main():
     parser.add_argument("--limit", type=int, default=0, help="Limit number of tests (0 for all)")
     parser.add_argument("--filter", help="Filter test cases by filename substring")
     parser.add_argument("--clean", action="store_true", help="Clean output directory before running")
-    parser.add_argument("--workers", type=int, default=1, help="Number of parallel workers for export (passed to aida-cli)")
+    parser.add_argument("--keep", action="store_true", help="Keep temporary artifacts after test")
+    parser.add_argument("-j", "--jobs", type=int, default=1, help="Number of parallel test cases")
     parser.add_argument("--verbose", action="store_true", help="Show verbose output")
     
     args = parser.parse_args()
@@ -107,6 +202,10 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     
     # Collect test files
+    if not os.path.exists(args.test_dir):
+        print(f"Error: Test directory not found: {args.test_dir}")
+        sys.exit(1)
+        
     all_files = sorted(os.listdir(args.test_dir))
     test_files = []
     for f in all_files:
@@ -127,6 +226,7 @@ def main():
         
     print(f"Found {len(test_files)} test files.")
     print(f"Output directory: {args.output_dir}")
+    print(f"Parallel jobs: {args.jobs}")
     print("-" * 60)
     
     results = {
@@ -142,92 +242,54 @@ def main():
     
     start_total = time.time()
     
-    for i, file_path in enumerate(test_files):
-        filename = os.path.basename(file_path)
-        print(f"[{i+1}/{len(test_files)}] Processing {filename}...", end=" ", flush=True)
-        
-        case_dir = os.path.join(args.output_dir, filename)
-        os.makedirs(case_dir, exist_ok=True)
-        
-        case_result = {
-            "file": filename,
-            "status": "unknown",
-            "export_time": 0,
-            "scan_time": 0,
-            "findings": []
+    # Process files in parallel
+    completed_count = 0
+    total_count = len(test_files)
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as executor:
+        # Create a map of future to filename for error reporting
+        future_to_file = {
+            executor.submit(process_test_case, f, args.output_dir, args.clean, args.keep): f 
+            for f in test_files
         }
         
-        # Step 1: Export
-        export_cmd = f"{PYTHON_CMD} -m backend.aida_cli.cli export \"{file_path}\" -o \"{case_dir}\" --cpg-json --workers {args.workers}"
-        export_res = run_command(export_cmd, cwd=PROJECT_ROOT)
-        case_result["export_time"] = export_res["duration"]
-        
-        # Save export logs
-        with open(os.path.join(case_dir, "export.stdout.log"), "w") as f:
-            f.write(export_res["stdout"])
-        with open(os.path.join(case_dir, "export.stderr.log"), "w") as f:
-            f.write(export_res["stderr"])
+        for future in concurrent.futures.as_completed(future_to_file):
+            file_path = future_to_file[future]
+            filename = os.path.basename(file_path)
             
-        if not export_res["success"]:
-            print("Export Failed")
-            results["export_failures"] += 1
-            case_result["status"] = "export_failed"
-            results["details"].append(case_result)
-            continue
-            
-        # Step 2: Scan
-        # The CPG JSON export creates a subdirectory named <filename>.<hash>.cpg_json
-        # We need to find it dynamically
-        cpg_dirs = glob.glob(os.path.join(case_dir, f"{filename}*.cpg_json"))
-        if not cpg_dirs:
-            print(f"Error: Could not find CPG directory for {filename}")
-            results["scan_failures"] += 1
-            case_result["status"] = "scan_failed_no_cpg"
-            results["details"].append(case_result)
-            continue
-            
-        cpg_dir = cpg_dirs[0]
-        scan_cmd = f"{PYTHON_CMD} -m backend.aida_cli.cli scan \"{cpg_dir}\" --rules cwe-78"
-        scan_res = run_command(scan_cmd, cwd=PROJECT_ROOT)
-        case_result["scan_time"] = scan_res["duration"]
-        
-        # Save scan logs
-        with open(os.path.join(case_dir, "scan.stdout.log"), "w") as f:
-            f.write(scan_res["stdout"])
-        with open(os.path.join(case_dir, "scan.stderr.log"), "w") as f:
-            f.write(scan_res["stderr"])
-            
-        if not scan_res["success"]:
-            print("Scan Failed")
-            results["scan_failures"] += 1
-            case_result["status"] = "scan_failed"
-            results["details"].append(case_result)
-            continue
-            
-        # Step 3: Analyze
-        findings = parse_scan_output(scan_res["stdout"])
-        case_result["findings"] = findings
-        
-        has_cwe78 = any(f.get("rule_id") == "cwe-78" or f.get("rule") == "cwe-78" for f in findings) # Adjust key based on actual output
-        
-        # Fallback check if rule_id is not in top level, check full dict
-        if not has_cwe78 and findings:
-            # Assuming finding structure has some identifier. 
-            # If the scan command only runs cwe-78, then any finding is likely cwe-78.
-            # But let's be safe.
-             has_cwe78 = True # Since we only requested cwe-78 rules.
-        
-        if has_cwe78:
-            print("Detected")
-            results["detected"] += 1
-            case_result["status"] = "detected"
-        else:
-            print("Missed")
-            results["missed"] += 1
-            case_result["status"] = "missed"
-            
-        results["processed"] += 1
-        results["details"].append(case_result)
+            try:
+                case_result = future.result()
+                
+                with print_lock:
+                    completed_count += 1
+                    status = case_result["status"]
+                    print(f"[{completed_count}/{total_count}] {filename}: {status}")
+                    
+                    results["processed"] += 1
+                    results["details"].append(case_result)
+                    
+                    if status == "detected":
+                        results["detected"] += 1
+                    elif status == "missed":
+                        results["missed"] += 1
+                    elif status == "export_failed":
+                        results["export_failures"] += 1
+                        print(f"  Export failed for {filename}")
+                    elif status.startswith("scan_failed"):
+                        results["scan_failures"] += 1
+                        print(f"  Scan failed for {filename}")
+                        
+            except Exception as e:
+                with print_lock:
+                    print(f"Error processing {filename}: {e}")
+                    # Count as failure?
+                    results["processed"] += 1 # technically processed but failed
+                    case_result = {
+                        "file": filename,
+                        "status": "script_error",
+                        "error": str(e)
+                    }
+                    results["details"].append(case_result)
 
     duration_total = time.time() - start_total
     results["duration_total"] = duration_total
