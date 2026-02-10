@@ -315,11 +315,14 @@ class PathFinder:
                         callees.add(ref_func.start_ea)
         return callees
 
-    def _bfs_search(self, start_nodes, end_nodes):
+    def _bfs_search(self, start_nodes, end_nodes, neighbor_fn=None):
         """Reusable BFS search."""
         if not start_nodes or not end_nodes:
             return []
         
+        if neighbor_fn is None:
+            neighbor_fn = self._get_callees
+
         queue = deque([(start, [start]) for start in start_nodes])
         visited = set(start_nodes)
         found_paths = []
@@ -338,13 +341,71 @@ class PathFinder:
                     break
                 continue
 
-            callees = self._get_callees(curr_ea)
+            callees = neighbor_fn(curr_ea)
             for callee in callees:
                 if callee not in visited:
                     visited.add(callee)
                     queue.append((callee, path + [callee]))
         
         return found_paths
+
+    def _get_callers_single(self, func_ea):
+        """Get functions that call the given function."""
+        callers = set()
+        for ref in idautils.CodeRefsTo(func_ea, 0):
+            func = ida_funcs.get_func(ref)
+            if func:
+                callers.add(func.start_ea)
+        return callers
+
+    def find_common_ancestors(self, source_callers, sink_callers):
+        """Find paths where source and sink share a common ancestor."""
+        # BFS up from source callers
+        source_ancestors = {} # ea -> path_from_source
+        queue = deque([(start, [start]) for start in source_callers])
+        visited_source = set(source_callers)
+        MAX_DEPTH = 10
+        
+        while queue:
+            curr, path = queue.popleft()
+            source_ancestors[curr] = path
+            
+            if len(path) > MAX_DEPTH: continue
+            
+            callers = self._get_callers_single(curr)
+            for caller in callers:
+                if caller not in visited_source:
+                    visited_source.add(caller)
+                    queue.append((caller, path + [caller]))
+
+        # BFS up from sink callers and check intersection
+        queue = deque([(start, [start]) for start in sink_callers])
+        visited_sink = set(sink_callers)
+        common_paths = []
+        
+        while queue:
+            curr, path = queue.popleft()
+            
+            if curr in source_ancestors:
+                # Found common ancestor
+                src_path = source_ancestors[curr]
+                # Combine: [Source, ..., Common, ..., Sink]
+                # src_path is [Source, ..., Common]
+                # path is [Sink, ..., Common]
+                # We want [Source, ..., Common] + [..., Sink]
+                # path[-2::-1] reverses path excluding the last element (Common)
+                p = src_path + path[-2::-1]
+                common_paths.append(p)
+            
+            if len(path) > MAX_DEPTH: continue
+            
+            callers = self._get_callers_single(curr)
+            for caller in callers:
+                if caller not in visited_sink:
+                    visited_sink.add(caller)
+                    queue.append((caller, path + [caller]))
+                    
+        return common_paths
 
     def find_paths(self):
         """Find paths from source callers to sink callers using bidirectional search."""
@@ -369,6 +430,9 @@ class PathFinder:
         
         # 2. Reverse: Sink Caller -> Source Caller (Return taint flow)
         rev_paths = self._bfs_search(sink_callers, source_callers)
+
+        # 3. Common Ancestor: SourceCaller <- Common -> SinkCaller
+        common_paths = self.find_common_ancestors(source_callers, sink_callers)
         
         all_paths = []
         for p in fwd_paths:
@@ -376,6 +440,9 @@ class PathFinder:
             
         for p in rev_paths:
             all_paths.append(self._format_path(p[::-1]))
+
+        for p in common_paths:
+            all_paths.append(self._format_path(p))
             
         return all_paths
 

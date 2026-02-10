@@ -18,9 +18,8 @@ If you need to reference the source code for understanding the logic (e.g., veri
 
 **Command:**
 ```bash
-python -m aida_cli.cli export <target_binary> -o <output_directory> --export-c
+python -m aida_cli.cli export <target_binary> -o <output_directory> --export-c > /dev/null 2>&1
 ```
-
 **Parameters:**
 -   `<target_binary>`: Path to the binary file.
 -   `-o <output_directory>`: Directory to save results.

@@ -297,6 +297,12 @@ def main():
     if results['processed'] > 0:
         rate = (results['detected'] / results['processed']) * 100
         print(f"Detection Rate: {rate:.2f}%")
+
+    missed_cases = [d["file"] for d in results["details"] if d["status"] == "missed"]
+    if missed_cases:
+        print("\nMissed Cases:")
+        for case in missed_cases:
+            print(f"  {case}")
     
     report_path = os.path.join(args.output_dir, "report.json")
     with open(report_path, "w") as f:
