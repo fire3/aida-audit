@@ -437,19 +437,27 @@ class MicrocodeAnalyzer:
         # Handle instructions (like ADD for pointer arithmetic)
         if t == ida_hexrays.mop_d:
             insn = getattr(mop, "d", None)
-            if insn and insn.opcode == ida_hexrays.m_add:
-                # Prefer the operand that looks like a variable/pointer
-                l_key = self._mop_key(insn.l)
-                r_key = self._mop_key(insn.r)
-                
-                # Helper to check if key is a variable
-                def is_var(k):
-                    return k and (k.startswith("lvar:") or k.startswith("reg:") or k.startswith("addr:"))
+            if insn:
+                if insn.opcode == ida_hexrays.m_add:
+                    # Prefer the operand that looks like a variable/pointer
+                    l_key = self._mop_key(insn.l)
+                    r_key = self._mop_key(insn.r)
+                    
+                    # Helper to check if key is a variable
+                    def is_var(k):
+                        return k and (k.startswith("lvar:") or k.startswith("reg:") or k.startswith("addr:"))
 
-                if is_var(l_key):
-                    return l_key
-                if is_var(r_key):
-                    return r_key
+                    if is_var(l_key):
+                        return l_key
+                    if is_var(r_key):
+                        return r_key
+
+                # Handle Load (Dereference) - m_ldx
+                # This maps *ptr to load:ptr_key
+                if hasattr(ida_hexrays, "m_ldx") and insn.opcode == ida_hexrays.m_ldx:
+                    addr_key = self._mop_key(insn.r)
+                    if addr_key:
+                        return f"load:{addr_key}"
         
         return f"expr:{self._safe_dstr(mop)}"
 
@@ -539,6 +547,17 @@ class TaintState:
         self.aliases = {}
 
     def get_taint(self, key):
+        if not key:
+            return set()
+
+        # Handle load:ptr keys (dereference)
+        if key.startswith("load:"):
+            ptr_key = key[5:]
+            # If ptr points to target, then *ptr is target
+            if ptr_key in self.aliases:
+                target = self.aliases[ptr_key]
+                return self.get_taint(target)
+
         labels = self.taint.get(key, set())
         if not labels and key in self.aliases:
             # Check if alias target is tainted
@@ -547,6 +566,16 @@ class TaintState:
         return labels
 
     def get_origins(self, key):
+        if not key:
+            return set()
+
+        # Handle load:ptr keys (dereference)
+        if key.startswith("load:"):
+            ptr_key = key[5:]
+            if ptr_key in self.aliases:
+                target = self.aliases[ptr_key]
+                return self.get_origins(target)
+
         origins = self.origins.get(key, set())
         if not origins and key in self.aliases:
             target = self.aliases[key]
