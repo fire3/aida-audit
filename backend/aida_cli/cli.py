@@ -10,6 +10,7 @@ import hashlib
 import tempfile
 from . import export_cmd
 from . import server_cmd
+from . import scan_cmd
 
 def _print_main_help():
     print("Usage: aida-cli <command> [args]")
@@ -19,6 +20,7 @@ def _print_main_help():
     print("  install - Generate MCP client config")
     print("  workspace - Initialize a local workspace")
     print("  audit   - Run Joern CWE audit scripts")
+    print("  scan    - Run IDA Microcode taint scan")
 
 def _build_opencode_stdio_config(project, python_cmd, server_name):
     command = python_cmd
@@ -438,6 +440,8 @@ def main():
         workspace_main()
     elif command == "audit":
         audit_main()
+    elif command == "scan":
+        scan_cmd.main()
     else:
         print(f"Unknown command: {command}")
         print("Available commands: export, serve, config, workspace, audit, scan")
