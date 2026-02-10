@@ -257,9 +257,7 @@ class MicrocodeAnalyzer:
 
         ret = self._mop_entry(ret_mop) if not self._is_none_mop(ret_mop) else None
 
-        callee_name = None
-        if callee:
-            callee_name = callee.get("text")
+        callee, callee_name = self._ensure_callee_ea(insn, callee)
 
         calls.append(
             {
@@ -318,24 +316,81 @@ class MicrocodeAnalyzer:
             return None
         res = {"key": key, "text": self._safe_dstr(mop)}
         if mop and ida_hexrays:
-             t = getattr(mop, "t", None)
-             if t == ida_hexrays.mop_v:
-                 g = getattr(mop, "g", None)
-                 if g:
-                     res["ea"] = self._to_int(getattr(g, "ea", None))
-             elif t == ida_hexrays.mop_h:
-                 helper = getattr(mop, "helper", None)
-                 if helper:
-                     # Try to resolve helper name to EA
-                     if ida_names:
-                         ea = ida_names.get_name_ea(ida_ida.inf_get_min_ea(), helper)
-                         if ea != BADADDR:
-                             res["ea"] = ea
-                     elif idc:
-                         ea = idc.get_name_ea_simple(helper)
-                         if ea != BADADDR:
-                             res["ea"] = ea
+            t = getattr(mop, "t", None)
+            if t == ida_hexrays.mop_v:
+                g = getattr(mop, "g", None)
+                if g:
+                    res["ea"] = self._to_int(getattr(g, "ea", None))
+            elif t == ida_hexrays.mop_h:
+                helper = getattr(mop, "helper", None)
+                if helper:
+                    ea = self._resolve_name_ea(helper)
+                    if ea is not None:
+                        res["ea"] = ea
         return res
+
+    def _resolve_name_ea(self, name):
+        if not name:
+            return None
+        if ida_names and ida_ida:
+            ea = ida_names.get_name_ea(ida_ida.inf_get_min_ea(), name)
+            if ea != BADADDR:
+                return ea
+        if idc:
+            ea = idc.get_name_ea_simple(name)
+            if ea != BADADDR:
+                return ea
+        for candidate in (name, "_" + name, "__imp_" + name, "__imp__" + name, "." + name):
+            if ida_names and ida_ida:
+                ea = ida_names.get_name_ea(ida_ida.inf_get_min_ea(), candidate)
+                if ea != BADADDR:
+                    return ea
+            if idc:
+                ea = idc.get_name_ea_simple(candidate)
+                if ea != BADADDR:
+                    return ea
+        return None
+
+    def _resolve_callsite_ea(self, insn_ea):
+        if not insn_ea or insn_ea == BADADDR:
+            return None
+        if idautils:
+            refs = list(idautils.CodeRefsFrom(insn_ea, 0))
+            if refs:
+                return refs[0]
+        if idc:
+            try:
+                value = idc.get_operand_value(insn_ea, 0)
+            except Exception:
+                value = None
+            if value and value != BADADDR:
+                return value
+        return None
+
+    def _ensure_callee_ea(self, insn, callee):
+        callee_ea = None
+        callee_name = None
+        if callee:
+            callee_ea = callee.get("ea")
+            callee_name = callee.get("text")
+        if callee_ea is None and callee_name:
+            callee_ea = self._resolve_name_ea(callee_name)
+        if callee_ea is None:
+            callee_ea = self._resolve_callsite_ea(getattr(insn, "ea", None))
+        if callee_ea is not None:
+            ida_name = None
+            if ida_funcs:
+                ida_name = ida_funcs.get_func_name(callee_ea)
+            if not ida_name and ida_names:
+                ida_name = ida_names.get_name(callee_ea)
+            callee_name = ida_name or callee_name or ""
+            if callee is None:
+                callee = {"key": f"callee:{callee_ea}", "text": callee_name, "ea": callee_ea}
+            else:
+                callee["ea"] = callee_ea
+                if callee_name:
+                    callee["text"] = callee_name
+        return callee, callee_name
 
     def _mop_key(self, mop):
         if mop is None or ida_hexrays is None:
@@ -632,19 +687,12 @@ class MicrocodeTaintEngine:
         return labels, origins
 
     def _rule_matches(self, rule, callee, callee_ea=None):
-        if callee_ea is not None and "ea" in rule and rule["ea"] == callee_ea:
-            return True
-        name = rule.get("name")
-        if name:
-            if callee == name or callee.lower() == name.lower():
-                return True
-            sanitized = self._sanitize_callee(callee)
-            if sanitized == name or sanitized.lower() == name.lower():
-                return True
-        regex = rule.get("regex")
-        if regex and regex.search(callee):
-            return True
-        return False
+        self.logger.debug("taint.rule.match", callee=callee, rule=rule)
+        if "ea" not in rule:
+            return False
+        if callee_ea is None:
+            return False
+        return rule["ea"] == callee_ea
 
     def _op_key(self, op):
         if not op:
@@ -726,6 +774,16 @@ class MicrocodeTaintEngine:
         callee = call.get("callee_name") or ""
         target = call.get("target")
         callee_ea = target.get("ea") if target else None
+        if callee_ea is None and callee:
+            callee_ea = self._resolve_rule_ea(callee)
+        if callee_ea is not None:
+            ida_name = None
+            if ida_funcs:
+                ida_name = ida_funcs.get_func_name(callee_ea)
+            if not ida_name and ida_names:
+                ida_name = ida_names.get_name(callee_ea)
+            if ida_name:
+                callee = ida_name
         return callee, callee_ea
 
     def _apply_sources(self, insn, callee, callee_ea, args, ret, state, func_info):
@@ -817,13 +875,3 @@ class MicrocodeTaintEngine:
                 findings.append(finding)
                 self.logger.info("taint.finding", callee=callee, args=tainted_args, func=func_info.get("function"))
         return findings
-
-    def _sanitize_callee(self, callee):
-        sanitized = callee or ""
-        if sanitized.startswith("$"):
-            sanitized = sanitized[1:]
-        if sanitized.startswith("."):
-            sanitized = sanitized[1:]
-        while sanitized.startswith("_"):
-            sanitized = sanitized[1:]
-        return sanitized
