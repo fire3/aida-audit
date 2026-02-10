@@ -29,46 +29,18 @@ python -m aida_cli.cli export <target_binary> -o <output_directory> --export-c
 **Output:**
 -   The decompiled code will be saved in `<output_directory>` (e.g., as `.c` file or inside the DB).
 
-## 3. Taint Propagation Mechanism
+## 3. Taint Path Find Mechanism
 
-The scanner uses a **Microcode-based Taint Engine** (`MicrocodeTaintEngine`) that operates on IDA's intermediate representation (Microcode).
-
--   **Code Reference**: [ida_microcode_taint.py](backend/aida_cli/ida_microcode_taint.py)
--   **Core Logic**:
-    -   **Graph-First**: Relies on explicit graph edges (DEF, USE, POINTS_TO) rather than string matching.
-    -   **Instruction-Level**: Propagates taint through Microcode instructions (MMAT_LVARS level).
-    -   **Taint State**: Tracks taint on Operands (Registers, Stack Slots, Globals) and Memory (Abstract Memory Objects).
-    -   **Interprocedural Analysis**:
-        -   Uses **Function Summaries** (`_generate_summary`) to handle cross-function propagation.
-        -   Calculates "Out-Args" (pointer parameters modified by callee) and "Return Value" taint.
-        -   Sorts functions by dependency (Callees first) to build summaries bottom-up.
+-   **Code Reference**: [taint_cmd.py](backend/aida_cli/taint_cmd.py)
 -   **Rules**: Defined in [taint_rules.py](backend/aida_cli/taint_rules.py).
     -   **Sources**: Entry points (e.g., `recv`, `getenv`).
     -   **Sinks**: Dangerous functions (e.g., `system`, `execl`).
     -   **Propagators**: Functions that transfer taint (e.g., `strcpy`, `memcpy`).
 
 ## 4. Debugging Techniques
-
-### 4.1 Flags & Logs
--   **`--verbose`**: Enable detailed logging. Critical for tracing the taint engine's decision path.
-    -   *Look for*: `taint.flow`, `scan.function.start`, `taint.sink.hit`.
-    -   *Files*: `scan.stdout.log` (Engine output).
-
-### 4.2 Key Scripts
 -   **Regression Test**: [regression_test_cwe78.py](scripts/regression_test_cwe78.py)
     -   Run specific case: `... --filter <case_name> --verbose --clean`
-
-### 4.3 Common Debugging Workflow
-1.  **Reproduce**: Run the specific test case with ` --verbose`.
-    ```bash
-    /home/fire3/opt/miniconda3/bin/python scripts/regression_test_cwe78.py --filter <case_name> --verbose --clean
-    ```
-2.  **Analyze Logs**: Check `scan.stdout.log` in the result directory.
-    -   Did it find the Source? (Search "Source found" or "rules.dynamic.add")
-    -   Did it trace propagation? (Search "taint.flow" or "taint.call.propagate")
-    -   Did it hit the Sink? (Search "taint.sink.hit")
-3.  **Inspect Decompilation**: If propagation fails, use `export --export-c` to see the Hex-Rays output and compare with what the engine "sees" (Microcode).
-4.  **Check Rules**: Ensure the Source/Sink/Propagator function is defined in `taint_rules.py`.
+-  **Check Rules**: Ensure the Source/Sink/Propagator function is defined in `taint_rules.py`.
 
 ## 5. Environment
 -   **Interpreter**: `/home/fire3/opt/miniconda3/bin/python`
