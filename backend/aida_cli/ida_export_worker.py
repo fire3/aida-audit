@@ -10,7 +10,6 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 import ida_utils
 from binary_database import BinaryDatabase
 from ida_exporter import IDAExporter
-from ida_cpg_exporter import IDACPGExporter
 
 # Try to import IDA modules
 try:
