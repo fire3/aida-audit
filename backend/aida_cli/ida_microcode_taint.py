@@ -713,6 +713,16 @@ class MicrocodeTaintEngine:
     def scan_function(self, func_info):
         """Run taint propagation for a single function summary."""
         state = TaintState()
+
+        # Inject Symbolic Taint for Arguments (Sink Proxy Detection)
+        args = func_info.get("args", [])
+        for arg in args:
+            lvar_idx = arg.get("lvar_idx")
+            if lvar_idx is not None:
+                key = f"lvar:{lvar_idx}"
+                sym_label = f"SYM:ARG:{lvar_idx}"
+                state.add_taint(key, {sym_label}, set())
+
         findings = []
         insns = func_info.get("insns", [])
         self.logger.info("scan.function.start", function=func_info.get("function"), insn_count=len(insns))
@@ -781,8 +791,26 @@ class MicrocodeTaintEngine:
             func_info = analyze_function(func, maturity)
             if func_info:
                 f_findings, state = self.scan_function(func_info)
-                findings.extend(f_findings)
-                self._generate_summary(func_info, state)
+                
+                # Separate real findings from proxy findings
+                real_findings = []
+                proxy_findings = []
+                for f in f_findings:
+                    if f.get("type") == "sink_proxy":
+                        proxy_findings.append(f)
+                    else:
+                        # Check if finding only has symbolic taint (internal noise)
+                        labels = f.get("taint_labels", [])
+                        has_real = False
+                        for label in labels:
+                            if not label.startswith("SYM:ARG:"):
+                                has_real = True
+                                break
+                        if has_real or not labels:
+                            real_findings.append(f)
+
+                findings.extend(real_findings)
+                self._generate_summary(func_info, state, proxy_findings)
 
         # Attach call chains to findings
         for finding in findings:
@@ -815,7 +843,7 @@ class MicrocodeTaintEngine:
                 
         return sorted_list
 
-    def _generate_summary(self, func_info, state):
+    def _generate_summary(self, func_info, state, proxy_findings=None):
         """Generate dynamic taint rules based on function analysis results."""
         func_ea_str = func_info.get("ea")
         if not func_ea_str:
@@ -880,6 +908,28 @@ class MicrocodeTaintEngine:
             self.ruleset.sources.append(new_rule)
         else:
             self.logger.debug("summary.gen.no_taint", function=func_name)
+
+        # 3. Register Dynamic Sinks (Sink Proxies)
+        if proxy_findings:
+            proxy_args = set()
+            for pf in proxy_findings:
+                for arg in pf.get("proxy_args", []):
+                    proxy_args.add(arg)
+            
+            if proxy_args:
+                self.logger.info("rules.dynamic.add_sink", function=func_name, args=list(proxy_args))
+                # Use the first proxy finding to inherit properties
+                base_rule = proxy_findings[0].get("sink_rule", {})
+                new_rule = {
+                    "ea": func_ea,
+                    "name": func_name,
+                    "label": f"DynamicSink:{func_name}",
+                    "args": list(proxy_args),
+                    "cwe": base_rule.get("cwe", "CWE-78"),
+                    "severity": base_rule.get("severity", "HIGH"),
+                    "title": f"Proxy for {base_rule.get('title', 'Sink')}",
+                }
+                self.ruleset.sinks.append(new_rule)
 
 
     def _process_instruction(self, state, insn, func_info, findings):
@@ -1241,6 +1291,19 @@ class MicrocodeTaintEngine:
                      self.logger.debug("sink.check", index=idx, key=key, taint=list(t))
                 if not t:
                     continue
+                
+                # Check for Sink Proxy (Symbolic Taint)
+                for label in t:
+                    if label.startswith("SYM:ARG:"):
+                        try:
+                            findings.append({
+                                "type": "sink_proxy",
+                                "proxy_args": [int(label.split(":")[2])],
+                                "sink_rule": rule
+                            })
+                        except:
+                            pass
+
                 tainted_args.append(idx)
                 labels.update(t)
                 origins.update(state.get_origins(key))
