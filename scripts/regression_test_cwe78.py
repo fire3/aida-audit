@@ -93,7 +93,7 @@ def parse_scan_output(output):
                 
     return findings
 
-def process_test_case(file_path, output_dir, clean, keep):
+def process_test_case(file_path, output_dir, clean, keep, verbose):
     filename = os.path.basename(file_path)
     
     case_dir = os.path.join(output_dir, filename)
@@ -102,7 +102,6 @@ def process_test_case(file_path, output_dir, clean, keep):
     case_result = {
         "file": filename,
         "status": "unknown",
-        "export_time": 0,
         "scan_time": 0,
         "findings": []
     }
@@ -114,36 +113,13 @@ def process_test_case(file_path, output_dir, clean, keep):
     else:
         env["PYTHONPATH"] = BACKEND_DIR
         
-    # Step 1: Export
-    # Use python -m aida_cli.cli export
-    # Removed --workers as requested
-    export_cmd = f"{PYTHON_CMD} -m aida_cli.cli export \"{file_path}\" -o \"{case_dir}\""
-    export_res = run_command(export_cmd, cwd=PROJECT_ROOT, env=env)
-    case_result["export_time"] = export_res["duration"]
-    
-    # Save export logs
-    with open(os.path.join(case_dir, "export.stdout.log"), "w") as f:
-        f.write(export_res["stdout"])
-    with open(os.path.join(case_dir, "export.stderr.log"), "w") as f:
-        f.write(export_res["stderr"])
-        
-    if not export_res["success"]:
-        case_result["status"] = "export_failed"
-        return case_result
-        
-    # Step 2: Scan
-    # The export creates an IDB file (*.i64 or *.idb)
-    # We need to find it dynamically
-    idb_files = glob.glob(os.path.join(case_dir, f"{filename}*.i64")) + glob.glob(os.path.join(case_dir, f"{filename}*.idb"))
-    if not idb_files:
-        case_result["status"] = "scan_failed_no_idb"
-        return case_result
-        
-    idb_file = idb_files[0]
-    # Use new python -m aida_cli.cli scan command
-    scan_cmd = f"{PYTHON_CMD} -m aida_cli.cli scan \"{idb_file}\" --rules cwe-78"
+    # Step 1: Scan (Handles export implicitly)
+    # Use python -m aida_cli.cli scan directly on the binary
+    scan_cmd = f"{PYTHON_CMD} -m aida_cli.cli scan \"{file_path}\" --rules cwe-78"
     if keep:
         scan_cmd += " --keep"
+    if verbose:
+        scan_cmd += " --verbose"
     scan_res = run_command(scan_cmd, cwd=PROJECT_ROOT, env=env)
     case_result["scan_time"] = scan_res["duration"]
     
@@ -157,7 +133,7 @@ def process_test_case(file_path, output_dir, clean, keep):
         case_result["status"] = "scan_failed"
         return case_result
         
-    # Step 3: Analyze
+    # Step 2: Analyze
     findings = parse_scan_output(scan_res["stdout"])
     case_result["findings"] = findings
     
@@ -174,7 +150,22 @@ def process_test_case(file_path, output_dir, clean, keep):
         
     if not keep:
         try:
-            shutil.rmtree(case_dir)
+            # We want to keep logs, but delete the rest (IDB, temporary files)
+            # Strategy:
+            # 1. Read log content
+            # 2. Delete directory
+            # 3. Re-create directory
+            # 4. Write logs back
+            # Alternatively: delete specific files. But IDB files can vary.
+            # Simpler: remove everything EXCEPT .log files
+            
+            for f in os.listdir(case_dir):
+                if not f.endswith(".log"):
+                    full_path = os.path.join(case_dir, f)
+                    if os.path.isdir(full_path):
+                        shutil.rmtree(full_path)
+                    else:
+                        os.remove(full_path)
         except Exception as e:
             # Can't print easily in thread
             pass
@@ -249,7 +240,7 @@ def main():
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as executor:
         # Create a map of future to filename for error reporting
         future_to_file = {
-            executor.submit(process_test_case, f, args.output_dir, args.clean, args.keep): f 
+            executor.submit(process_test_case, f, args.output_dir, args.clean, args.keep, args.verbose): f 
             for f in test_files
         }
         
