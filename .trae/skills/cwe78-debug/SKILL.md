@@ -56,12 +56,12 @@ The scanner uses a **Microcode-based Taint Engine** (`MicrocodeTaintEngine`) tha
 
 ### 4.2 Key Scripts
 -   **Regression Test**: [regression_test_cwe78.py](scripts/regression_test_cwe78.py)
-    -   Run specific case: `... --filter <case_name> --verbose`
+    -   Run specific case: `... --filter <case_name> --verbose --clean`
 
 ### 4.3 Common Debugging Workflow
 1.  **Reproduce**: Run the specific test case with ` --verbose`.
     ```bash
-    /home/fire3/opt/miniconda3/bin/python scripts/regression_test_cwe78.py --filter <case_name> --verbose
+    /home/fire3/opt/miniconda3/bin/python scripts/regression_test_cwe78.py --filter <case_name> --verbose --clean
     ```
 2.  **Analyze Logs**: Check `scan.stdout.log` in the result directory.
     -   Did it find the Source? (Search "Source found" or "rules.dynamic.add")

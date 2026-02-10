@@ -995,6 +995,12 @@ class MicrocodeTaintEngine:
 
     def _rule_matches(self, rule, callee, callee_ea=None):
         if "ea" not in rule:
+            # Fallback: Check regex
+            if "regex" in rule and callee:
+                match = rule["regex"].match(callee)
+                if self.logger._verbose:
+                     self.logger.debug("rule.regex.check", pattern=rule.get("pattern"), callee=callee, match=bool(match))
+                return match
             return False
         if callee_ea is None:
             return False
@@ -1194,6 +1200,7 @@ class MicrocodeTaintEngine:
                 callee=callee,
                 from_args=from_args,
                 to_args=to_args,
+                to_keys=to_keys,
                 labels=sorted(labels),
                 ret_key=ret_key,
             )

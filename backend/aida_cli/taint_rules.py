@@ -61,6 +61,13 @@ def default_cwe78_rules():
         {"name": "snprintf", "from_args": [2], "to_args": [0]},
         {"name": "memcpy", "from_args": [1], "to_args": [0]},
         {"name": "memmove", "from_args": [1], "to_args": [0]},
+        # _chk variants
+        {"pattern": r"^_*strncat_chk$", "from_args": [1], "to_args": [0]},
+        {"pattern": r"^_*strcat_chk$", "from_args": [1], "to_args": [0]},
+        {"pattern": r"^_*strncpy_chk$", "from_args": [1], "to_args": [0]},
+        {"pattern": r"^_*strcpy_chk$", "from_args": [1], "to_args": [0]},
+        {"pattern": r"^_*memcpy_chk$", "from_args": [1], "to_args": [0]},
+        {"pattern": r"^_*memmove_chk$", "from_args": [1], "to_args": [0]},
     ]
     return RuleSet(
         rule_id="cwe-78",
