@@ -1,5 +1,6 @@
 import json
 import sys
+from collections import deque
 
 
 # Try to import IDA modules
@@ -807,39 +808,72 @@ class MicrocodeTaintEngine:
                     caller_set.add(func.start_ea)
 
     def _find_call_chain(self, source_callers, sink_callers):
-        """Search for source→sink paths in the call graph using BFS."""
+        """
+        Search for paths between sources and sinks in the call graph.
+        Handles both:
+        1. Downstream flow: SourceCaller -> ... -> SinkCaller (Arg propagation)
+        2. Upstream flow: SinkCaller -> ... -> SourceCaller (Return propagation)
+        """
         chain_functions = set()
-        for src in source_callers:
-            queue = [src]
-            visited = {src}
-            parent = {src: None}
-            while queue:
-                curr = queue.pop(0)
-                if curr in sink_callers:
-                    path = []
-                    t = curr
-                    while t is not None:
-                        path.append(t)
-                        t = parent[t]
-                    path.reverse()
-                    chain_functions.update(path)
-                    names = [ida_funcs.get_func_name(x) for x in path]
-                    self.logger.debug("scan.global.path", path=" -> ".join(names))
-                func = ida_funcs.get_func(curr)
-                if not func:
-                    continue
-                callees = set()
-                for head in idautils.Heads(func.start_ea, func.end_ea):
-                    for ref in idautils.CodeRefsFrom(head, 0):
-                        f = ida_funcs.get_func(ref)
-                        if f and f.start_ea == ref:
-                            callees.add(f.start_ea)
-                for callee in callees:
-                    if callee not in visited:
-                        visited.add(callee)
-                        parent[callee] = curr
-                        queue.append(callee)
+        
+        # 1. Search Source -> Sink (Standard forward flow)
+        self.logger.info("scan.global.bfs.fwd", sources=len(source_callers), sinks=len(sink_callers))
+        fwd_chain = self._bfs_search(source_callers, sink_callers, "Forward")
+        chain_functions.update(fwd_chain)
+        
+        # 2. Search Sink -> Source (Return taint flow, e.g. A calls B(source), A calls Sink)
+        # This handles the case where the "Coordinator" (A) calls the Source Wrapper (B)
+        self.logger.info("scan.global.bfs.rev", sources=len(source_callers), sinks=len(sink_callers))
+        rev_chain = self._bfs_search(sink_callers, source_callers, "Reverse")
+        chain_functions.update(rev_chain)
+        
         return chain_functions
+
+    def _bfs_search(self, start_nodes, end_nodes, direction_name):
+        """Reusable BFS with robustness checks."""
+        MAX_DEPTH = 10
+        found_paths = set()
+        
+        queue = deque()
+        for ea in start_nodes:
+            queue.append((ea, [ea]))
+            
+        visited = set(start_nodes)
+        
+        while queue:
+            curr_ea, path = queue.popleft()
+            
+            if curr_ea in end_nodes:
+                found_paths.update(path)
+                names = [ida_funcs.get_func_name(x) for x in path]
+                self.logger.debug(f"scan.global.path.{direction_name.lower()}", path=" -> ".join(names))
+                continue
+            
+            if len(path) >= MAX_DEPTH:
+                continue
+                
+            func = ida_funcs.get_func(curr_ea)
+            if not func:
+                continue
+                
+            callees = set()
+            for head in idautils.FuncItems(func.start_ea):
+                for ref in idautils.CodeRefsFrom(head, 0):
+                    f = ida_funcs.get_func(ref)
+                    if f and f.start_ea == ref:
+                        callee_ea = f.start_ea
+                        # Filter Thunks/Libs unless they are targets
+                        if f.flags & (ida_funcs.FUNC_THUNK | ida_funcs.FUNC_LIB):
+                            if callee_ea not in end_nodes:
+                                continue
+                        callees.add(callee_ea)
+                        
+            for callee in callees:
+                if callee not in visited:
+                    visited.add(callee)
+                    queue.append((callee, path + [callee]))
+                    
+        return found_paths
 
     def _resolve_callee(self, call):
         callee = call.get("callee_name") or ""
