@@ -44,10 +44,10 @@ def get_badaddr():
 BADADDR = get_badaddr()
 
 
-try:
-    import ida_names
-except ImportError:
-    ida_names = None
+
+# ida_names usage removed
+ida_names = None
+
 
 try:
     import ida_xref
@@ -342,23 +342,22 @@ class MicrocodeAnalyzer:
     def _resolve_name_ea(self, name):
         if not name:
             return None
-        if ida_names and ida_ida:
-            ea = ida_names.get_name_ea(ida_ida.inf_get_min_ea(), name)
-            if ea != BADADDR:
-                return ea
         if idc:
-            ea = idc.get_name_ea_simple(name)
-            if ea != BADADDR:
-                return ea
+            try:
+                ea = idc.get_name_ea_simple(name)
+                if ea != BADADDR:
+                    return ea
+            except Exception:
+                pass
+
         for candidate in (name, "_" + name, "__imp_" + name, "__imp__" + name, "." + name):
-            if ida_names and ida_ida:
-                ea = ida_names.get_name_ea(ida_ida.inf_get_min_ea(), candidate)
-                if ea != BADADDR:
-                    return ea
             if idc:
-                ea = idc.get_name_ea_simple(candidate)
-                if ea != BADADDR:
-                    return ea
+                try:
+                    ea = idc.get_name_ea_simple(candidate)
+                    if ea != BADADDR:
+                        return ea
+                except Exception:
+                    pass
         return None
 
     def _resolve_callsite_ea(self, insn_ea):
@@ -391,8 +390,11 @@ class MicrocodeAnalyzer:
             ida_name = None
             if ida_funcs:
                 ida_name = ida_funcs.get_func_name(callee_ea)
-            if not ida_name and ida_names:
-                ida_name = ida_names.get_name(callee_ea)
+            if not ida_name and idc:
+                try:
+                    ida_name = idc.get_name(callee_ea)
+                except Exception:
+                    pass
             callee_name = ida_name or callee_name or ""
             if callee is None:
                 callee = {"key": f"callee:{callee_ea}", "text": callee_name, "ea": callee_ea}
@@ -734,7 +736,7 @@ class MicrocodeTaintEngine:
 
     def resolve_rules(self):
         """Resolve rule symbol names to addresses in the current IDB."""
-        if not ida_names and not idc:
+        if not idc:
             self.logger.warn("rules.resolve.unavailable")
             return
         self.logger.info("rules.resolve.start")
@@ -1065,10 +1067,11 @@ class MicrocodeTaintEngine:
 
     def _resolve_rule_ea(self, name):
         def try_name(value):
-            if ida_names and ida_ida:
-                return ida_names.get_name_ea(ida_ida.inf_get_min_ea(), value)
             if idc:
-                return idc.get_name_ea_simple(value)
+                try:
+                    return idc.get_name_ea_simple(value)
+                except Exception:
+                    pass
             return BADADDR
 
         for candidate in (name, "_" + name, "__imp_" + name, "__imp__" + name, "." + name):
@@ -1181,8 +1184,11 @@ class MicrocodeTaintEngine:
             ida_name = None
             if ida_funcs:
                 ida_name = ida_funcs.get_func_name(callee_ea)
-            if not ida_name and ida_names:
-                ida_name = ida_names.get_name(callee_ea)
+            if not ida_name and idc:
+                try:
+                    ida_name = idc.get_name(callee_ea)
+                except Exception:
+                    pass
             if ida_name:
                 callee = ida_name
         return callee, callee_ea
