@@ -297,12 +297,11 @@ class PathFinder:
 
         callees = set()
         for head in idautils.Heads(func.start_ea, func.end_ea):
-            if ida_funcs.is_call_insn(head):
-                refs = idautils.CodeRefsFrom(head, 0)
-                for ref in refs:
-                    ref_func = ida_funcs.get_func(ref)
-                    if ref_func and ref_func.start_ea == ref:
-                        callees.add(ref_func.start_ea)
+            refs = idautils.CodeRefsFrom(head, 0)
+            for ref in refs:
+                ref_func = ida_funcs.get_func(ref)
+                if ref_func and ref_func.start_ea == ref:
+                    callees.add(ref_func.start_ea)
         return callees
 
     def find_paths(self):
@@ -325,7 +324,7 @@ class PathFinder:
         queue = deque([(start, [start]) for start in start_funcs])
         visited = set(start_funcs)
         found_paths = []
-        MAX_DEPTH = 20
+        MAX_DEPTH = 100
         MAX_PATHS = 100
         
         while queue:
