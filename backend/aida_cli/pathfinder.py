@@ -249,7 +249,39 @@ class PathFinder:
         return common_paths
 
     def find_paths(self):
-        """Find paths from source callers to sink callers using bidirectional search."""
+        """
+        Find paths from source callers to sink callers using bidirectional search.
+
+        Returns:
+            list: List of path objects in JSON format. Each path object contains:
+                - path (list): List of function nodes from source to sink.
+                    Each node is a dict with:
+                        - name (str): Function name
+                        - ea (str): Function address in hex (e.g., "0x401000")
+                - source (dict): Source function information or None.
+                    Contains:
+                        - name (str): Source rule name
+                        - ea (str): Source address in hex
+                        - args (list): Source arguments if specified in rule
+                - sink (dict): Sink function information or None.
+                    Contains:
+                        - name (str): Sink rule name
+                        - ea (str): Sink address in hex
+                        - args (list): Sink arguments if specified in rule
+
+            Example return value:
+            [
+                {
+                    "path": [
+                        {"name": "main", "ea": "0x401000"},
+                        {"name": "process_input", "ea": "0x401100"},
+                        {"name": "write_file", "ea": "0x401200"}
+                    ],
+                    "source": {"name": "get_user_input", "ea": "0x405000", "args": [0]},
+                    "sink": {"name": "fopen", "ea": "0x406000", "args": [0, 1]}
+                }
+            ]
+        """
         if not self.source_eas or not self.sink_eas:
             return []
 
