@@ -456,10 +456,28 @@ def analyze_function(pfn, maturity):
 
     analyzer = MicrocodeAnalyzer(mba)
     func_name = ida_funcs.get_func_name(pfn.start_ea)
+    
+    # Extract argument variables
+    func_args = []
+    if mba.vars:
+        try:
+            # Robust iteration: lvars_t is a sequence in IDAPython
+            for i, v in enumerate(mba.vars):
+                if v.is_arg_var:
+                    func_args.append({
+                        "lvar_idx": i,
+                        "name": v.name,
+                        "width": v.width
+                    })
+        except Exception as e:
+            # Fallback or silence if iteration fails
+            pass
+
     output = {
         "function": func_name,
         "ea": hex(pfn.start_ea),
         "maturity": maturity,
+        "args": func_args,
         "insns": [],
     }
 
@@ -635,7 +653,7 @@ class MicrocodeTaintEngine:
         self.logger.info("scan.function.start", function=func_info.get("function"), insn_count=len(insns))
         for insn in insns:
             self._process_instruction(state, insn, func_info, findings)
-        return findings
+        return findings, state
 
     def resolve_rules(self):
         """Resolve rule symbol names to addresses in the current IDB."""
@@ -673,16 +691,101 @@ class MicrocodeTaintEngine:
             return []
 
         self.logger.info("scan.global.chain", functions=len(chain_functions))
+        
+        # Sort functions by dependency (Callees first) to support cross-function taint propagation
+        sorted_chain = self._sort_call_chain(chain_functions)
+        
         findings = []
-        for ea in chain_functions:
+        for ea in sorted_chain:
             func = ida_funcs.get_func(ea)
             if not func:
                 continue
             func_info = analyze_function(func, maturity)
             if func_info:
-                findings.extend(self.scan_function(func_info))
+                f_findings, state = self.scan_function(func_info)
+                findings.extend(f_findings)
+                self._generate_summary(func_info, state)
 
         return findings
+
+    def _sort_call_chain(self, chain_functions):
+        """Perform topological sort (Post-Order) on the call graph subset."""
+        visited = set()
+        sorted_list = []
+        
+        def visit(u):
+            visited.add(u)
+            func = ida_funcs.get_func(u)
+            if func:
+                # Find all callees that are also in our chain
+                for head in idautils.FuncItems(func.start_ea):
+                    for ref in idautils.CodeRefsFrom(head, 0):
+                        f = ida_funcs.get_func(ref)
+                        if f and f.start_ea == ref:
+                            callee = f.start_ea
+                            if callee in chain_functions and callee not in visited:
+                                visit(callee)
+            sorted_list.append(u)
+
+        for ea in chain_functions:
+            if ea not in visited:
+                visit(ea)
+                
+        return sorted_list
+
+    def _generate_summary(self, func_info, state):
+        """Generate dynamic taint rules based on function analysis results."""
+        func_ea_str = func_info.get("ea")
+        if not func_ea_str:
+            return
+        func_ea = int(func_ea_str, 16)
+        func_name = func_info.get("function")
+        
+        is_source = False
+        tainted_out_args = []
+        
+        # 1. Check Return Value Taint
+        # Look for 'ret' instructions (opcode depends on arch, but hexrays mcode uses specific opcodes)
+        # In microcode, return is usually handled by `return` instruction or implicit flow?
+        # MicrocodeAnalyzer uses `m_ret`? `ida_hexrays.m_ret`
+        # But we only have string opcodes in `insns`.
+        # `MicrocodeAnalyzer` converts opcodes to strings using `get_mcode_name`.
+        # Usually "ret".
+        
+        for insn in func_info.get("insns", []):
+            if insn.get("opcode") == "ret":
+                # Check reads of ret
+                for read in insn.get("reads", []):
+                    key = self._op_key(read.get("op"))
+                    if state.get_taint(key):
+                        is_source = True
+                        break
+        
+        # 2. Check Out-Arg Taint (Pointer Parameters)
+        # Check if `addr:lvar:IDX` is tainted, where IDX corresponds to an argument
+        args_map = {a["lvar_idx"]: i for i, a in enumerate(func_info.get("args", []))}
+        
+        for lvar_idx, arg_pos in args_map.items():
+            # Check for tainted memory pointed to by this lvar
+            # Key format: "addr:lvar:IDX"
+            key = f"addr:lvar:{lvar_idx}"
+            if state.get_taint(key):
+                tainted_out_args.append(arg_pos)
+                is_source = True
+
+        if is_source:
+            self.logger.info("rules.dynamic.add", function=func_name, ret=is_source, out_args=tainted_out_args)
+            new_rule = {
+                "ea": func_ea,
+                "name": func_name,
+                "label": f"Dynamic:{func_name}",
+                "out_args": tainted_out_args,
+                "ret": True # If we found it was a source, assume ret is tainted or args are tainted.
+                            # Refinement: Only set ret=True if we actually found ret taint.
+            }
+            # Add to sources
+            self.ruleset.sources.append(new_rule)
+
 
     def _process_instruction(self, state, insn, func_info, findings):
         """Apply instruction-level taint propagation and call handling."""
