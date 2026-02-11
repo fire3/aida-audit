@@ -363,7 +363,7 @@ class PathFinder:
         merged = []
         for results in (fwd_results, rev_results, ancestor_results):
             for result in results:
-                key = tuple(node["ea"] for node in result.get("nodes", []))
+                key = result.get("path_id")
                 if key not in seen:
                     seen.add(key)
                     merged.append(result)
@@ -465,13 +465,24 @@ class PathFinder:
         return PathSearchResult(merged, self.stats, self.errors)
 
     def _format_nodes(self, path_nodes, strategy, ancestor_ea):
+        if not path_nodes:
+            return []
+
+        source_caller = path_nodes[0]
+        sink_caller = path_nodes[-1]
+        ordered_nodes = path_nodes
+        if strategy == "common_ancestor" and ancestor_ea in path_nodes:
+            ancestor_index = path_nodes.index(ancestor_ea)
+            source_part = path_nodes[:ancestor_index]
+            sink_part = path_nodes[ancestor_index + 1 :]
+            ordered_nodes = [ancestor_ea] + source_part + sink_part
+
         nodes = []
-        last_index = len(path_nodes) - 1
-        for idx, ea in enumerate(path_nodes):
+        for ea in ordered_nodes:
             roles = []
-            if idx == 0:
+            if ea == source_caller:
                 roles.append("source_caller")
-            if idx == last_index:
+            if ea == sink_caller:
                 roles.append("sink_caller")
             if strategy == "common_ancestor" and ancestor_ea is not None and ea == ancestor_ea:
                 roles.append("common_ancestor")

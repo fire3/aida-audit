@@ -548,6 +548,8 @@ def find_common_ancestors(self, source_callers, sink_callers):
 
 最终路径含义：从 Source Caller 沿调用链向上到达公共祖先，再向下到达 Sink Caller，语义上表示两者经由同一祖先关联。返回值为 `(merged_path, common_ancestor_ea)`，用于在节点角色标记中标出公共祖先节点。
 
+**输出顺序约定（Common Ancestor）：** `nodes` 的输出顺序为 `[A] + src_path(不含 A) + sink_path(不含 A)`，即 **先输出公共祖先节点，再输出 Source 侧节点，最后输出 Sink 侧节点**。
+
 ---
 
 ## 6. 关键子过程
@@ -704,8 +706,8 @@ def aggregate_results(fwd_paths, rev_paths, common_paths):
 
     for raw_list in (fwd_paths, rev_paths, common_paths):
         for result in raw_list:
-            # 用路径 EA 元组作为去重键
-            key = tuple(node["ea"] for node in result["nodes"])
+            # 用 path_id 作为去重键（基于原始 EA 序列）
+            key = result["path_id"]
             if key not in seen:
                 seen.add(key)
                 merged.append(result)
