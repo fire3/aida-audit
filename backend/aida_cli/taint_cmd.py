@@ -206,13 +206,7 @@ def _run_single_scan(target, args, ruleset, logger):
             path_finder.identify_markers()
             paths = path_finder.find_paths()
             for p in paths:
-                findings.append({
-                    "type": "path",
-                    "path": p.get("path"),
-                    "source": p.get("source"),
-                    "sink": p.get("sink"),
-                    "input_path": input_path
-                })
+                findings.append(p)
         except Exception as e:
             logger.log(f"Path analysis failed: {e}", level="ERROR")
             import traceback

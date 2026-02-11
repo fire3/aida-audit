@@ -215,8 +215,9 @@ class PathFinderConfig:
 ```python
 @dataclass(frozen=True)
 class FuncNode:
-    ea:   int   # 函数起始地址（由 ida_funcs.get_func(ref).start_ea 获取）
-    name: str   # 函数名（由 ida_funcs.get_func_name(ea) 获取）
+    ea:    int        # 函数起始地址（由 ida_funcs.get_func(ref).start_ea 获取）
+    name:  str        # 函数名（由 ida_funcs.get_func_name(ea) 获取）
+    roles: List[str]  # 节点在路径中的角色标记
 ```
 
 ### 3.3 `PathRecord`
@@ -242,6 +243,15 @@ class FuncNode:
     "args": [1]              # 对应规则中的 args 字段
 }
 ```
+
+**`nodes.roles` 角色标记：**
+
+| 角色 | 说明 |
+|------|------|
+| `source_caller` | 路径起点，调用 Source 的函数 |
+| `sink_caller` | 路径终点，调用 Sink 的函数 |
+| `common_ancestor` | 公共祖先路径中的祖先节点 |
+| `intermediate` | 其他中间节点 |
 
 ### 3.4 `SearchStats`
 
@@ -514,7 +524,7 @@ def find_common_ancestors(self, source_callers, sink_callers):
             #   即 [倒数第二个节点, ..., sink_caller]
             # 合并：src_path + path_from_sink[-2::-1]
             merged = src_path + path_from_sink[-2::-1]
-            common_paths.append(merged)
+            common_paths.append((merged, curr))
 
         if len(path_from_sink) > self.MAX_ANCESTOR_DEPTH:
             continue
@@ -536,7 +546,7 @@ def find_common_ancestors(self, source_callers, sink_callers):
 - `path_from_sink[-2::-1]` = 对 `[K, q1, A]` 去掉最后的 `A`，即 `[K, q1]`，再逆序得 `[q1, K]`
 - 合并结果 = `[S, p1, p2, A, q1, K]`
 
-最终路径含义：从 Source Caller 沿调用链向上到达公共祖先，再向下到达 Sink Caller，语义上表示两者经由同一祖先关联。
+最终路径含义：从 Source Caller 沿调用链向上到达公共祖先，再向下到达 Sink Caller，语义上表示两者经由同一祖先关联。返回值为 `(merged_path, common_ancestor_ea)`，用于在节点角色标记中标出公共祖先节点。
 
 ---
 
@@ -609,7 +619,7 @@ def _get_callers_single(self, func_ea):
 将原始路径（EA 列表）转换为带有 Source / Sink 语义信息的 `PathRecord`：
 
 ```python
-def _build_result(self, path_nodes):
+def _build_result(self, path_nodes, has_indirect, strategy, ancestor_ea=None):
     if not path_nodes:
         return None
 
@@ -639,22 +649,36 @@ def _build_result(self, path_nodes):
         }
 
     return {
-        "path":   self._format_path(path_nodes),
-        "source": src_info,
-        "sink":   sink_info
+        "path_id": self._hash_path(path_nodes),
+        "nodes":   self._format_nodes(path_nodes, strategy, ancestor_ea),
+        "source":  src_info,
+        "sink":    sink_info,
+        "strategy": strategy,
+        "depth":   len(path_nodes),
+        "has_indirect": has_indirect
     }
 ```
 
 > **关于 `next(iter(...))` 的取舍：** 当同一 Caller 调用了多个 Source 函数时，当前实现仅取第一个。这是有意的简化设计：Call Graph 级别的路径报告以连接关系为主，多 Source 绑定的精确对应关系由后续指令级分析处理。若需完整报告，可将 `src_info` 改为列表。
 
-**路径格式化（`_format_path`）：**
+**节点格式化（`_format_nodes`）：**
 
 ```python
-def _format_path(self, path):
-    return [
-        {"name": ida_funcs.get_func_name(ea), "ea": hex(ea)}
-        for ea in path
-    ]
+def _format_nodes(self, path_nodes, strategy, ancestor_ea):
+    nodes = []
+    last_index = len(path_nodes) - 1
+    for idx, ea in enumerate(path_nodes):
+        roles = []
+        if idx == 0:
+            roles.append("source_caller")
+        if idx == last_index:
+            roles.append("sink_caller")
+        if strategy == "common_ancestor" and ancestor_ea is not None and ea == ancestor_ea:
+            roles.append("common_ancestor")
+        if not roles:
+            roles.append("intermediate")
+        nodes.append({"name": ida_funcs.get_func_name(ea), "ea": hex(ea), "roles": roles})
+    return nodes
 ```
 
 ---
@@ -681,13 +705,13 @@ def aggregate_results(fwd_paths, rev_paths, common_paths):
     for raw_list in (fwd_paths, rev_paths, common_paths):
         for result in raw_list:
             # 用路径 EA 元组作为去重键
-            key = tuple(node["ea"] for node in result["path"])
+            key = tuple(node["ea"] for node in result["nodes"])
             if key not in seen:
                 seen.add(key)
                 merged.append(result)
 
     # 按路径长度升序排列（较短路径优先展示）
-    merged.sort(key=lambda r: len(r["path"]))
+    merged.sort(key=lambda r: len(r["nodes"]))
     return merged
 ```
 
@@ -697,11 +721,15 @@ def aggregate_results(fwd_paths, rev_paths, common_paths):
 
 ```json
 {
-  "path": [
-    { "name": "read_input",   "ea": "0x401000" },
-    { "name": "process_data", "ea": "0x401100" },
-    { "name": "exec_output",  "ea": "0x401200" }
+  "path_id": "3b1c6f2d7d4df5e9f9b5a1a7a0b3c8b5e0e5d7aa",
+  "nodes": [
+    { "name": "read_input",   "ea": "0x401000", "roles": ["source_caller"] },
+    { "name": "process_data", "ea": "0x401100", "roles": ["intermediate"] },
+    { "name": "exec_output",  "ea": "0x401200", "roles": ["sink_caller"] }
   ],
+  "strategy": "forward",
+  "depth": 3,
+  "has_indirect": false,
   "source": {
     "name": "recv",
     "ea":   "0x405000",
@@ -815,7 +843,7 @@ def aggregate_results(fwd_paths, rev_paths, common_paths):
               │  阶段 4：结果构建与聚合   │
               │  _build_result()        │
               │  · 绑定 source/sink 信息 │
-              │  · _format_path() 格式化 │
+              │  · _format_nodes() 格式化 │
               │  aggregate_results()    │
               │  · EA 序列去重           │
               │  · 按 depth 升序排列     │
@@ -823,7 +851,7 @@ def aggregate_results(fwd_paths, rev_paths, common_paths):
                            │
                            ▼
               输出：List[PathRecord]（JSON）
-              · path：节点列表（name + ea）
+              · nodes：节点列表（name + ea + roles）
               · source：Source 函数信息
               · sink：Sink 函数信息
 ```

@@ -29,10 +29,15 @@ def default_cwe78_rules():
         {"name": "recv", "args": [1], "label": "recv"},
         {"name": "recvfrom", "args": [1], "label": "recvfrom"},
         {"name": "read", "args": [1], "label": "read"},
+        {"name": "fread", "args": [0], "label": "fread"},
         {"name": "fgets", "args": [0], "label": "fgets"},
         {"name": "gets", "args": [0], "label": "gets"},
+        {"name": "gets_s", "args": [0], "label": "gets_s"},
         {"name": "scanf", "args": [1], "label": "scanf"},
         {"name": "fscanf", "args": [1], "label": "fscanf"},
+        {"name": "scanf_s", "args": [1], "label": "scanf_s"},
+        {"name": "getline", "args": [0], "ret": True, "label": "getline"},
+        {"name": "recvmsg", "args": [1], "label": "recvmsg"},
         {"name": "getenv", "ret": True, "label": "getenv"},
     ]
     sinks = [
@@ -61,6 +66,7 @@ def default_cwe78_rules():
         {"name": "snprintf", "from_args": [2], "to_args": [0]},
         {"name": "memcpy", "from_args": [1], "to_args": [0]},
         {"name": "memmove", "from_args": [1], "to_args": [0]},
+        {"name": "strdup", "from_args": [0], "to_args": None, "ret": True},
         # _chk variants
         {"pattern": r"^_*strncat_chk$", "from_args": [1], "to_args": [0]},
         {"pattern": r"^_*strcat_chk$", "from_args": [1], "to_args": [0]},

@@ -1,19 +1,74 @@
+import hashlib
+import time
+from dataclasses import dataclass, field
+
 import idautils
 import ida_funcs
 import idc
 import ida_idaapi
 
 
+@dataclass
+class PathFinderConfig:
+    max_depth: int = 100
+    max_paths: int = 100
+    ancestor_max_depth: int = 10
+    enable_indirect_call: bool = True
+    strategies: list = field(default_factory=lambda: ["forward", "reverse", "common_ancestor"])
+
+
+@dataclass
+class SearchStats:
+    source_funcs_found: int = 0
+    sink_funcs_found: int = 0
+    source_callers_found: int = 0
+    sink_callers_found: int = 0
+    paths_forward: int = 0
+    paths_reverse: int = 0
+    paths_ancestor: int = 0
+    paths_total: int = 0
+    nodes_visited: int = 0
+    search_time_ms: int = 0
+
+
+@dataclass
+class SearchError:
+    level: str
+    stage: str
+    message: str
+
+
+class PathSearchResult(list):
+    def __init__(self, paths, stats, errors):
+        super().__init__(paths)
+        self.paths = paths
+        self.stats = stats
+        self.errors = errors
+
+    def to_payload(self):
+        return {
+            "paths": list(self),
+            "stats": self.stats.__dict__,
+            "errors": [e.__dict__ for e in self.errors],
+        }
+
+
 class PathFinder:
     """Finds possible call paths from source callers to sink callers."""
 
-    def __init__(self, ruleset, logger):
+    def __init__(self, ruleset, logger, config=None):
         self.ruleset = ruleset
         self.logger = logger
+        self.config = config or PathFinderConfig()
         self.source_eas = set()
         self.sink_eas = set()
-        self.source_rules = {}  # ea -> rule dict
-        self.sink_rules = {}    # ea -> rule dict
+        self.source_rules = {}
+        self.sink_rules = {}
+        self.source_caller_map = {}
+        self.sink_caller_map = {}
+        self.errors = []
+        self.stats = SearchStats()
+        self.nodes_visited = 0
         self.badaddr = self._get_badaddr()
 
     def _get_badaddr(self):
@@ -65,8 +120,16 @@ class PathFinder:
                 name_map[name[1:]] = ea
         return name_map
 
+    def _record_error(self, level, stage, message):
+        self.errors.append(SearchError(level=level, stage=stage, message=message))
+        if level == "warning":
+            self.logger.log(message, level="WARN")
+        else:
+            self.logger.log(message, level="ERROR")
+
     def _match_rules_against_names(self, rules, name_map, target_set, rule_map):
         """Match a list of rules against the collected names."""
+        unmatched = []
         for rule in rules:
             matched_ea = None
 
@@ -92,6 +155,9 @@ class PathFinder:
                 target_set.add(matched_ea)
                 rule_map[matched_ea] = rule
                 self.logger.log(f"Matched {rule.get('name') or rule.get('pattern')} @ {hex(matched_ea)}")
+            else:
+                unmatched.append(rule)
+        return unmatched
 
     def identify_markers(self):
         """Identify source and sink functions in the binary."""
@@ -99,11 +165,19 @@ class PathFinder:
         self.sink_eas = set()
         self.source_rules = {}
         self.sink_rules = {}
+        self.errors = []
+        self.stats = SearchStats()
         name_map = self._collect_names()
-        self._match_rules_against_names(self.ruleset.sources, name_map, self.source_eas, self.source_rules)
-        self._match_rules_against_names(self.ruleset.sinks, name_map, self.sink_eas, self.sink_rules)
+        unmatched_sources = self._match_rules_against_names(self.ruleset.sources, name_map, self.source_eas, self.source_rules)
+        unmatched_sinks = self._match_rules_against_names(self.ruleset.sinks, name_map, self.sink_eas, self.sink_rules)
+        for rule in unmatched_sources:
+            self._record_error("warning", "marker_identification", f"No match for source rule: {rule.get('name') or rule.get('pattern')}")
+        for rule in unmatched_sinks:
+            self._record_error("warning", "marker_identification", f"No match for sink rule: {rule.get('name') or rule.get('pattern')}")
 
         self.logger.log(f"Found {len(self.source_eas)} sources and {len(self.sink_eas)} sinks")
+        self.stats.source_funcs_found = len(self.source_eas)
+        self.stats.sink_funcs_found = len(self.sink_eas)
 
     def _get_callers(self, target_eas):
         """Find functions that call any of the target EAs."""
@@ -132,27 +206,27 @@ class PathFinder:
         """Get all functions called by the given function."""
         func = ida_funcs.get_func(func_ea)
         if not func:
-            return set()
+            return []
 
-        callees = set()
+        callee_flags = {}
         for head in idautils.Heads(func.start_ea, func.end_ea):
-            # 1. Code Refs (Direct calls)
             refs = idautils.CodeRefsFrom(head, 0)
             for ref in refs:
                 ref_func = ida_funcs.get_func(ref)
                 if ref_func and ref_func.start_ea == ref:
-                    callees.add(ref_func.start_ea)
+                    callee = ref_func.start_ea
+                    callee_flags[callee] = callee_flags.get(callee, False)
 
-            # 2. Data Refs (Indirect calls via vtables/globals)
-            drefs = idautils.DataRefsFrom(head)
-            for dref in drefs:
-                # Check if the data item refers to a function
-                sub_drefs = idautils.DataRefsFrom(dref)
-                for sub_dref in sub_drefs:
-                    ref_func = ida_funcs.get_func(sub_dref)
-                    if ref_func and ref_func.start_ea == sub_dref:
-                        callees.add(ref_func.start_ea)
-        return callees
+            if self.config.enable_indirect_call:
+                drefs = idautils.DataRefsFrom(head)
+                for dref in drefs:
+                    sub_drefs = idautils.DataRefsFrom(dref)
+                    for sub_dref in sub_drefs:
+                        ref_func = ida_funcs.get_func(sub_dref)
+                        if ref_func and ref_func.start_ea == sub_dref:
+                            callee = ref_func.start_ea
+                            callee_flags[callee] = True
+        return [(ea, is_indirect) for ea, is_indirect in callee_flags.items()]
 
     def _bfs_search(self, start_nodes, end_nodes, neighbor_fn=None):
         """Reusable BFS search."""
@@ -163,29 +237,28 @@ class PathFinder:
             neighbor_fn = self._get_callees
 
         from collections import deque
-        queue = deque([(start, [start]) for start in start_nodes])
+        queue = deque([(start, [start], False) for start in start_nodes])
         visited = set(start_nodes)
         found_paths = []
-        MAX_DEPTH = 100
-        MAX_PATHS = 100
 
         while queue:
-            curr_ea, path = queue.popleft()
+            curr_ea, path, has_indirect = queue.popleft()
+            self.nodes_visited += 1
 
-            if len(path) > MAX_DEPTH:
+            if len(path) > self.config.max_depth:
                 continue
 
             if curr_ea in end_nodes:
-                found_paths.append(path)
-                if len(found_paths) >= MAX_PATHS:
+                found_paths.append((path, has_indirect))
+                if len(found_paths) >= self.config.max_paths:
                     break
                 continue
 
             callees = neighbor_fn(curr_ea)
-            for callee in callees:
+            for callee, is_indirect in callees:
                 if callee not in visited:
                     visited.add(callee)
-                    queue.append((callee, path + [callee]))
+                    queue.append((callee, path + [callee], has_indirect or is_indirect))
 
         return found_paths
 
@@ -201,17 +274,17 @@ class PathFinder:
     def find_common_ancestors(self, source_callers, sink_callers):
         """Find paths where source and sink share a common ancestor."""
         from collections import deque
-        # BFS up from source callers
-        source_ancestors = {} # ea -> path_from_source
+        source_ancestors = {}
         queue = deque([(start, [start]) for start in source_callers])
         visited_source = set(source_callers)
-        MAX_DEPTH = 10
 
         while queue:
             curr, path = queue.popleft()
+            self.nodes_visited += 1
             source_ancestors[curr] = path
 
-            if len(path) > MAX_DEPTH: continue
+            if len(path) > self.config.ancestor_max_depth:
+                continue
 
             callers = self._get_callers_single(curr)
             for caller in callers:
@@ -219,26 +292,21 @@ class PathFinder:
                     visited_source.add(caller)
                     queue.append((caller, path + [caller]))
 
-        # BFS up from sink callers and check intersection
         queue = deque([(start, [start]) for start in sink_callers])
         visited_sink = set(sink_callers)
         common_paths = []
 
         while queue:
             curr, path = queue.popleft()
+            self.nodes_visited += 1
 
             if curr in source_ancestors:
-                # Found common ancestor
                 src_path = source_ancestors[curr]
-                # Combine: [Source, ..., Common, ..., Sink]
-                # src_path is [Source, ..., Common]
-                # path is [Sink, ..., Common]
-                # We want [Source, ..., Common] + [..., Sink]
-                # path[-2::-1] reverses path excluding the last element (Common)
                 p = src_path + path[-2::-1]
-                common_paths.append(p)
+                common_paths.append((p, curr))
 
-            if len(path) > MAX_DEPTH: continue
+            if len(path) > self.config.ancestor_max_depth:
+                continue
 
             callers = self._get_callers_single(curr)
             for caller in callers:
@@ -248,16 +316,71 @@ class PathFinder:
 
         return common_paths
 
+    def _hash_path(self, path_nodes):
+        data = ",".join(hex(ea) for ea in path_nodes).encode("utf-8")
+        return hashlib.sha1(data).hexdigest()
+
+    def _build_result(self, path_nodes, has_indirect, strategy, ancestor_ea=None):
+        if not path_nodes:
+            return None
+
+        start_caller = path_nodes[0]
+        end_caller = path_nodes[-1]
+
+        src_info = None
+        if start_caller in self.source_caller_map:
+            src_ea = next(iter(self.source_caller_map[start_caller]))
+            rule = self.source_rules.get(src_ea, {})
+            src_info = {
+                "name": rule.get("name") or ida_funcs.get_func_name(src_ea),
+                "ea": hex(src_ea),
+                "args": rule.get("args"),
+            }
+
+        sink_info = None
+        if end_caller in self.sink_caller_map:
+            sink_ea = next(iter(self.sink_caller_map[end_caller]))
+            rule = self.sink_rules.get(sink_ea, {})
+            sink_info = {
+                "name": rule.get("name") or ida_funcs.get_func_name(sink_ea),
+                "ea": hex(sink_ea),
+                "args": rule.get("args"),
+            }
+
+        nodes = self._format_nodes(path_nodes, strategy, ancestor_ea)
+        return {
+            "path_id": self._hash_path(path_nodes),
+            "nodes": nodes,
+            "source": src_info,
+            "sink": sink_info,
+            "strategy": strategy,
+            "depth": len(path_nodes),
+            "has_indirect": has_indirect,
+        }
+
+    def _aggregate_results(self, fwd_results, rev_results, ancestor_results):
+        seen = set()
+        merged = []
+        for results in (fwd_results, rev_results, ancestor_results):
+            for result in results:
+                key = tuple(node["ea"] for node in result.get("nodes", []))
+                if key not in seen:
+                    seen.add(key)
+                    merged.append(result)
+        merged.sort(key=lambda r: len(r.get("nodes", [])))
+        return merged
+
     def find_paths(self):
         """
         Find paths from source callers to sink callers using bidirectional search.
 
         Returns:
             list: List of path objects in JSON format. Each path object contains:
-                - path (list): List of function nodes from source to sink.
+                - nodes (list): List of function nodes from source to sink.
                     Each node is a dict with:
                         - name (str): Function name
                         - ea (str): Function address in hex (e.g., "0x401000")
+                        - roles (list): Role tags for this node within the path
                 - source (dict): Source function information or None.
                     Contains:
                         - name (str): Source rule name
@@ -272,101 +395,87 @@ class PathFinder:
             Example return value:
             [
                 {
-                    "path": [
-                        {"name": "main", "ea": "0x401000"},
-                        {"name": "process_input", "ea": "0x401100"},
-                        {"name": "write_file", "ea": "0x401200"}
+                    "nodes": [
+                        {"name": "main", "ea": "0x401000", "roles": ["source_caller"]},
+                        {"name": "process_input", "ea": "0x401100", "roles": ["intermediate"]},
+                        {"name": "write_file", "ea": "0x401200", "roles": ["sink_caller"]}
                     ],
                     "source": {"name": "get_user_input", "ea": "0x405000", "args": [0]},
                     "sink": {"name": "fopen", "ea": "0x406000", "args": [0, 1]}
                 }
             ]
         """
+        start_time = time.time()
+        self.nodes_visited = 0
         if not self.source_eas or not self.sink_eas:
-            return []
+            self._record_error("warning", "path_search", "No source or sink markers identified")
+            return PathSearchResult([], self.stats, self.errors)
 
         source_callers = self._get_callers(self.source_eas)
         sink_callers = self._get_callers(self.sink_eas)
+        self.stats.source_callers_found = len(source_callers)
+        self.stats.sink_callers_found = len(sink_callers)
 
         if not source_callers:
-            self.logger.log("No callers found for sources")
+            self._record_error("warning", "caller_resolution", "No callers found for sources")
         if not sink_callers:
-            self.logger.log("No callers found for sinks")
+            self._record_error("warning", "caller_resolution", "No callers found for sinks")
 
         if not source_callers or not sink_callers:
-            return []
+            return PathSearchResult([], self.stats, self.errors)
             
-        # Map callers back to their targets for reporting
-        source_caller_map = self._map_callers_to_targets(self.source_eas)
-        sink_caller_map = self._map_callers_to_targets(self.sink_eas)
+        self.source_caller_map = self._map_callers_to_targets(self.source_eas)
+        self.sink_caller_map = self._map_callers_to_targets(self.sink_eas)
 
         self.logger.log(f"Tracing paths from {len(source_callers)} source callers to {len(sink_callers)} sink callers")
 
-        # 1. Forward: Source Caller -> Sink Caller
-        fwd_paths = self._bfs_search(source_callers, sink_callers)
-        
-        # 2. Reverse: Sink Caller -> Source Caller (Return taint flow)
-        rev_paths = self._bfs_search(sink_callers, source_callers)
+        strategies = set(self.config.strategies or [])
+        fwd_results = []
+        rev_results = []
+        ancestor_results = []
 
-        # 3. Common Ancestor: SourceCaller <- Common -> SinkCaller
-        common_paths = self.find_common_ancestors(source_callers, sink_callers)
-        
-        all_paths = []
-        
-        def _build_result(path_nodes):
-            if not path_nodes: return None
-            
-            start_caller = path_nodes[0]
-            end_caller = path_nodes[-1]
-            
-            # Resolve Source Info
-            src_info = None
-            if start_caller in source_caller_map:
-                # Pick the first matching source for this caller
-                # In the future, we might want to list all if ambiguous
-                src_ea = next(iter(source_caller_map[start_caller]))
-                rule = self.source_rules.get(src_ea, {})
-                src_info = {
-                    "name": rule.get("name"),
-                    "ea": hex(src_ea),
-                    "args": rule.get("args")
-                }
-                
-            # Resolve Sink Info
-            sink_info = None
-            if end_caller in sink_caller_map:
-                sink_ea = next(iter(sink_caller_map[end_caller]))
-                rule = self.sink_rules.get(sink_ea, {})
-                sink_info = {
-                    "name": rule.get("name"),
-                    "ea": hex(sink_ea),
-                    "args": rule.get("args")
-                }
-            
-            return {
-                "path": self._format_path(path_nodes),
-                "source": src_info,
-                "sink": sink_info
-            }
+        if "forward" in strategies:
+            fwd_paths = self._bfs_search(source_callers, sink_callers)
+            for path_nodes, has_indirect in fwd_paths:
+                res = self._build_result(path_nodes, has_indirect, "forward")
+                if res:
+                    fwd_results.append(res)
 
-        for p in fwd_paths:
-            res = _build_result(p)
-            if res: all_paths.append(res)
-            
-        for p in rev_paths:
-            res = _build_result(p[::-1])
-            if res: all_paths.append(res)
+        if "reverse" in strategies:
+            rev_paths = self._bfs_search(sink_callers, source_callers)
+            for path_nodes, has_indirect in rev_paths:
+                res = self._build_result(path_nodes[::-1], has_indirect, "reverse")
+                if res:
+                    rev_results.append(res)
 
-        for p in common_paths:
-            res = _build_result(p)
-            if res: all_paths.append(res)
-            
-        return all_paths
+        if "common_ancestor" in strategies:
+            common_paths = self.find_common_ancestors(source_callers, sink_callers)
+            for path_nodes, ancestor_ea in common_paths:
+                res = self._build_result(path_nodes, False, "common_ancestor", ancestor_ea=ancestor_ea)
+                if res:
+                    ancestor_results.append(res)
 
-    def _format_path(self, path):
-        """Format the path for output."""
-        result = []
-        for ea in path:
-            name = ida_funcs.get_func_name(ea)
-            result.append({"name": name, "ea": hex(ea)})
-        return result
+        self.stats.paths_forward = len(fwd_results)
+        self.stats.paths_reverse = len(rev_results)
+        self.stats.paths_ancestor = len(ancestor_results)
+        merged = self._aggregate_results(fwd_results, rev_results, ancestor_results)
+        self.stats.paths_total = len(merged)
+        self.stats.nodes_visited = self.nodes_visited
+        self.stats.search_time_ms = int((time.time() - start_time) * 1000)
+        return PathSearchResult(merged, self.stats, self.errors)
+
+    def _format_nodes(self, path_nodes, strategy, ancestor_ea):
+        nodes = []
+        last_index = len(path_nodes) - 1
+        for idx, ea in enumerate(path_nodes):
+            roles = []
+            if idx == 0:
+                roles.append("source_caller")
+            if idx == last_index:
+                roles.append("sink_caller")
+            if strategy == "common_ancestor" and ancestor_ea is not None and ea == ancestor_ea:
+                roles.append("common_ancestor")
+            if not roles:
+                roles.append("intermediate")
+            nodes.append({"name": ida_funcs.get_func_name(ea), "ea": hex(ea), "roles": roles})
+        return nodes
