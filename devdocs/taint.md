@@ -276,20 +276,32 @@ elif not callee_is_known(l):
 算法分为四个 Pass，依次执行，每个 Pass 产出独立的结构化输出对象。
 
 ---
+## 4.1 Pass 0 — 预处理与初始化
 
-### 4.1 Pass 0 — 预处理与初始化
+在进入工作列表迭代前执行一次，完成 CFG 快照、状态表初始化及函数内静态站点扫描。
 
-在进入工作列表迭代前执行一次，完成状态表构建与元信息提取。
+> `lvar_t` 元信息（名称、类型、参数归因等）按需通过 `mba->vars` / `lvar_t::is_arg_var()` 实时查询，无需在此阶段提前缓存。
 
-#### 处理内容
+---
 
-1. 遍历 `mba->blocks`，构建 CFG 边表 `cfg_edges`
-2. 为所有块初始化空的 `In[B]` 和 `Out[B]`
-3. 提取 `mba->vars` 中的 `lvar_t` 元信息，建立 `lvar_meta` 映射
-4. 扫描 Entry Block 的初始污染源（函数参数污点、全局初始污点）
-5. 构建初始工作列表 `{entry_block}`
+### 处理内容
 
-#### 输出：`InitResult`
+1. **CFG 快照**：遍历 `mba->blocks`，建立 `cfg_edges`（`pred` / `succ` 边表）及块编号索引。
+2. **状态表初始化**：为所有块创建空的 `In[B]` 和 `Out[B]`，初始工作列表置为 `{entry_block}`。
+3. **入口污点扫描**：扫描 Entry Block，将函数形参（`lvar_t::is_arg_var() == true`）及具备初始污点标记的全局变量写入 `initial_taint_keys`。
+4. **全量站点扫描**：**一次性遍历所有块的全部指令**，按指令类型分类，产出三张静态站点表：
+
+   | 站点表 | 触发指令 | 记录内容 |
+   |--------|----------|----------|
+   | `read_sites` | `m_ldx` | 读取地址表达式 `(l, r)`、目标键、所在块及指令地址 |
+   | `write_sites` | `m_stx` | 写入地址表达式 `(d, l)`、源键、所在块及指令地址 |
+   | `call_sites` | `m_call` | 被调函数名/地址、参数列表操作数键、返回值目标键、所在块及指令地址；同时标注 Source / Sink / Sanitizer 类别 |
+
+   这三张表在 Pass 1 迭代中直接复用，避免重复遍历指令流；`call_sites` 还作为 Pass 3 报告生成时 `intermediate_funcs` 列表的基础索引。
+
+---
+
+### 输出：`InitResult`
 
 | 字段 | 类型 | 内容 |
 |------|------|------|
@@ -297,12 +309,46 @@ elif not callee_is_known(l):
 | `entry_serial` | `int` | 入口块编号（通常为 0） |
 | `In` | `Map<int, State>` | 所有块初始 In 状态（均为空集） |
 | `Out` | `Map<int, State>` | 所有块初始 Out 状态（均为空集） |
-| `initial_taints` | `List[TaintedObject]` | 入口块初始污染对象（函数参数 / 全局初始污点） |
 | `worklist` | `Queue<mblock_t*>` | 初始队列，仅含入口块 |
-| `cfg_edges` | `List[(src, dst)]` | 全部 CFG 边，用于传播路径重建 |
-| `lvar_meta` | `Map<int, LvarInfo>` | 局部变量元信息（名称、类型、大小、是否形参） |
+| `cfg_edges` | `List[(src, dst)]` | 全部 CFG 边（用于传播路径重建） |
+| `initial_taint_keys` | `Set[string]` | 入口块初始污染操作数键集合（形参 + 全局初始污点）；对应完整 `TaintedObject` 在 Pass 1 首次处理 Entry Block 时构建 |
+| `read_sites` | `List[ReadSite]` | 全量内存读取站点 |
+| `write_sites` | `List[WriteSite]` | 全量内存写入站点 |
+| `call_sites` | `List[CallSite]` | 全量函数调用站点（含 Source / Sink / Sanitizer 分类） |
 
-> **注意：** `initial_taints` 中每个 `TaintedObject` 须在此阶段完整填写 `attrs.is_func_param`（通过 `lvar_t::is_arg_var()` 判定）及 `attrs.is_global_var`。
+---
+
+### 站点记录结构
+
+**`ReadSite`**
+
+| 字段 | 类型 | 含义 |
+|------|------|------|
+| `insn_ea` | `ea_t` | 指令地址 |
+| `block_serial` | `int` | 所在基本块编号 |
+| `src_key` | `string` | 被写入源操作数键（`r`） |
+| `dst_key` | `string` | 读取目标操作数键（`d`） |
+
+**`WriteSite`**
+
+| 字段 | 类型 | 含义 |
+|------|------|------|
+| `insn_ea` | `ea_t` | 指令地址 |
+| `block_serial` | `int` | 所在基本块编号 |
+| `src_key` | `string` | 被写入源操作数键（`r`） |
+| `dst_key` | `string` | 读取目标操作数键（`d`） |
+
+**`CallSite`**
+
+| 字段 | 类型 | 含义 |
+|------|------|------|
+| `insn_ea` | `ea_t` | 调用指令地址 |
+| `block_serial` | `int` | 所在基本块编号 |
+| `callee` | `string` | 被调函数名或地址字符串 |
+| `arg_keys` | `List[string]` | 各参数操作数键（按序，0-based） |
+| `ret_key` | `string \| null` | 返回值目标操作数键（`m_call` 的 `d` 字段，无则为 `null`） |
+| `site_type` | `enum` | `SOURCE` / `SINK` / `SANITIZER` / `UNKNOWN` |
+
 
 ---
 
