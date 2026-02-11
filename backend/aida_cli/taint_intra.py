@@ -279,7 +279,7 @@ class IntraTaintScanner:
             self.logger.log(f"DEBUG: MICROCODE for {func_name}:\n{mba_str}")
         init_result, worklist, in_states, out_states, cfg_edges, lvar_meta, initial_taints = self._pass0_init(mba, func_name)
         if self.debug and self.logger:
-            self.logger.log(f"DEBUG: PASS0 - {len(initial_taints)} initial taints, {len(cfg_edges)} edges")
+            self._log_pass0_result(initial_taints, cfg_edges, lvar_meta, in_states, out_states, worklist, init_result.get("block_count", 0))
         converged_result, block_summaries = self._pass1_iterate(mba, func_name, worklist, in_states, out_states, cfg_edges)
         if self.debug and self.logger:
             self.logger.log(f"DEBUG: PASS1 - converged={converged_result.get('converged')}, iters={converged_result.get('total_iterations')}, findings={len(converged_result.get('all_findings', []))}")
@@ -389,6 +389,27 @@ class IntraTaintScanner:
                     return str(obj)
                 except Exception:
                     return "<?>"
+
+    def _log_pass0_result(self, initial_taints, cfg_edges, lvar_meta, in_states, out_states, worklist, block_count):
+        self.logger.log(f"DEBUG: PASS0 RESULT - block_count={block_count}")
+        self.logger.log(f"DEBUG: PASS0 RESULT - worklist={worklist}")
+        self.logger.log(f"DEBUG: PASS0 RESULT - cfg_edges={cfg_edges}")
+        self.logger.log(f"DEBUG: PASS0 RESULT - initial_taints ({len(initial_taints)}):")
+        for t in initial_taints:
+            self.logger.log(f"  - key={t.key}, func={t.source_func}, ea={t.source_ea:x}, is_param={t.attrs.is_func_param}")
+        self.logger.log(f"DEBUG: PASS0 RESULT - lvar_meta ({len(lvar_meta)} vars):")
+        for idx, meta in lvar_meta.items():
+            self.logger.log(f"  lvar[{idx}]: name={meta.get('name')}, type={meta.get('type')}, is_arg={meta.get('is_arg')}")
+        entry_serial = 0
+        if block_count > 0:
+            for i in range(block_count):
+                if i in in_states and in_states[i].tainted:
+                    entry_serial = i
+                    break
+        in_keys = list(in_states.get(entry_serial, TaintState()).tainted.keys()) if entry_serial in in_states else []
+        out_keys = list(out_states.get(entry_serial, TaintState()).tainted.keys()) if entry_serial in out_states else []
+        self.logger.log(f"DEBUG: PASS0 RESULT - entry block In states (block {entry_serial}): keys={in_keys}")
+        self.logger.log(f"DEBUG: PASS0 RESULT - entry block Out states (block {entry_serial}): keys={out_keys}")
 
     def _format_mba(self, mba):
         lines = []
@@ -507,7 +528,7 @@ class IntraTaintScanner:
                 entry_serial = i
                 break
         lvar_meta = self._build_lvar_meta(mba)
-        initial_taints = self._init_param_taints(mba, func_name)
+        initial_taints = self._scan_source_calls(mba, func_name)
         if initial_taints:
             in_states[entry_serial].tainted.update({t.key: t for t in initial_taints})
             out_states[entry_serial].tainted.update({t.key: t for t in initial_taints})
@@ -523,6 +544,118 @@ class IntraTaintScanner:
             "lvar_meta": lvar_meta,
         }
         return init_result, worklist, in_states, out_states, cfg_edges, lvar_meta, initial_taints
+
+    def _is_call_opcode(self, opcode):
+        if ida_hexrays is None:
+            return False
+        return opcode == self.m_call or opcode == self.m_icall
+
+    def _scan_mop_for_calls(self, mop, func_name, taints, visited):
+        if mop is None:
+            return
+        mop_id = id(mop)
+        if mop_id in visited:
+            return
+        visited.add(mop_id)
+        mop_t = self._mop_type(mop)
+        mop_text = self._safe_dstr(mop)
+        mop_opcode = getattr(mop, "opcode", None)
+        if self.debug and self.logger:
+            self.logger.log(f"DEBUG: _scan_mop_for_calls - text={mop_text[:60]}, mop_t={mop_t}, opcode={mop_opcode}")
+        if mop_t == self.mop_f:
+            callee_name, callee_ea = self._callee_info(mop)
+            if self.debug and self.logger:
+                self.logger.log(f"DEBUG: _scan_mop_for_calls - mop_f callee={callee_name}, ea={callee_ea if callee_ea else 0:x}")
+            if callee_name:
+                self._process_call(mop, func_name, taints)
+        if mop_t == self.mop_d:
+            inner = getattr(mop, "d", None)
+            if inner is not None:
+                inner_opcode = getattr(inner, "opcode", None)
+                if self.debug and self.logger:
+                    self.logger.log(f"DEBUG: _scan_mop_for_calls - mop_d inner opcode={inner_opcode}, is_call={self._is_call_opcode(inner_opcode)}")
+                if self._is_call_opcode(inner_opcode):
+                    self._process_call(inner, func_name, taints)
+        if mop_t == self.m_call or mop_t == self.m_icall:
+            self._process_call(mop, func_name, taints)
+        for attr in ("l", "r", "d", "a"):
+            sub = getattr(mop, attr, None)
+            if sub:
+                self._scan_mop_for_calls(sub, func_name, taints, visited)
+
+    def _process_call(self, mop, func_name, taints):
+        callee_mop, _, _ = self._select_call_operands(mop.l, mop.r, mop.d)
+        callee_name, callee_ea = self._callee_info(callee_mop)
+        if self.debug and self.logger:
+            self.logger.log(f"DEBUG: _process_call - callee={callee_name}, ea={callee_ea if callee_ea else 0:x}")
+        call_args = self._call_args(mop)
+        if self.debug and self.logger:
+            self.logger.log(f"DEBUG: _process_call - args count={len(call_args)}, source_rules={[(r.get('name'), r.get('args')) for r in self.ruleset.sources]}")
+        for rule in self.ruleset.sources:
+            if not self._rule_matches(rule, callee_name, callee_ea):
+                continue
+            if self.debug and self.logger:
+                self.logger.log(f"DEBUG: _process_call - MATCHED source rule: {rule.get('name')}")
+            arg_indexes = rule.get("args") or []
+            for idx in arg_indexes:
+                if idx < 0 or idx >= len(call_args):
+                    continue
+                arg = call_args[idx]
+                if self._mop_type(arg) == self.mop_a:
+                    arg = getattr(arg, "a", None) or arg
+                key = self._mop_key(arg)
+                if self.debug and self.logger:
+                    self.logger.log(f"DEBUG: _process_call - arg[{idx}], key={key}")
+                if key and not any(t.key == key for t in taints):
+                    attrs = TaintedObjAttrs(
+                        is_local_var=key.startswith("lvar:"),
+                        is_func_param=key.startswith("lvar:"),
+                    )
+                    taints.append(
+                        TaintedObject(
+                            key=key,
+                            taint_id=str(uuid.uuid4()),
+                            source_ea=getattr(mop, "ea", 0),
+                            source_func=callee_name or func_name,
+                            mop_type=self._mop_type(arg),
+                            size_bytes=self._mop_size(arg),
+                            propagation_depth=0,
+                            propagation_chain=[],
+                            attrs=attrs,
+                        )
+                    )
+
+    def _scan_source_calls(self, mba, func_name):
+        taints = []
+        visited = set()
+        block_count = getattr(mba, "qty", 0)
+        if self.debug and self.logger:
+            self.logger.log(f"DEBUG: _scan_source_calls - scanning {block_count} blocks")
+        for i in range(block_count):
+            block = mba.get_mblock(i)
+            insn = block.head
+            while insn:
+                insn_text = self._safe_dstr(insn)
+                if self.debug and self.logger:
+                    self.logger.log(f"DEBUG: _scan_source_calls - insn: {insn_text[:80]}")
+                self._scan_mop_for_calls(insn, func_name, taints, visited)
+                insn = insn.next
+        if self.debug and self.logger:
+            self.logger.log(f"DEBUG: _scan_source_calls - found {len(taints)} initial taints: {[t.key for t in taints]}")
+        return taints
+
+    def _log_pass0_result(self, initial_taints, cfg_edges, lvar_meta, in_states, out_states, worklist, block_count):
+        self.logger.log(f"DEBUG: PASS0 RESULT - block_count={block_count}")
+        self.logger.log(f"DEBUG: PASS0 RESULT - worklist={worklist}")
+        self.logger.log(f"DEBUG: PASS0 RESULT - cfg_edges={cfg_edges}")
+        self.logger.log(f"DEBUG: PASS0 RESULT - initial_taints ({len(initial_taints)}):")
+        for t in initial_taints:
+            self.logger.log(f"  - key={t.key}, func={t.source_func}, ea={t.source_ea:x}, is_param={t.attrs.is_func_param}")
+        self.logger.log(f"DEBUG: PASS0 RESULT - lvar_meta ({len(lvar_meta)} vars):")
+        for idx, meta in lvar_meta.items():
+            self.logger.log(f"  lvar[{idx}]: name={meta.get('name')}, type={meta.get('type')}, is_arg={meta.get('is_arg')}")
+        self.logger.log(f"DEBUG: PASS0 RESULT - entry block In states: keys={list(in_states[0].tainted.keys())}")
+        self.logger.log(f"DEBUG: PASS0 RESULT - entry block Out states: keys={list(out_states[0].tainted.keys())}")
 
     def _build_lvar_meta(self, mba):
         meta = {}
@@ -555,46 +688,7 @@ class IntraTaintScanner:
         return meta
 
     def _init_param_taints(self, mba, func_name):
-        taints = []
-        if not hasattr(mba, "vars"):
-            return taints
-        vars_obj = mba.vars
-        if vars_obj is None:
-            return taints
-        
-        try:
-            var_count = len(vars_obj)
-        except Exception:
-            var_count = 0
-        
-        for i in range(var_count):
-            try:
-                lvar = vars_obj[i]
-            except Exception:
-                continue
-            if not self._is_lvar_arg(lvar):
-                continue
-            idx = i
-            key = f"lvar:{idx}"
-            attrs = TaintedObjAttrs(
-                is_local_var=True,
-                is_func_param=True,
-            )
-            size = getattr(lvar, "width", 0)
-            taints.append(
-                TaintedObject(
-                    key=key,
-                    taint_id=str(uuid.uuid4()),
-                    source_ea=getattr(mba, "entry_ea", 0),
-                    source_func=func_name,
-                    mop_type=self.mop_l,
-                    size_bytes=size,
-                    propagation_depth=0,
-                    propagation_chain=[],
-                    attrs=attrs,
-                )
-            )
-        return taints
+        return []
 
     def _pass1_iterate(self, mba, func_name, worklist, in_states, out_states, cfg_edges):
         all_findings = []
@@ -770,8 +864,9 @@ class IntraTaintScanner:
         callee_name, callee_ea = self._callee_info(callee_mop)
         args = self._call_args(insn)
         call_is_sink = self._matches_any(self.ruleset.sinks, callee_name, callee_ea)
+        ea_hex = f"{(callee_ea if callee_ea else 0):x}"
         if self.debug and self.logger:
-            self.logger.log(f"DEBUG: SINK_CHECK - callee={callee_name}, ea={callee_ea:x if callee_ea else 0}, is_sink={call_is_sink}")
+            self.logger.log(f"DEBUG: SINK_CHECK - callee={callee_name}, ea={ea_hex}, is_sink={call_is_sink}")
         for idx, arg in enumerate(args):
             key, obj = self._resolve_mop_taint(state, arg)
             if obj:
