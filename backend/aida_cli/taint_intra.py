@@ -347,7 +347,7 @@ class IntraTaintScanner:
     def _default_maturity(self):
         if ida_hexrays is None:
             return None
-        return getattr(ida_hexrays, "MMAT_LOCOPT", None)
+        return getattr(ida_hexrays, "MMAT_LVARS", None)
 
     def _build_mba(self, func, maturity):
         try:
@@ -370,27 +370,71 @@ class IntraTaintScanner:
 
     def _iter_block_links(self, block, attr_name):
         links = getattr(block, attr_name, None)
+        if self.debug and self.logger:
+            self.logger.log(f"DEBUG: _iter_block_links - block head={getattr(block.head, 'ea', 0):x}, attr={attr_name}, links={type(links)}")
         if links is None:
+            if self.debug and self.logger:
+                self.logger.log(f"DEBUG: _iter_block_links - links is None")
             return []
         if callable(links):
+            if attr_name == "succ":
+                if hasattr(block, "nsucc"):
+                    nsucc = block.nsucc() if callable(block.nsucc) else block.nsucc
+                    try:
+                        n = nsucc() if callable(nsucc) else int(nsucc)
+                    except Exception:
+                        n = 0
+                    items = []
+                    for i in range(n):
+                        try:
+                            items.append(block.succ(i))
+                        except Exception:
+                            continue
+                    if self.debug and self.logger:
+                        self.logger.log(f"DEBUG: _iter_block_links - nsucc={n}, items={items}")
+                    return items
+            elif attr_name == "pred":
+                if hasattr(block, "npred"):
+                    npred = block.npred() if callable(block.npred) else block.npred
+                    try:
+                        n = npred() if callable(npred) else int(npred)
+                    except Exception:
+                        n = 0
+                    items = []
+                    for i in range(n):
+                        try:
+                            items.append(block.pred(i))
+                        except Exception:
+                            continue
+                    if self.debug and self.logger:
+                        self.logger.log(f"DEBUG: _iter_block_links - npred={n}, items={items}")
+                    return items
             try:
                 links = links()
-            except Exception:
+            except Exception as e:
+                if self.debug and self.logger:
+                    self.logger.log(f"DEBUG: _iter_block_links - callable failed: {e}")
                 return []
         if links is None:
             return []
         try:
             return list(links)
-        except Exception:
+        except Exception as e:
+            if self.debug and self.logger:
+                self.logger.log(f"DEBUG: _iter_block_links - list() failed: {e}")
             pass
         size = getattr(links, "size", None)
         at = getattr(links, "at", None)
         if at is None:
+            if self.debug and self.logger:
+                self.logger.log(f"DEBUG: _iter_block_links - at is None")
             return []
         try:
             count = size() if callable(size) else int(size)
         except Exception:
-            return []
+            count = 0
+        if self.debug and self.logger:
+            self.logger.log(f"DEBUG: _iter_block_links - count={count}")
         items = []
         for i in range(count):
             try:
@@ -403,16 +447,33 @@ class IntraTaintScanner:
         block_count = getattr(mba, "qty", 0)
         if self.debug and self.logger:
             self.logger.log(f"DEBUG: _pass0_init - block_count={block_count}")
-        entry_serial = 0
         in_states = {}
         out_states = {}
         cfg_edges = []
+        pred_map = {}
         for i in range(block_count):
             block = mba.get_mblock(i)
             in_states[i] = TaintState()
             out_states[i] = TaintState()
-            for succ in self._iter_block_links(block, "succ"):
+            succs = list(self._iter_block_links(block, "succ"))
+            if self.debug and self.logger:
+                self.logger.log(f"DEBUG: _pass0_init - block {i}: head={getattr(block.head, 'ea', 0):x}, succs={succs}")
+            for succ in succs:
                 cfg_edges.append((i, int(succ)))
+                if succ not in pred_map:
+                    pred_map[succ] = []
+                pred_map[succ].append(i)
+                if self.debug and self.logger:
+                    self.logger.log(f"DEBUG: _pass0_init - CFG edge: {i} -> {succ}")
+        entry_serial = 0
+        for i in range(block_count):
+            block = mba.get_mblock(i)
+            head_ea = getattr(block.head, 'ea', 0)
+            if head_ea != 0:
+                entry_serial = i
+                if self.debug and self.logger:
+                    self.logger.log(f"DEBUG: _pass0_init - found entry block: {i}, head={head_ea:x}")
+                break
         lvar_meta = self._build_lvar_meta(mba)
         if self.debug and self.logger:
             self.logger.log(f"DEBUG: _pass0_init - lvar_meta: {lvar_meta}")
@@ -423,6 +484,8 @@ class IntraTaintScanner:
             in_states[entry_serial].tainted.update({t.key: t for t in initial_taints})
             out_states[entry_serial].tainted.update({t.key: t for t in initial_taints})
         worklist = [entry_serial]
+        if self.debug and self.logger:
+            self.logger.log(f"DEBUG: _pass0_init - entry_serial={entry_serial}, initial worklist={worklist}")
         init_result = {
             "block_count": block_count,
             "entry_serial": entry_serial,
@@ -488,6 +551,14 @@ class IntraTaintScanner:
         converged = True
         if self.debug and self.logger:
             self.logger.log(f"DEBUG: _pass1_iterate starting - max_iterations={max_iterations}")
+            self.logger.log(f"DEBUG: mba.qty={mba.qty}, block_count={getattr(mba, 'qty', 0)}")
+            for i in range(getattr(mba, "qty", 0)):
+                block = mba.get_mblock(i)
+                self.logger.log(f"DEBUG: Block {i}: head={getattr(block.head, 'ea', 0):x}, tail={getattr(block.tail, 'ea', 0):x}")
+                insn = block.head
+                while insn:
+                    self.logger.log(f"DEBUG:   insn at {getattr(insn, 'ea', 0):x}, opcode={getattr(insn, 'opcode', None)}")
+                    insn = insn.next
         while worklist:
             block_serial = worklist.pop(0)
             block = mba.get_mblock(block_serial)
@@ -560,6 +631,10 @@ class IntraTaintScanner:
         opcode = getattr(insn, "opcode", None)
         if self.debug and self.logger:
             self.logger.log(f"DEBUG: _apply_transfer - block={block_serial}, opcode={opcode}, ea={getattr(insn, 'ea', 0):x}")
+            if self.m_call is not None:
+                self.logger.log(f"DEBUG: _apply_transfer - m_call value={self.m_call}")
+            else:
+                self.logger.log(f"DEBUG: _apply_transfer - m_call is None")
         findings = []
         gen_keys = set()
         kill_keys = set()
@@ -648,10 +723,12 @@ class IntraTaintScanner:
                     if target in state.tainted:
                         self._untaint_key(state, target)
                         kill_keys.add(target)
-        elif opcode == self.m_call:
+        if opcode == self.m_call:
             if self.debug and self.logger:
-                self.logger.log(f"DEBUG: _apply_transfer - m_call")
+                self.logger.log(f"DEBUG: _apply_transfer - m_call at {getattr(insn, 'ea', 0):x}")
             call_findings, gen_call, kill_call, call_sources = self._handle_call(state, insn, block_serial, func_name)
+            if self.debug and self.logger:
+                self.logger.log(f"DEBUG: _apply_transfer - m_call findings={len(call_findings)}, gen_call={sorted(gen_call) if gen_call else []}, kill_call={sorted(kill_call) if kill_call else []}, call_sources={sorted(call_sources) if call_sources else []}")
             findings.extend(call_findings)
             gen_keys.update(gen_call)
             kill_keys.update(kill_call)
@@ -673,7 +750,9 @@ class IntraTaintScanner:
             self.logger.log(f"DEBUG: _handle_call - {len(args)} arguments")
         call_is_sink = self._matches_any(self.ruleset.sinks, callee_name, callee_ea)
         if self.debug and self.logger:
-            self.logger.log(f"DEBUG: _handle_call - call_is_sink={call_is_sink}")
+            self.logger.log(f"DEBUG: _handle_call - callee={callee_name}, call_is_sink={call_is_sink}")
+        if self.debug and self.logger:
+            self.logger.log(f"DEBUG: _handle_call - {len(args)} arguments, args={[(self._mop_key(a), self._mop_type(a)) for a in args]}")
         for idx, arg in enumerate(args):
             key, obj = self._resolve_mop_taint(state, arg)
             if self.debug and self.logger:
@@ -706,17 +785,40 @@ class IntraTaintScanner:
             if self.logger:
                  self.logger.log(f"DEBUG: Matched source rule {rule.get('name')} for {callee_name}")
             
-            out_keys = self._source_out_keys(rule, insn.d, args)
-            
-            if self.logger:
-                 self.logger.log(f"DEBUG: out_keys for {callee_name}: {out_keys}")
-
-            for out_key, out_mop in out_keys:
-                obj = self._build_new_taint(out_key, insn, block_serial, callee_name or func_name, "CALL_RET_OUT")
-                obj.attrs.is_func_retval = bool(rule.get("ret"))
-                obj.attrs.is_ptr = self._is_pointer_sized(out_mop)
-                state.tainted[out_key] = obj
-                gen_keys.add(out_key)
+            arg_indexes = rule.get("args") or []
+            if self.debug and self.logger:
+                self.logger.log(f"DEBUG: _handle_call - source rule={rule}, arg_indexes={arg_indexes}, args_count={len(args)}, insn.d={insn.d}")
+                self.logger.log(f"DEBUG: _handle_call - args details: {[(self._mop_key(a), self._mop_type(a)) for a in args]}")
+            if arg_indexes:
+                for idx in arg_indexes:
+                    if idx < 0 or idx >= len(args):
+                        if self.logger:
+                            self.logger.log(f"DEBUG: _handle_call - arg index {idx} out of range")
+                        continue
+                    arg = args[idx]
+                    if self._mop_type(arg) == self.mop_a:
+                        arg = getattr(arg, "a", None) or arg
+                    key = self._mop_key(arg)
+                    if self.logger:
+                        self.logger.log(f"DEBUG: _handle_call - source arg[{idx}] key={key}, mop_type={self._mop_type(arg)}")
+                    if key:
+                        obj = self._build_new_taint(key, insn, block_serial, callee_name or func_name, "CALL_RET_OUT")
+                        obj.attrs.is_func_param = True
+                        obj.attrs.is_ptr = self._is_pointer_sized(arg)
+                        state.tainted[key] = obj
+                        gen_keys.add(key)
+                        if self.logger:
+                            self.logger.log(f"DEBUG: _handle_call - marked source arg[{idx}] key={key}")
+            if rule.get("ret") and insn.d:
+                out_key = self._mop_key(insn.d)
+                if out_key:
+                    obj = self._build_new_taint(out_key, insn, block_serial, callee_name or func_name, "CALL_RET_OUT")
+                    obj.attrs.is_func_retval = True
+                    obj.attrs.is_ptr = self._is_pointer_sized(insn.d)
+                    state.tainted[out_key] = obj
+                    gen_keys.add(out_key)
+                    if self.logger:
+                        self.logger.log(f"DEBUG: _handle_call - marked source retval key={out_key}")
             new_sources.add(getattr(insn, "ea", 0))
         for rule in self.ruleset.propagators:
             if not self._rule_matches(rule, callee_name, callee_ea):
@@ -1014,9 +1116,19 @@ class IntraTaintScanner:
         if ea is not None and ida_funcs:
             name = ida_funcs.get_func_name(ea) or idc.get_name(ea) if idc else None
         if name:
+            if self.debug and self.logger:
+                self.logger.log(f"DEBUG: _callee_info - resolved name={name} at ea={ea:x}")
             return name, ea
         if hasattr(mop, "d"):
-            return None, None
+            d = getattr(mop, "d", None)
+            if d is not None and hasattr(d, "g"):
+                indirect_ea = getattr(d, "g", None)
+                if indirect_ea is not None and ida_funcs:
+                    indirect_name = ida_funcs.get_func_name(indirect_ea) or idc.get_name(indirect_ea) if idc else None
+                    if indirect_name:
+                        if self.debug and self.logger:
+                            self.logger.log(f"DEBUG: _callee_info - resolved indirect name={indirect_name} at ea={indirect_ea:x}")
+                        return indirect_name, indirect_ea
         return None, ea
 
     def _is_arg_list(self, mop):
