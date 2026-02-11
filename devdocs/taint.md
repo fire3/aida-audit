@@ -1,525 +1,529 @@
-# 污点分析设计文档（IFDS 变体 + 摘要复用）
+# 过程内污点传播算法：基于 IDA MicroCode 的工作列表设计
 
-本文档给出可直接落地实现的污点分析方案：过程内采用前向数据流不动点迭代；过程间采用工作列表调度与摘要（Summary）复用。该方案遵循 IFDS 的“有限域 + Join 合并 + 不动点求解”思想，并对指针/堆/全局变量的抽象与转移规则做出明确规定。
-
----
-
-## 1. 目标与边界
-
-### 1.1 目标
-
-- 在包含指针、堆分配、函数调用的程序上，识别从 `Source` 到 `Sink` 的污点可达性，并输出可重构传播路径。
-- 提供可实现的数据结构、状态格（lattice）、转移函数与调度算法，用于直接指导编码。
-
-### 1.2 输入与输出
-
-- **输入**
-  - IR/CFG 指令序列（至少覆盖：赋值、取址、解引用读写、堆分配、函数调用、返回、分支跳转）。
-  - 函数控制流图（CFG）与调用图（CG）。
-  - 规则集：`Source`/`Sink` 识别规则（函数名/签名/属性/注解/模式）。
-- **输出**
-  - 漏洞记录列表，每条记录包含：
-    - `source_site`：Source 调用点（`CallSiteID`）
-    - `sink_site`：Sink 调用点（`CallSiteID`）
-    - `context`：上下文标识（`ContextID`）
-    - `path`：传播链（`InstrID` 序列，可从 `PathRef` 反向重构）
-    - `evidence`：触发时的参与参数、关键别名关系快照（可选）
-
-### 1.3 分析粒度（明确选择）
-
-- **过程内**：流敏感（flow-sensitive），路径不敏感（path-insensitive）。
-- **过程间**：上下文敏感，采用 **1-CFA（最近一次调用点）**。
-- **堆对象**：以 `(alloc_site_id, ctx_id)` 唯一化。
-- **更新策略**：对 `*p = v` 采用强/弱更新：当 `pt(p)` 为单元素集合时强更新，否则弱更新。
+本文档描述基于 IDA MicroCode（Hex-Rays Decompiler IR）的过程内（Intra-procedural）污点传播算法。算法采用工作列表（Worklist）不动点迭代方法，在 MicroCode 基本块（`mblock_t`）级别的控制流图（CFG）上计算污点数据流，输出结构化的污染对象集合、传播路径及 Sink 命中报告。
 
 ---
 
-## 2. 标识体系：InstrID / CallSite / Context
+## 目录
 
-### 2.1 InstrID 与 CallSiteID
-
-- `InstrID`：每条 IR 指令的稳定唯一编号（例如文件:行:列 + IR 序号）。
-- `CallSiteID`：函数调用指令的 `InstrID`。
-
-### 2.2 ContextID（1-CFA）
-
-```text
-ContextID := None | CallSiteID
-```
-
-- `None`：根上下文（入口/种子）。
-- 过程间调用产生新上下文：`callee_ctx = callsite_id`。
+1. [核心概念与 IDA MicroCode 映射](#1-核心概念与-ida-microcode-映射)
+2. [数据结构定义](#2-数据结构定义)
+3. [传递函数](#3-传递函数)
+4. [算法流程与各-Pass-输出规范](#4-算法流程与各-pass-输出规范)
+5. [针对-IDA-MicroCode-的特殊处理](#5-针对-ida-microcode-的特殊处理)
+6. [完整输出流程总览](#6-完整输出流程总览)
 
 ---
 
-## 3. 核心抽象：位置、状态与 Join
+## 1. 核心概念与 IDA MicroCode 映射
 
-### 3.1 抽象位置（Abstract Location）
+本算法运行于 IDA MicroCode 层级（`MMAT_LOCOPT` 或 `MMAT_CALLS`），利用其清晰的数据流语义完成过程内污点分析。
 
-统一表示栈、堆、全局、返回值；污点与指向关系均在该域上定义。
+### 1.1 输入（Inputs）
 
-```text
-Loc :=
-  StackSlot(func_id, ctx_id, var_id)   // 局部变量槽位（上下文敏感）
-| GlobalVar(name)                      // 全局变量槽位
-| HeapObj(alloc_site_id, ctx_id)       // 堆对象（alloc site + 上下文）
-| RetVal(func_id, ctx_id)              // 返回值槽位（函数 + 上下文）
-```
+**Microcode Block Array（`mba_t *mba`）**
 
-中文解析：
+目标函数的 MicroCode 表示，包含控制流图（CFG）：由 `mblock_t` 节点及前驱（`pred`）/ 后继（`succ`）边构成。
 
-- `StackSlot` 引入 `ctx_id`，用于区分不同调用点下的“栈地址”，保证 `&x` 传递不会跨调用点互相污染。
-- `RetVal` 也带 `ctx_id`，保证同一函数在不同调用点产生的返回值槽位独立。
+**污点规则集（Source / Sink / Sanitizer Rules）**
 
-### 3.2 状态（State）
+| 规则类型 | 触发条件 | 典型示例 |
+|----------|----------|----------|
+| Source | 函数调用或内存读取引入污点 | `recv`, `read`, `fgets`, `getenv` |
+| Sink | 操作不能接受污点参数 | `system`, `execve`, `strcpy` dst 参数 |
+| Sanitizer | 对污点数据执行净化 | `strtol`（有效范围转换）、自定义校验函数 |
 
-```text
-State := {
-  pt:    Map<Loc, Set<Loc>>,      // points-to：Loc 存放指针值时可能指向的 Loc 集合
-  taint: Map<Loc, PathRef>        // tainted loc -> 路径引用（证据重构用）
-}
-```
+### 1.2 操作数唯一键（`_mop_key`）
 
-### 3.3 Join 与收敛
+每个 `mop_t` 操作数以字符串键唯一标识：
 
-- `pt` 采用并集增长：`out.pt[l] = A.pt[l] ∪ B.pt[l]`
-- `taint` 对同一 `Loc` 的路径引用做合并（合并前驱集合，见 7.1）
+| 操作数类型 | 键格式 | 示例 |
+|------------|--------|------|
+| 寄存器（`mop_r`） | `reg:{index}` | `reg:0`（RAX） |
+| 栈变量（`mop_S`） | `stack:{offset}` | `stack:-0x18` |
+| 局部变量（`mop_l`） | `lvar:{index}` | `lvar:3` |
+| 全局变量（`mop_v`） | `global:{ea}` | `global:0x4000` |
 
-```text
-Join(A, B):
-  out.pt[l] = A.pt[l] ∪ B.pt[l]
-  out.taint[l] = MergePathRef(A.taint[l], B.taint[l])
-```
+### 1.3 程序状态（State）
 
-收敛判定：一次迭代后 `pt` 与 `taint` 都不再新增元素则视为不动点。
+每个基本块 $B$ 维护两个状态：
 
----
+- **$In(B)$**：进入该基本块时的程序状态
+- **$Out(B)$**：离开该基本块时的程序状态
 
-## 4. 预处理：构建与剪枝（Pruning）
+程序状态 $S$ 由两部分组成：
 
-目标是缩小分析范围，仅保留可能位于 `Source -> Sink` 路径上的函数。
-
-### 4.1 构建产物
-
-- `CG`：全程序调用图（保守近似）。
-- `CFG(f)`：每个函数 `f` 的控制流图。
-- `SourceCallSites`：匹配 Source 规则的调用指令集合。
-- `SinkCallSites`：匹配 Sink 规则的调用指令集合。
-
-### 4.2 RelevantFuncs 计算
-
-保留集合 `RelevantFuncs = forward_reachable(S) ∩ backward_reachable(T)`：
-
-- `S`：Source 调用点所在函数集合
-- `T`：Sink 调用点所在函数集合
-
-```text
-ComputeRelevantFuncs(CG, SourceCallSites, SinkCallSites):
-  S = { enclosing_func(cs) for cs in SourceCallSites }
-  T = { enclosing_func(cs) for cs in SinkCallSites }
-
-  ReachFromSource = forward_reachable(CG, S)
-  CanReachSink    = backward_reachable(CG, T)
-
-  return ReachFromSource ∩ CanReachSink
-```
-
-中文解析：
-
-- 正向可达保证“可能受 Source 影响”；反向可达保证“可能到达 Sink”；交集后其余函数不进入求解器。
+- **TaintedObjectSet**：当前被污染的操作数集合，每个元素为一个 `TaintedObject` 记录
+- **AliasSet**：指针别名映射，`Pointer Key → {Target Keys}`，用于处理间接内存访问
 
 ---
 
-## 5. 过程间求解：工作列表 + 摘要复用
+## 2. 数据结构定义
 
-### 5.1 任务与全局表
+### 2.1 `TaintedObject`——污染对象记录
 
-工作列表中元素：
+`TaintedObject` 是本算法的核心数据单元，完整描述一个被污染操作数的来源、属性及传播历史。
 
-```text
-Task := (func_id, ctx_id, in_fp)
+| 字段 | 类型 | 含义 |
+|------|------|------|
+| `key` | `string` | 操作数唯一键（格式见 1.2 节） |
+| `taint_id` | `UUID` | 污染标识，用于聚合同来源污点 |
+| `source_ea` | `ea_t` | 引入污点的指令地址 |
+| `source_func` | `string` | 引入污点的函数名（如 `recv`） |
+| `mop_type` | `mop_t.t` | 操作数类型枚举（`mop_r` / `mop_S` / `mop_l` / `mop_v`） |
+| `size_bytes` | `int` | 操作数字节宽度 |
+| `propagation_depth` | `int` | 从 Source 经过的传播步数 |
+| `propagation_chain` | `List[StepRecord]` | 传播路径节点列表（详见 2.3 节） |
+| `attrs` | `TaintedObjAttrs` | 污染属性集合（详见 2.2 节） |
+
+### 2.2 `TaintedObjAttrs`——污染对象属性
+
+`TaintedObjAttrs` 记录每个污染对象的语义属性，供报告过滤和过程间分析消费。
+
+| 属性字段 | 类型 | 说明 |
+|----------|------|------|
+| `is_local_var` | `bool` | 是否为函数局部变量（`mop_l` 或未溢出到全局的 `mop_S`） |
+| `is_stack_spill` | `bool` | 是否为寄存器溢出到栈（由 `m_stx` 写入 `mop_S` 推断） |
+| `is_global_var` | `bool` | 是否为全局 / 静态变量（`mop_v`，ea 落入 `.data` / `.bss` 段） |
+| `is_func_param` | `bool` | 是否为当前函数的形参（在 Entry Block 前无 def，由 `lvar_t::is_arg_var()` 确认） |
+| `is_func_retval` | `bool` | 是否来自函数返回值（挂在 `m_call` 的 `d` 字段） |
+| `call_arg_positions` | `List[CallArgInfo]` | 作为哪些函数调用的第几个参数出现（全量记录，含非 Sink 调用） |
+| `is_ptr` | `bool` | 是否疑似指针（基于指针宽度判断或在 `ldx` / `stx` 中被解引用） |
+| `points_to_tainted` | `bool` | 若为指针：其指向区域是否也被污染（由 AliasSet 交叉推断） |
+| `is_cond_checked` | `bool` | 传播链上是否存在对该值的条件分支检查（不保证安全，仅供参考） |
+| `sanitized_by` | `string \| null` | 经过净化函数时记录函数名；否则为 `null` |
+
+### 2.3 `StepRecord`——传播路径节点
+
+`StepRecord` 记录单步传播事件，所有节点串联构成完整的污染传播链。
+
+| 字段 | 类型 | 含义 |
+|------|------|------|
+| `insn_ea` | `ea_t` | 发生传播的指令地址 |
+| `mcode` | `mcode_t` | MicroCode 操作码（`m_mov` / `m_add` 等） |
+| `from_key` | `string` | 传播源操作数键 |
+| `to_key` | `string` | 传播目标操作数键 |
+| `block_serial` | `int` | 所在基本块编号 |
+| `reason` | `PropReason` | 传播原因枚举（见下表） |
+
+**`PropReason` 枚举定义**
+
+| 枚举值 | 含义 |
+|--------|------|
+| `DATA_MOVE` | `m_mov` 直接赋值传播 |
+| `ARITHMETIC` | 算术 / 逻辑运算结果依赖污点操作数 |
+| `MEM_LOAD` | 内存读取（`m_ldx`）从污染内存加载 |
+| `MEM_STORE` | 内存写入（`m_stx`）将污点写入目标 |
+| `CALL_ARG_IN` | 函数调用传入污点参数（callee 未知，保守传播） |
+| `CALL_RET_OUT` | 函数返回值被标记为污点（Source 规则命中） |
+| `PHI_MERGE` | 控制流汇聚时 Union 操作合并污点 |
+| `ALIAS_MAY` | 别名分析结论为 May-Alias，保守传播 |
+
+### 2.4 `CallArgInfo`——参数位置记录
+
+| 字段 | 类型 | 含义 |
+|------|------|------|
+| `call_ea` | `ea_t` | 调用指令地址 |
+| `callee` | `string` | 被调函数名或地址字符串 |
+| `arg_index` | `int` | 第几个参数（0-based） |
+| `is_sink` | `bool` | 该被调函数是否为 Sink |
+| `arg_size` | `int` | 参数字节宽度 |
+
+### 2.5 `AliasSet`——别名映射
+
+`AliasSet` 是一个映射表：
+
+```
+Pointer Key  →  Set<Target Key>
 ```
 
-全局表：
-
-```text
-InputState: Map<Task, State>                           // 任务输入状态（与 in_fp 一一对应）
-Summary:    Map<Task, State>                           // 任务输出摘要（函数出口状态）
-Callers:    Map<Task, Set<(caller_task, callsite_id)>> // 依赖关系（被调用者任务 -> 调用者任务集合）
-Worklist:   Queue<Task>
-```
-
-### 5.2 输入状态指纹（明确计算规则）
-
-摘要以输入指纹做键，指纹只包含过程间可观测输入：形参与全局。
-
-```text
-Fingerprint(func, ctx, state):
-  ParamLocs = { StackSlot(func, ctx, param_i) for each param_i }
-  GlobalLocs = { all GlobalVar(*) }
-  Keys = ParamLocs ∪ GlobalLocs
-
-  return Hash(
-    { (k, state.pt[k]) for k in Keys },
-    { (k, k in state.taint) for k in Keys }
-  )
-```
-
-中文解析：
-
-- 指纹对污点只取布尔（是否污染），路径证据不参与哈希，保证摘要稳定复用。
-- `all GlobalVar(*)` 指实现侧维护的“全局变量槽位集合”。
-
-### 5.3 全局求解器伪代码
-
-```text
-Solve(CG, CFGs, SourceCallSites, SinkCallSites):
-  RelevantFuncs = ComputeRelevantFuncs(CG, SourceCallSites, SinkCallSites)
-
-  for cs in SourceCallSites:
-    f = enclosing_func(cs)
-    if f not in RelevantFuncs:
-      continue
-    ctx = None
-    init = EmptyState()
-    fp = Fingerprint(f, ctx, init)
-    t = (f, ctx, fp)
-    InputState[t] = init
-    Worklist.push(t)
-
-  while Worklist not empty:
-    t = Worklist.pop()
-    (f, ctx, in_fp) = t
-    in_state = InputState[t]
-
-    out_state = AnalyzeFunction(f, ctx, in_fp, in_state, RelevantFuncs)
-
-    if Summary.get(t, EmptyState()) == out_state:
-      continue
-
-    Summary[t] = out_state
-
-    for (caller_task, _) in Callers.get(t, ∅):
-      Worklist.push(caller_task)
-```
-
-中文解析：
-
-- 任务的粒度是 `(func, ctx, in_fp)`；当对应摘要更新时唤醒其调用者任务重算。
-- Source 调用点所在函数以空状态作为种子进入队列；Source 在转移函数中产生污点事实。
+用于处理 `m_ldx` / `m_stx` 间接内存访问。当目标集合无法静态确定时，以特殊标记 `Unknown` 表示，触发保守（Over-taint）策略。
 
 ---
 
-## 6. 过程内求解：CFG 上不动点迭代
+## 3. 传递函数（Transfer Function）
 
-### 6.1 基本块级别迭代伪代码
+传递函数 $f_B$ 模拟基本块内指令序列（`mblock_t::head` 到 `mblock_t::tail`）的执行，逐条处理 `minsn_t`。
 
-```text
-AnalyzeFunction(func, ctx, task_in_fp, input_state, RelevantFuncs):
-  BlockOut = Map<Block, State>()
-  Q = Queue<Block>()
+指令级函数签名：
 
-  entry = CFG(func).entry
-  BlockOut[entry] = input_state
-  Q.push(entry)
+$$S_{out} = f_{\text{inst}}(S_{in},\ \text{minsn})$$
 
-  while Q not empty:
-    b = Q.pop()
+### 3.1 数据移动（`m_mov`）
 
-    if b == entry:
-      in_s = input_state
-    else:
-      in_s = JoinAll({ BlockOut[p] for p in preds(b) })
+**指令：** `mov  d,  l`
 
-    s = in_s
-    for instr in b.instructions:
-      s = Transfer(instr, func, ctx, task_in_fp, s, RelevantFuncs)
+```python
+# TaintSet 更新
+if is_tainted(l):
+    taint(d, chain=l.chain + [Step(insn, DATA_MOVE)], reason=DATA_MOVE)
+else:
+    untaint(d)    # Strong Update：d 被完全覆盖
 
-    if BlockOut.get(b, EmptyState()) != s:
-      BlockOut[b] = s
-      for succ in succs(b):
-        Q.push(succ)
+# AliasSet 更新
+PT(d) = PT(l)    # 指针传播
 
-  exit = CFG(func).exit
-  return BlockOut.get(exit, EmptyState())
+# 属性更新
+if tainted(d):
+    d.attrs.is_local_var   = is_lvar(d)
+    d.attrs.is_stack_spill = (d.mop_type == mop_S)
+    d.attrs.is_ptr         = is_pointer_sized(d) or used_in_ldx_stx(d)
 ```
 
-中文解析：
+### 3.2 算术运算（`m_add` / `m_sub` / `m_and` 等）
 
-- 块入口由前驱出口 `Join` 得到；块内顺序执行转移函数。
-- 任一块出口变化将触发其后继重算，直到收敛。
+**指令：** `add  d,  l,  r`
+
+```python
+if is_tainted(l) or is_tainted(r):
+    merged = merge_chains(l, r)    # 合并两侧传播路径
+    taint(d, chain=merged, reason=ARITHMETIC)
+else:
+    untaint(d)
+
+# 指针偏移特例
+if is_ptr(l) and is_const(r):
+    PT(d) = Shift(PT(l), r)        # 偏移后更新 Points-to 集合
+else:
+    PT(d) = Unknown                # 保守：丢弃别名信息
+```
+
+### 3.3 内存读取（`m_ldx`）
+
+**指令：** `ldx  d,  l,  r`（`d = *(l + r)`）
+
+```python
+addr_key = resolve_addr(l, r)
+targets  = PT(addr_key)            # 别名解析
+
+if any(is_tainted(o) for o in targets):
+    # 选取传播深度最深的污染源作为代表
+    src = max(tainted_targets, key=lambda o: o.propagation_depth)
+    taint(d, chain=src.chain + [Step(insn, MEM_LOAD)], reason=MEM_LOAD)
+    d.attrs.is_ptr = is_pointer_sized(d)
+elif targets == Unknown:
+    taint(d, reason=ALIAS_MAY)     # Over-taint 策略
+```
+
+### 3.4 内存写入（`m_stx`）
+
+**指令：** `stx  d,  l,  r`（`*(d + l) = r`）
+
+```python
+addr_key = resolve_addr(d, l)
+targets  = PT(addr_key)
+
+if is_tainted(r):
+    for o in targets:
+        taint(o, chain=r.chain + [Step(insn, MEM_STORE)], reason=MEM_STORE)
+        o.attrs.is_stack_spill = (o.mop_type == mop_S)
+else:
+    if is_must_alias(targets):     # 唯一目标 → Strong Update
+        untaint(targets[0])
+    # 多目标 → Weak Update：保留原有污点
+```
+
+### 3.5 函数调用（`m_call`）
+
+**指令：** `call  d,  l,  args`
+
+```python
+# ① Source 规则
+if callee_matches_source(l):
+    out_mop = get_output_mop(l, d, args)    # 返回值或 out 参数
+    taint(out_mop,
+          source_ea=insn.ea,
+          source_func=callee_name(l),
+          chain=[],
+          reason=CALL_RET_OUT)
+    out_mop.attrs.is_func_retval = True
+
+# ② Sink 规则
+if callee_matches_sink(l):
+    for idx, arg in enumerate(args):
+        if is_tainted(arg):
+            emit_finding(arg,
+                         sink_ea=insn.ea,
+                         sink_func=callee_name(l),
+                         arg_index=idx)
+
+# ③ 参数属性更新（所有调用均执行）
+for idx, arg in enumerate(args):
+    if is_tainted(arg):
+        arg.attrs.call_arg_positions.append(CallArgInfo(
+            call_ea   = insn.ea,
+            callee    = callee_name(l),
+            arg_index = idx,
+            is_sink   = callee_matches_sink(l),
+            arg_size  = arg.size_bytes
+        ))
+
+# ④ Sanitizer 规则
+if callee_matches_sanitizer(l):
+    untaint(d)
+    mark_sanitized(args, by=callee_name(l))
+
+# ⑤ 默认保守传播（未知被调函数）
+elif not callee_is_known(l):
+    if any(is_tainted(a) for a in args):
+        taint(d, reason=CALL_ARG_IN)   # 返回值保守依赖任意污染参数
+```
 
 ---
 
-## 7. 路径证据（Path）表示
+## 4. 算法流程与各 Pass 输出规范
 
-### 7.1 PathRef 与节点池
-
-路径采用“前驱引用”存储，避免在状态中复制长链。
-
-```text
-PathNode := { instr_id, prev: Set<PathRef> }
-PathRef  := integer index into NodePool
-NodePool := append-only array of PathNode
-```
-
-污染写入规则：
-
-- `SetTaint(loc)` 创建新节点，`prev` 指向导致该污染的前驱节点集合。
-- `MergePathRef` 合并 `prev` 集合；不复制整条链。
-
-### 7.2 漏洞路径重构
-
-Sink 命中时，从 `PathRef` 反向遍历 `prev` 关系即可重构传播链，输出一条或多条 `InstrID` 序列。
+算法分为四个 Pass，依次执行，每个 Pass 产出独立的结构化输出对象。
 
 ---
 
-## 8. 转移函数（Transfer Functions）
+### 4.1 Pass 0 — 预处理与初始化
 
-记当前状态为 `S = {pt, taint}`。辅助操作：
+在进入工作列表迭代前执行一次，完成状态表构建与元信息提取。
 
-```text
-IsTainted(S, l): l in S.taint
-ClearTaint(S, l): remove l from S.taint
-Pts(S, l): S.pt.get(l, ∅)
-SetPts(S, l, targets): S.pt[l] = targets
-JoinPts(S, l, targets): S.pt[l] = Pts(S,l) ∪ targets
-```
+#### 处理内容
 
-位置构造：
+1. 遍历 `mba->blocks`，构建 CFG 边表 `cfg_edges`
+2. 为所有块初始化空的 `In[B]` 和 `Out[B]`
+3. 提取 `mba->vars` 中的 `lvar_t` 元信息，建立 `lvar_meta` 映射
+4. 扫描 Entry Block 的初始污染源（函数参数污点、全局初始污点）
+5. 构建初始工作列表 `{entry_block}`
 
-```text
-LocOfVar(func, ctx, var) = StackSlot(func, ctx, var)
-LocOfRet(func, ctx)      = RetVal(func, ctx)
-LocOfHeap(site, ctx)     = HeapObj(site, ctx)
-```
+#### 输出：`InitResult`
 
-### 8.1 赋值：`x = y`
+| 字段 | 类型 | 内容 |
+|------|------|------|
+| `block_count` | `int` | CFG 基本块总数（`mba->qty`） |
+| `entry_serial` | `int` | 入口块编号（通常为 0） |
+| `In` | `Map<int, State>` | 所有块初始 In 状态（均为空集） |
+| `Out` | `Map<int, State>` | 所有块初始 Out 状态（均为空集） |
+| `initial_taints` | `List[TaintedObject]` | 入口块初始污染对象（函数参数 / 全局初始污点） |
+| `worklist` | `Queue<mblock_t*>` | 初始队列，仅含入口块 |
+| `cfg_edges` | `List[(src, dst)]` | 全部 CFG 边，用于传播路径重建 |
+| `lvar_meta` | `Map<int, LvarInfo>` | 局部变量元信息（名称、类型、大小、是否形参） |
 
-```text
-TransferAssign(x, y, func, ctx, S, instr_id):
-  lx = LocOfVar(func, ctx, x)
-  ly = LocOfVar(func, ctx, y)
-
-  SetPts(S, lx, Pts(S, ly))
-
-  if IsTainted(S, ly):
-    S.taint[lx] = MakePath(instr_id, prev={S.taint[ly]})
-  else:
-    ClearTaint(S, lx)
-
-  return S
-```
-
-中文解析：
-
-- 指向关系为值拷贝。
-- 污点随值拷贝传播；未污染则清除目标污染。
-
-### 8.2 取址：`x = &y`
-
-```text
-TransferAddrOf(x, y, func, ctx, S, instr_id):
-  lx = LocOfVar(func, ctx, x)
-  ly = LocOfVar(func, ctx, y)
-
-  SetPts(S, lx, { ly })
-  ClearTaint(S, lx)
-  return S
-```
-
-中文解析：
-
-- `&y` 产生指针值，points-to 为 `{Loc(y)}`；不引入数据污染。
-
-### 8.3 载入：`x = *p`
-
-```text
-TransferLoad(x, p, func, ctx, S, instr_id):
-  lx = LocOfVar(func, ctx, x)
-  lp = LocOfVar(func, ctx, p)
-  targets = Pts(S, lp)
-
-  new_pts = ∅
-  prevs = ∅
-  for t in targets:
-    new_pts = new_pts ∪ Pts(S, t)
-    if IsTainted(S, t):
-      prevs = prevs ∪ { S.taint[t] }
-
-  SetPts(S, lx, new_pts)
-  if prevs != ∅:
-    S.taint[lx] = MakePath(instr_id, prev=prevs)
-  else:
-    ClearTaint(S, lx)
-
-  return S
-```
-
-中文解析：
-
-- 读取 `p` 指向位置集合的“内容”：
-  - 指针内容合并为 `x` 的 points-to。
-  - 任一被读位置被污染则 `x` 被污染，路径前驱为命中的被污染位置路径引用集合。
-
-### 8.4 存值：`*p = y`（强/弱更新）
-
-```text
-TransferStore(p, y, func, ctx, S, instr_id):
-  lp = LocOfVar(func, ctx, p)
-  ly = LocOfVar(func, ctx, y)
-  targets = Pts(S, lp)
-
-  for t in targets:
-    if |targets| == 1:
-      SetPts(S, t, Pts(S, ly))
-      if IsTainted(S, ly):
-        S.taint[t] = MakePath(instr_id, prev={S.taint[ly]})
-      else:
-        ClearTaint(S, t)
-    else:
-      JoinPts(S, t, Pts(S, ly))
-      if IsTainted(S, ly):
-        old = { S.taint[t] } if IsTainted(S, t) else ∅
-        S.taint[t] = MakePath(instr_id, prev=old ∪ {S.taint[ly]})
-
-  return S
-```
-
-中文解析：
-
-- `pt(p)` 单元素时写入目标确定，覆盖旧值（强更新）；污染同样覆盖/清除。
-- `pt(p)` 多元素时目标不确定，points-to 只增长（弱更新）；污染只新增传播，不清除既有污染。
-
-### 8.5 堆分配：`x = malloc(...)` / `x = new T(...)`
-
-```text
-TransferAlloc(x, alloc_site_id, func, ctx, S, instr_id):
-  lx = LocOfVar(func, ctx, x)
-  obj = LocOfHeap(alloc_site_id, ctx)
-
-  SetPts(S, lx, { obj })
-  ClearTaint(S, lx)
-  ClearTaint(S, obj)
-  SetPts(S, obj, ∅)
-  return S
-```
-
-中文解析：
-
-- 新堆对象以 `(alloc_site, ctx)` 唯一化；对象内容初始清洁。
-
-### 8.6 函数调用：`r = callee(a1, a2, ...)`
-
-调用转移分三类：Source、Sink、普通函数。
-
-#### 8.6.1 Source 调用
-
-```text
-TransferCallSource(r, func, ctx, S, callsite_id):
-  lr = LocOfVar(func, ctx, r)
-  S.taint[lr] = MakePath(callsite_id, prev=∅)
-  return S
-```
-
-中文解析：
-
-- Source 的返回值直接产生污染事实，路径起点为该调用点。
-
-#### 8.6.2 Sink 调用（漏洞触发）
-
-```text
-TransferCallSink(args..., func, ctx, S, callsite_id):
-  for arg in args:
-    la = LocOfVar(func, ctx, arg)
-    if IsTainted(S, la):
-      ReportVuln(path_ref=S.taint[la], sink_site=callsite_id, ctx=ctx)
-    for t in Pts(S, la):
-      if IsTainted(S, t):
-        ReportVuln(path_ref=S.taint[t], sink_site=callsite_id, ctx=ctx)
-  return S
-```
-
-中文解析：
-
-- 同时检查参数值本身与其指向内容是否污染，命中即报告漏洞并携带路径引用。
-
-#### 8.6.3 普通调用（调度 + 摘要复用）
-
-普通调用在调用点执行三件事：构造被调用者输入、登记依赖并入队、用当前已知摘要推进返回效果。
-
-```text
-TransferCallNormal(r, callee, args..., func, ctx, caller_task_in_fp, S, callsite_id, RelevantFuncs):
-  if callee not in RelevantFuncs:
-    return S
-
-  callee_ctx = callsite_id
-  in2 = EmptyState()
-
-  for i in [0..n-1]:
-    ai = LocOfVar(func, ctx, args[i])
-    fi = StackSlot(callee, callee_ctx, param_i)
-    SetPts(in2, fi, Pts(S, ai))
-    if IsTainted(S, ai):
-      in2.taint[fi] = MakePath(callsite_id, prev={S.taint[ai]})
-
-  for each global g in AllGlobals:
-    SetPts(in2, g, Pts(S, g))
-    if IsTainted(S, g):
-      in2.taint[g] = S.taint[g]
-
-  fp2 = Fingerprint(callee, callee_ctx, in2)
-  t2 = (callee, callee_ctx, fp2)
-
-  Callers[t2].add(((func, ctx, caller_task_in_fp), callsite_id))
-
-  if t2 not in InputState:
-    InputState[t2] = in2
-    Worklist.push(t2)
-
-  out2 = Summary.get(t2, EmptyState())
-
-  lr = LocOfVar(func, ctx, r)
-  ret = LocOfRet(callee, callee_ctx)
-  SetPts(S, lr, Pts(out2, ret))
-  if IsTainted(out2, ret):
-    S.taint[lr] = MakePath(callsite_id, prev={out2.taint[ret]})
-  else:
-    ClearTaint(S, lr)
-
-  for each global g in AllGlobals:
-    SetPts(S, g, Pts(S, g) ∪ Pts(out2, g))
-    if IsTainted(out2, g):
-      old = { S.taint[g] } if IsTainted(S, g) else ∅
-      S.taint[g] = MakePath(callsite_id, prev=old ∪ {out2.taint[g]})
-
-  return S
-```
-
-中文解析：
-
-- 形参通过 `StackSlot(callee, callee_ctx, param_i)` 表示；调用上下文由调用点固定为 `callee_ctx = callsite_id`。
-- 被调用者任务由 `(callee, callee_ctx, fp2)` 唯一标识；同一指纹重复到达只登记依赖关系，不重复创建任务输入。
-- 调用点使用“当前已知摘要”推进返回值与全局变量；摘要更新后调用者会被唤醒重算，最终达到过程间不动点。
+> **注意：** `initial_taints` 中每个 `TaintedObject` 须在此阶段完整填写 `attrs.is_func_param`（通过 `lvar_t::is_arg_var()` 判定）及 `attrs.is_global_var`。
 
 ---
 
-## 9. 全局变量与别名一致性
+### 4.2 Pass 1 — 工作列表迭代
 
-### 9.1 全局变量
+工作列表不动点迭代，反复处理基本块直至所有块的 Out 状态收敛。
 
-- 全局变量以 `GlobalVar(name)` 进入 `Loc` 域，与堆对象/栈槽位同等对待。
-- 调用时将全局作为隐式输入复制给被调用者；返回时将摘要中的全局信息 join 合并回调用者状态。
+#### 算法伪代码
 
-### 9.2 指针别名
+```python
+while worklist not empty:
+    B = worklist.pop()
 
-- 别名由 `pt` 给出：若 `p` 与 `q` 的 points-to 集合包含同一 `Loc`，则二者别名。
-- `*p = y` 写入 `pt(p)` 的每个目标；后续 `x = *q` 若读到同一目标即可传播污点。
+    # ① Meet：合并所有前驱的 Out 状态
+    Current_In = State()
+    for P_idx in B.pred:
+        Current_In.merge(Out[P_idx])
+        # 同一 key 的两个 TaintedObject 合并规则：
+        #   - propagation_chain 取 union（去重）
+        #   - attrs 按位 OR（保守合并）
+        #   - 补记 reason |= PHI_MERGE
+
+    # ② Transfer：逐指令应用传递函数
+    Current_Out = Current_In.clone()
+    inst = B.head
+    while inst:
+        Current_Out = apply_transfer(Current_Out, inst)
+        inst = inst.next
+
+    # ③ 收敛检测
+    if not Current_Out.equals(Out[B.serial]):
+        Out[B.serial] = Current_Out
+        for S_idx in B.succ:
+            if S_idx not in worklist:
+                worklist.push(mba.get_mblock(S_idx))
+```
+
+#### 每轮迭代输出：`BlockIterResult`
+
+| 字段 | 类型 | 内容 |
+|------|------|------|
+| `block_serial` | `int` | 当前处理的块编号 |
+| `iteration_round` | `int` | 本块第几次进入工作列表 |
+| `in_state` | `State snapshot` | 本次 In 状态快照（调试模式存储） |
+| `out_state` | `State snapshot` | 本次 Out 状态快照 |
+| `state_changed` | `bool` | Out 状态是否与上次不同（触发后继激活） |
+| `new_findings` | `List[Finding]` | 本块本轮新发现的 Sink 命中（去重） |
+| `activated_succs` | `List[int]` | 本轮加入工作列表的后继块编号 |
+
+#### 收敛后输出：`ConvergedResult`
+
+| 字段 | 类型 | 内容 |
+|------|------|------|
+| `converged` | `bool` | 是否正常收敛（未超出最大迭代轮数） |
+| `total_iterations` | `int` | 全部块处理总次数（含重入） |
+| `Out` | `Map<int, State>` | 每个基本块收敛后的最终 Out 状态 |
+| `In_final` | `Map<int, State>` | 每个基本块最终 In 状态（由前驱 Out 推算） |
+| `all_tainted_objects` | `List[TaintedObject]` | 函数内所有曾被污染的操作数（全集，含已 untaint 的历史节点） |
+| `all_findings` | `List[Finding]` | 所有 Sink 命中（去重后） |
+| `cfg_taint_coverage` | `float` | 被污染指令数 / 总指令数（覆盖率参考指标） |
 
 ---
 
-## 10. 收敛性检查项（实现侧必须满足）
+### 4.3 Pass 2 — 属性精化（Attribute Refinement）
 
-- `Loc` 域有限：由 `(func, ctx, var/alloc_site)` 的有限组合构成。
-- Join 使用并集；转移函数允许对目标键覆盖（赋值/强更新），整体在有限域上收敛到不动点。
-- 摘要键有限：`in_fp` 由有限键集合（形参+全局）计算，触发次数有限。
+在收敛结果基础上，对每个 `TaintedObject` 执行一次全局后处理，填充需要跨块信息才能确定的属性字段。
+
+#### 处理项
+
+| 处理项 | 数据来源 | 写入字段 |
+|--------|----------|----------|
+| 参数归因 | Entry Block In 中的污染对象 vs `mba` 参数列表 | `attrs.is_func_param` |
+| 条件检查标记 | CFG 中所有条件分支指令（`m_jnz` / `m_jz` 等）的操作数 | `attrs.is_cond_checked` |
+| 净化传播标注 | 传播链中是否经过 Sanitizer 调用 | `attrs.sanitized_by` |
+| 指针解引用链 | `AliasSet` 与 `TaintedObjectSet` 交叉检查 | `attrs.points_to_tainted` |
+| 全局变量标注 | `mop_v` 的 `ea` 落入 `.data` / `.bss` 段 | `attrs.is_global_var` |
+
+#### 输出：`RefinedTaintDB`
+
+| 字段 | 类型 | 内容 |
+|------|------|------|
+| `tainted_objects` | `List[TaintedObject]` | 属性精化后的污染对象全集 |
+| `param_taints` | `List[TaintedObject]` | `attrs.is_func_param == true` 的子集 |
+| `global_taints` | `List[TaintedObject]` | `attrs.is_global_var == true` 的子集 |
+| `ptr_taints` | `List[TaintedObject]` | `attrs.is_ptr == true` 的子集 |
+| `sink_arg_taints` | `List[TaintedObject]` | `call_arg_positions` 中含 `is_sink == true` 的子集 |
+
+---
+
+### 4.4 Pass 3 — 报告生成（Finding Emission）
+
+将 Pass 1 的 `all_findings` 与 Pass 2 的 `RefinedTaintDB` 合并，生成完整的结构化分析报告。
+
+#### `Finding` 完整结构
+
+| 字段 | 类型 | 含义 |
+|------|------|------|
+| `finding_id` | `UUID` | 唯一报告 ID |
+| `severity` | `enum` | `HIGH` / `MEDIUM` / `LOW`（基于 `is_cond_checked` 和 `sanitized_by` 评定） |
+| `source_ea` | `ea_t` | 污点来源指令地址 |
+| `source_func` | `string` | 引入污点的函数名 |
+| `sink_ea` | `ea_t` | Sink 指令地址 |
+| `sink_func` | `string` | Sink 函数名 |
+| `sink_arg_index` | `int` | 污点命中 Sink 的参数位置（0-based） |
+| `taint_object` | `TaintedObject` | 命中 Sink 时的污染对象完整记录（含 `attrs`） |
+| `propagation_chain` | `List[StepRecord]` | 从 Source 到 Sink 的完整传播路径 |
+| `chain_length` | `int` | 传播链节点数 |
+| `intermediate_funcs` | `List[string]` | 传播链经过的中间函数调用列表 |
+| `is_cond_checked` | `bool` | 路径上是否存在条件检查（不保证安全，仅供参考） |
+| `sanitized_by` | `string \| null` | 若经过净化函数则记录函数名，否则为 `null` |
+
+#### Severity 评级逻辑
+
+| 条件 | Severity |
+|------|----------|
+| `sanitized_by != null` | `LOW`（已净化，保留记录供人工复核） |
+| `sanitized_by == null` 且 `is_cond_checked == true` | `MEDIUM`（有条件检查但未净化，存在绕过可能） |
+| `sanitized_by == null` 且 `is_cond_checked == false` | `HIGH`（无任何检查或净化） |
+
+#### 输出：`AnalysisReport`
+
+| 字段 | 类型 | 内容 |
+|------|------|------|
+| `func_ea` | `ea_t` | 被分析函数起始地址 |
+| `func_name` | `string` | 函数名 |
+| `analysis_time_ms` | `int` | 分析耗时（毫秒） |
+| `maturity` | `MMAT_*` | MicroCode 成熟度级别 |
+| `converged` | `bool` | 是否正常收敛 |
+| `findings` | `List[Finding]` | 所有 Sink 命中报告（按 `severity` 降序排列） |
+| `tainted_objects` | `List[TaintedObject]` | 函数内所有污染对象（含完整属性，按 `propagation_depth` 升序） |
+| `block_summaries` | `Map<int, BlockSummary>` | 每基本块的污点摘要（过程间分析接口） |
+| `stats` | `AnalysisStats` | 统计信息 |
+
+#### `BlockSummary` 结构
+
+供过程间分析（Inter-procedural Analysis）消费，是函数摘要（Function Summary）的核心组成部分。
+
+| 字段 | 类型 | 内容 |
+|------|------|------|
+| `block_serial` | `int` | 块编号 |
+| `in_taint_keys` | `Set[string]` | 进入块时被污染的操作数键集合 |
+| `out_taint_keys` | `Set[string]` | 离开块时被污染的操作数键集合 |
+| `new_sources` | `List[ea_t]` | 块内新产生污点的 Source 指令地址 |
+| `sink_hits` | `List[Finding]` | 块内 Sink 命中记录 |
+| `taint_gen` | `Set[string]` | 块内新生成的污点键（Gen 集合） |
+| `taint_kill` | `Set[string]` | 块内被清除的污点键（Kill 集合） |
+
+#### `AnalysisStats` 结构
+
+| 字段 | 类型 | 内容 |
+|------|------|------|
+| `total_insns` | `int` | 总指令数 |
+| `tainted_insns` | `int` | 产生 / 传播污点的指令数 |
+| `total_tainted_objects` | `int` | 曾被污染的操作数总数（历史最大，含已 untaint） |
+| `live_tainted_objects` | `int` | 最终 `Out[Exit]` 中仍存活的污染对象数 |
+| `findings_high` | `int` | `HIGH` severity Finding 数 |
+| `findings_medium` | `int` | `MEDIUM` severity Finding 数 |
+| `findings_low` | `int` | `LOW` severity Finding 数 |
+| `alias_unknown_count` | `int` | 别名无法解析（触发 Over-taint）的次数 |
+| `worklist_iterations` | `int` | 工作列表总迭代次数 |
+
+---
+
+## 5. 针对 IDA MicroCode 的特殊处理
+
+### 5.1 成熟度级别选择
+
+| 成熟度 | 特点 | 推荐场景 |
+|--------|------|----------|
+| `MMAT_LOCOPT` | 局部优化后，`m_mov` 丰富，栈变量已转为 `mop_l` / `mop_S` | 通用污点分析（推荐） |
+| `MMAT_CALLS` | 调用规范化，参数布局清晰，`is_func_param` 属性更准确 | 重点关注跨函数传播 |
+| `MMAT_GLBOPT2` | 全局优化后，部分变量被内联，传播链可能断裂 | 不推荐，除非有特定需求 |
+
+### 5.2 Sub-instructions（`mop_d`）递归处理
+
+MicroCode 操作数可能包含嵌套子指令（如 `add(mul(a, b), c)`）。传递函数须先递归计算子表达式的污点状态，再计算外层：
+
+```python
+def eval_mop_taint(mop, state):
+    if mop.t == mop_d:           # 嵌套子指令
+        return eval_insn_taint(mop.d, state)
+    return state.is_tainted(mop_key(mop))
+```
+
+### 5.3 `attrs.is_func_param` 的精确判定
+
+函数形参识别须结合 `mba` 的 `lvars` 元信息：
+
+```python
+for lvar in mba.vars:
+    if lvar.is_arg():                    # lvar_t::is_arg_var()
+        param_keys.add(f'lvar:{lvar.idx}')
+    if lvar.is_stk_var():
+        # 栈参数：正偏移通常为参数（x86 调用约定）
+        if lvar.location.stkoff() > 0:
+            param_keys.add(f'stack:{lvar.location.stkoff()}')
+```
+
+### 5.4 控制流汇聚处的 Meet 操作
+
+当多条前驱边的 Out 状态在某基本块 B 汇聚时，执行 Union：
+
+- **TaintedObjectSet**：同一 `key` 的多个 `TaintedObject` 合并，`propagation_chain` 取并集，`attrs` 按位 OR，补记 `reason |= PHI_MERGE`
+- **AliasSet**：同一指针键的目标集合取并集
+- 若任意前驱中 `key` 被污染，则 B 的 `In` 中该 `key` 被视为污染（May-Taint 语义）
+
+### 5.5 循环收敛保证
+
+由于污点集合单调递增（仅 `taint` / `untaint` 操作，不存在重排序），且操作数键空间有限，工作列表算法保证在有限步内收敛。建议设置最大迭代轮数上限（如 `block_count * 3`），超限时置 `converged = false` 并记录警告。
+
+---
+
+## 6. 完整输出流程总览
+
+四个 Pass 形成完整的分析流水线，每个 Pass 的输出均可独立序列化（JSON / MessagePack），支持持久化及外部工具消费。
+
+| Pass | 名称 | 主要输入 | 核心处理 | 主要输出 |
+|------|------|----------|----------|----------|
+| Pass 0 | 预处理与初始化 | `mba_t`, 规则集 | CFG 快照；状态表初始化；lvar 元信息提取 | `InitResult` |
+| Pass 1 | 工作列表迭代 | `InitResult` | Meet + Transfer；不动点迭代 | `ConvergedResult` |
+| Pass 2 | 属性精化 | `ConvergedResult` | 跨块属性填充；条件检查标记；净化链追溯 | `RefinedTaintDB` |
+| Pass 3 | 报告生成 | `ConvergedResult` + `RefinedTaintDB` | Finding 组装；Severity 评级；统计汇总 | `AnalysisReport` |
+
+`BlockSummary`（包含于 `AnalysisReport`）是过程间分析的主要接口，上层调用方（Caller）分析可以此作为被调函数（Callee）的污点行为摘要，实现模块化组合。

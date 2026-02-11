@@ -754,7 +754,7 @@ def aggregate_results(fwd_paths, rev_paths, common_paths):
 | 某条规则无任何名称匹配 | 记录 `warning`，继续执行其他规则 | 该规则对应的函数缺失，不影响已匹配规则 |
 | Source 或 Sink 规则均无匹配 | `identify_markers` 完成后，`find_paths` 直接返回 `[]` | 整个搜索无输出 |
 | `source_callers` 或 `sink_callers` 为空集 | `_bfs_search` 开头判断提前返回 `[]` | 对应策略无输出，记录 `warning` |
-| Source Caller 与 Sink Caller 有交集（同一函数既调 Source 又调 Sink） | 该函数作为长度为 1 的路径，在 BFS 起点即命中 `end_nodes` | 生成 `depth=1` 路径，正常输出 |
+| Source Caller 与 Sink Caller 有交集（同一函数既调 Source 又调 Sink） | 该函数作为长度为 1 的路径，在 BFS 起点即命中 `end_nodes` | `nodes` 仅保留一个节点，`roles` 同时包含 `source_caller` 与 `sink_caller` |
 | 调用图存在环路（递归调用） | BFS `visited` 集合防止重复入队，不会死循环 | 环路上的节点仅访问一次，不影响无环部分路径 |
 | 路径深度超过 `MAX_DEPTH` | `continue` 截断该分支 | 超深路径漏报（性能优先取舍） |
 | 找到路径数达到 `MAX_PATHS` | `break` 提前结束当前策略 | 超量路径漏报（性能优先取舍） |

@@ -477,8 +477,16 @@ class PathFinder:
             sink_part = path_nodes[ancestor_index + 1 :]
             ordered_nodes = [ancestor_ea] + source_part + sink_part
 
-        nodes = []
+        unique_nodes = []
+        seen = set()
         for ea in ordered_nodes:
+            if ea in seen:
+                continue
+            seen.add(ea)
+            unique_nodes.append(ea)
+
+        nodes = []
+        for ea in unique_nodes:
             roles = []
             if ea == source_caller:
                 roles.append("source_caller")
