@@ -347,6 +347,37 @@ class IntraTaintScanner:
         except Exception:
             return None
 
+    def _iter_block_links(self, block, attr_name):
+        links = getattr(block, attr_name, None)
+        if links is None:
+            return []
+        if callable(links):
+            try:
+                links = links()
+            except Exception:
+                return []
+        if links is None:
+            return []
+        try:
+            return list(links)
+        except Exception:
+            pass
+        size = getattr(links, "size", None)
+        at = getattr(links, "at", None)
+        if at is None:
+            return []
+        try:
+            count = size() if callable(size) else int(size)
+        except Exception:
+            return []
+        items = []
+        for i in range(count):
+            try:
+                items.append(at(i))
+            except Exception:
+                continue
+        return items
+
     def _pass0_init(self, mba, func_name):
         block_count = getattr(mba, "qty", 0)
         entry_serial = 0
@@ -357,7 +388,7 @@ class IntraTaintScanner:
             block = mba.get_mblock(i)
             in_states[i] = TaintState()
             out_states[i] = TaintState()
-            for succ in list(getattr(block, "succ", [])):
+            for succ in self._iter_block_links(block, "succ"):
                 cfg_edges.append((i, int(succ)))
         lvar_meta = self._build_lvar_meta(mba)
         initial_taints = self._init_param_taints(mba, func_name)
@@ -437,7 +468,7 @@ class IntraTaintScanner:
                 converged = False
                 break
             in_state = TaintState()
-            for pred in list(getattr(block, "pred", [])):
+            for pred in self._iter_block_links(block, "pred"):
                 in_state.merge(out_states[int(pred)])
             out_state = in_state.clone()
             new_findings = []
@@ -465,7 +496,7 @@ class IntraTaintScanner:
             in_states[block_serial] = in_state
             if state_changed:
                 out_states[block_serial] = out_state
-                for succ in list(getattr(block, "succ", [])):
+                for succ in self._iter_block_links(block, "succ"):
                     succ_idx = int(succ)
                     if succ_idx not in worklist:
                         worklist.append(succ_idx)
@@ -912,10 +943,31 @@ class IntraTaintScanner:
         if self._mop_type(mop) == self.mop_f and hasattr(mop, "f"):
             callinfo = mop.f
             args = getattr(callinfo, "args", None)
+            if callable(args):
+                try:
+                    return list(args())
+                except Exception:
+                    return []
             if args is not None:
-                return list(args)
+                try:
+                    return list(args)
+                except Exception:
+                    return []
         if hasattr(mop, "args"):
-            return list(mop.args)
+            args = getattr(mop, "args")
+            if callable(args):
+                try:
+                    return list(args())
+                except Exception:
+                    return []
+            try:
+                return list(args)
+            except Exception:
+                return []
+        try:
+            return list(mop)
+        except Exception:
+            return []
         return []
 
     def _mop_key(self, mop):
@@ -963,9 +1015,20 @@ class IntraTaintScanner:
         return getattr(mop, "size", 0) or getattr(mop, "width", 0)
 
     def _is_lvar_arg(self, lvar):
-        if hasattr(lvar, "is_arg_var") and lvar.is_arg_var():
-            return True
-        if hasattr(lvar, "is_stk_var") and lvar.is_stk_var():
+        if hasattr(lvar, "is_arg_var"):
+            try:
+                flag = lvar.is_arg_var() if callable(lvar.is_arg_var) else bool(lvar.is_arg_var)
+                if flag:
+                    return True
+            except Exception:
+                pass
+        if hasattr(lvar, "is_stk_var"):
+            try:
+                flag = lvar.is_stk_var() if callable(lvar.is_stk_var) else bool(lvar.is_stk_var)
+            except Exception:
+                flag = False
+            if not flag:
+                return False
             try:
                 loc = lvar.location
                 if hasattr(loc, "stkoff") and loc.stkoff() > 0:
