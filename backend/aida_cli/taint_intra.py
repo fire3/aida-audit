@@ -20,6 +20,15 @@ except ImportError:
     ida_idaapi = None
     idc = None
 
+def _get_badaddr():
+    if ida_idaapi and hasattr(ida_idaapi, "BADADDR"):
+        return ida_idaapi.BADADDR
+    if idc and hasattr(idc, "BADADDR"):
+        return idc.BADADDR
+    return None
+
+BADADDR = _get_badaddr()
+
 
 UNKNOWN_ALIAS = object()
 
@@ -323,6 +332,7 @@ class IntraTaintScanner:
         self.mop_d = getattr(ida_hexrays, "mop_d", None)
         self.mop_f = getattr(ida_hexrays, "mop_f", None)
         self.mop_a = getattr(ida_hexrays, "mop_a", None)
+        self.mop_h = getattr(ida_hexrays, "mop_h", None)
         self.mop_z = getattr(ida_hexrays, "mop_z", None)
         self.m_mov = getattr(ida_hexrays, "m_mov", None)
         self.m_add = getattr(ida_hexrays, "m_add", None)
@@ -336,6 +346,7 @@ class IntraTaintScanner:
         self.m_ldx = getattr(ida_hexrays, "m_ldx", None)
         self.m_stx = getattr(ida_hexrays, "m_stx", None)
         self.m_call = getattr(ida_hexrays, "m_call", None)
+        self.m_icall = getattr(ida_hexrays, "m_icall", None)
         self.m_jnz = getattr(ida_hexrays, "m_jnz", None)
         self.m_jz = getattr(ida_hexrays, "m_jz", None)
         self.m_jg = getattr(ida_hexrays, "m_jg", None)
@@ -367,6 +378,42 @@ class IntraTaintScanner:
             return getattr(cfunc, "mba", None)
         except Exception:
             return None
+
+    def _safe_dstr(self, obj):
+        try:
+            s = obj.dstr()
+            if s and "ida_hexrays.mnumber_t" in s:
+                if hasattr(obj, "value"):
+                    return str(obj.value)
+            return s
+        except Exception:
+            try:
+                return obj._print()
+            except Exception:
+                try:
+                    return str(obj)
+                except Exception:
+                    return "<?>"
+
+    def _resolve_name_ea(self, name):
+        if not name:
+            return None
+        if idc:
+            try:
+                ea = idc.get_name_ea_simple(name)
+                if ea != BADADDR:
+                    return ea
+            except Exception:
+                pass
+        for candidate in (name, "_" + name, "__imp_" + name, "__imp__" + name, "." + name):
+            if idc:
+                try:
+                    ea = idc.get_name_ea_simple(candidate)
+                    if ea != BADADDR:
+                        return ea
+                except Exception:
+                    continue
+        return None
 
     def _iter_block_links(self, block, attr_name):
         links = getattr(block, attr_name, None)
@@ -669,10 +716,16 @@ class IntraTaintScanner:
         opcode = getattr(insn, "opcode", None)
         if self.debug and self.logger:
             self.logger.log(f"DEBUG: _apply_transfer - block={block_serial}, opcode={opcode}, ea={getattr(insn, 'ea', 0):x}")
+            insn_text = self._safe_dstr(insn)
+            self.logger.log(f"DEBUG: _apply_transfer - insn={insn_text}")
+            if insn_text and "execl" in insn_text.lower():
+                self.logger.log(f"DEBUG: _apply_transfer - execl_insn opcode={opcode} ea={getattr(insn, 'ea', 0):x} insn={insn_text}")
             if self.m_call is not None:
                 self.logger.log(f"DEBUG: _apply_transfer - m_call value={self.m_call}")
             else:
                 self.logger.log(f"DEBUG: _apply_transfer - m_call is None")
+            if self.m_icall is not None:
+                self.logger.log(f"DEBUG: _apply_transfer - m_icall value={self.m_icall}")
         findings = []
         gen_keys = set()
         kill_keys = set()
@@ -761,7 +814,7 @@ class IntraTaintScanner:
                     if target in state.tainted:
                         self._untaint_key(state, target)
                         kill_keys.add(target)
-        if opcode == self.m_call:
+        if opcode in (self.m_call, self.m_icall):
             if self.debug and self.logger:
                 self.logger.log(f"DEBUG: _apply_transfer - m_call at {getattr(insn, 'ea', 0):x}")
             call_findings, gen_call, kill_call, call_sources = self._handle_call(state, insn, block_serial, func_name)
@@ -780,9 +833,11 @@ class IntraTaintScanner:
         gen_keys = set()
         kill_keys = set()
         new_sources = set()
-        callee_name, callee_ea = self._callee_info(insn.l)
+        callee_mop, _, _ = self._select_call_operands(insn.l, insn.r, insn.d)
+        callee_name, callee_ea = self._callee_info(callee_mop)
         if self.debug and self.logger:
              self.logger.log(f"DEBUG: _handle_call visiting {callee_name} at {getattr(insn, 'ea', 0):x}")
+             self.logger.log(f"DEBUG: _handle_call callee_mop={self._safe_dstr(callee_mop)}")
         args = self._call_args(insn)
         if self.debug and self.logger:
             self.logger.log(f"DEBUG: _handle_call - {len(args)} arguments")
@@ -1149,6 +1204,11 @@ class IntraTaintScanner:
         mop_t = self._mop_type(mop)
         if mop_t == self.mop_v:
             ea = self._mop_addr(mop)
+        elif mop_t == self.mop_h:
+            helper = getattr(mop, "helper", None)
+            if helper:
+                ea = self._resolve_name_ea(helper)
+                return helper, ea
         elif mop_t == self.mop_d:
             inner = getattr(mop, "d", None)
             if inner is not None:
