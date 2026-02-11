@@ -500,26 +500,55 @@ class IntraTaintScanner:
 
     def _build_lvar_meta(self, mba):
         meta = {}
-        for lvar in getattr(mba, "vars", []) or []:
-            idx = getattr(lvar, "idx", None)
+        if not hasattr(mba, "vars"):
+            return meta
+        vars_obj = mba.vars
+        if vars_obj is None:
+            return meta
+        
+        try:
+            var_count = len(vars_obj)
+        except Exception:
+            var_count = 0
+        
+        for i in range(var_count):
+            try:
+                lvar = vars_obj[i]
+            except Exception:
+                continue
+            idx = i
             if idx is None:
                 continue
+            is_arg = self._is_lvar_arg(lvar)
             meta[idx] = {
                 "name": getattr(lvar, "name", None),
                 "type": str(getattr(lvar, "type", "")),
                 "size": getattr(lvar, "width", None),
-                "is_arg": self._is_lvar_arg(lvar),
+                "is_arg": is_arg,
             }
         return meta
 
     def _init_param_taints(self, mba, func_name):
         taints = []
-        for lvar in getattr(mba, "vars", []) or []:
+        if not hasattr(mba, "vars"):
+            return taints
+        vars_obj = mba.vars
+        if vars_obj is None:
+            return taints
+        
+        try:
+            var_count = len(vars_obj)
+        except Exception:
+            var_count = 0
+        
+        for i in range(var_count):
+            try:
+                lvar = vars_obj[i]
+            except Exception:
+                continue
             if not self._is_lvar_arg(lvar):
                 continue
-            idx = getattr(lvar, "idx", None)
-            if idx is None:
-                continue
+            idx = i
             key = f"lvar:{idx}"
             attrs = TaintedObjAttrs(
                 is_local_var=True,
@@ -570,8 +599,17 @@ class IntraTaintScanner:
                     self.logger.log(f"DEBUG: _pass1_iterate - exceeded max iterations, stopping")
                 break
             in_state = TaintState()
-            for pred in self._iter_block_links(block, "pred"):
+            pred_links = list(self._iter_block_links(block, "pred"))
+            valid_pred_found = False
+            for pred in pred_links:
+                pred_block = mba.get_mblock(int(pred))
+                pred_head_ea = getattr(pred_block.head, 'ea', 0)
+                if pred_head_ea == 0:
+                    continue
+                valid_pred_found = True
                 in_state.merge(out_states[int(pred)])
+            if not valid_pred_found and block_serial in out_states:
+                in_state = out_states[block_serial].clone()
             out_state = in_state.clone()
             new_findings = []
             taint_gen = set()
@@ -1311,22 +1349,29 @@ class IntraTaintScanner:
     def _is_lvar_arg(self, lvar):
         if hasattr(lvar, "is_arg_var"):
             try:
-                flag = lvar.is_arg_var() if callable(lvar.is_arg_var) else bool(lvar.is_arg_var)
-                if flag:
+                flag = lvar.is_arg_var
+                if callable(flag):
+                    flag = flag()
+                if bool(flag):
                     return True
             except Exception:
                 pass
         if hasattr(lvar, "is_stk_var"):
             try:
-                flag = lvar.is_stk_var() if callable(lvar.is_stk_var) else bool(lvar.is_stk_var)
+                flag = lvar.is_stk_var
+                if callable(flag):
+                    flag = flag()
+                flag = bool(flag)
             except Exception:
                 flag = False
             if not flag:
                 return False
             try:
                 loc = lvar.location
-                if hasattr(loc, "stkoff") and loc.stkoff() > 0:
-                    return True
+                if hasattr(loc, "stkoff"):
+                    stkoff = loc.stkoff() if callable(loc.stkoff) else loc.stkoff
+                    if stkoff > 0:
+                        return True
             except Exception:
                 return False
         return False
@@ -1334,8 +1379,7 @@ class IntraTaintScanner:
     def _resolve_mop_taint(self, state, mop):
         if mop is None:
             return None, None
-        if self.debug and self.logger:
-            self.logger.log(f"DEBUG: _resolve_mop_taint - mop_type={self._mop_type(mop)}, key={self._mop_key(mop)}")
+        print(f"DEBUG: _resolve_mop_taint - mop_type={self._mop_type(mop)}, key={self._mop_key(mop)}, state.tainted.keys={list(state.tainted.keys())}")
         if self._mop_type(mop) == self.mop_a:
             inner = getattr(mop, "a", None)
             inner_key, inner_obj = self._resolve_mop_taint(state, inner)
@@ -1345,11 +1389,9 @@ class IntraTaintScanner:
             return self._resolve_insn_taint(state, mop.d)
         key = self._mop_key(mop)
         if key and key in state.tainted:
-            if self.debug and self.logger:
-                self.logger.log(f"DEBUG: _resolve_mop_taint - FOUND key={key}")
+            print(f"DEBUG: _resolve_mop_taint - FOUND key={key}")
             return key, state.tainted[key]
-        if self.debug and self.logger:
-            self.logger.log(f"DEBUG: _resolve_mop_taint - NOT FOUND key={key}")
+        print(f"DEBUG: _resolve_mop_taint - NOT FOUND key={key}")
         return key, None
 
     def _resolve_insn_taint(self, state, insn):
