@@ -238,7 +238,7 @@ class FuncNode:
 
 ```python
 {
-    "name": "recv",          # 规则中的 name 字段（精确匹配时）或匹配到的函数名
+    "name": "recv",          # 目标二进制中的真实函数名
     "ea":   "0x401000",      # 十六进制字符串
     "args": [1]              # 对应规则中的 args 字段
 }

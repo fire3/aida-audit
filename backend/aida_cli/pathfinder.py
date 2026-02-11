@@ -332,7 +332,7 @@ class PathFinder:
             src_ea = next(iter(self.source_caller_map[start_caller]))
             rule = self.source_rules.get(src_ea, {})
             src_info = {
-                "name": rule.get("name") or ida_funcs.get_func_name(src_ea),
+                "name": ida_funcs.get_func_name(src_ea),
                 "ea": hex(src_ea),
                 "args": rule.get("args"),
             }
@@ -342,7 +342,7 @@ class PathFinder:
             sink_ea = next(iter(self.sink_caller_map[end_caller]))
             rule = self.sink_rules.get(sink_ea, {})
             sink_info = {
-                "name": rule.get("name") or ida_funcs.get_func_name(sink_ea),
+                "name": ida_funcs.get_func_name(sink_ea),
                 "ea": hex(sink_ea),
                 "args": rule.get("args"),
             }
