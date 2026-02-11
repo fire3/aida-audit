@@ -9,6 +9,7 @@ from collections import deque
 from . import ida_utils
 from .taint_rules import RuleSet, default_cwe78_rules
 from .pathfinder import PathFinder
+from .taint_intra import IntraTaintScanner
 
 # Try to import IDA modules
 import idapro
@@ -191,6 +192,7 @@ def _run_single_scan(target, args, ruleset, logger):
     workdir = None
     
     path_finder = PathFinder(ruleset, logger)
+    taint_scanner = IntraTaintScanner(ruleset, logger=logger)
     findings = []
     
     try:
@@ -202,13 +204,22 @@ def _run_single_scan(target, args, ruleset, logger):
             _ensure_function_analysis(logger)
         
         logger.log("Starting path analysis...")
+        paths = []
         try:
             path_finder.identify_markers()
-            paths = path_finder.find_paths()
-            for p in paths:
-                findings.append(p)
+            paths = path_finder.find_paths() or []
         except Exception as e:
             logger.log(f"Path analysis failed: {e}", level="ERROR")
+            import traceback
+            traceback.print_exc()
+        logger.log("Starting intra-function taint analysis...")
+        try:
+            reports = taint_scanner.scan_paths(paths)
+            for report in reports or []:
+                for finding in report.get("findings", []):
+                    findings.append(finding)
+        except Exception as e:
+            logger.log(f"Intra-function taint analysis failed: {e}", level="ERROR")
             import traceback
             traceback.print_exc()
     finally:
