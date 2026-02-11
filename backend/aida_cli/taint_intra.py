@@ -3,6 +3,7 @@ import uuid
 from dataclasses import dataclass, field
 
 from . import ida_utils
+from .rule_matcher import RuleMatcher
 
 try:
     import ida_hexrays
@@ -236,6 +237,7 @@ class IntraTaintScanner:
         self.include_pass_results = include_pass_results
         self.max_iterations_multiplier = max_iterations_multiplier
         self._init_mcode_constants()
+        self.matcher = RuleMatcher(self.logger)
 
     def scan_paths(self, paths, maturity=None):
         funcs = self._collect_functions_from_paths(paths)
@@ -303,6 +305,8 @@ class IntraTaintScanner:
         self.mop_n = getattr(ida_hexrays, "mop_n", None)
         self.mop_d = getattr(ida_hexrays, "mop_d", None)
         self.mop_f = getattr(ida_hexrays, "mop_f", None)
+        self.mop_a = getattr(ida_hexrays, "mop_a", None)
+        self.mop_z = getattr(ida_hexrays, "mop_z", None)
         self.m_mov = getattr(ida_hexrays, "m_mov", None)
         self.m_add = getattr(ida_hexrays, "m_add", None)
         self.m_sub = getattr(ida_hexrays, "m_sub", None)
@@ -326,7 +330,7 @@ class IntraTaintScanner:
     def _default_maturity(self):
         if ida_hexrays is None:
             return None
-        return getattr(ida_hexrays, "MMAT_LOCOPT", None) or getattr(ida_hexrays, "MMAT_CALLS", None)
+        return getattr(ida_hexrays, "MMAT_CALLS", None) or getattr(ida_hexrays, "MMAT_LOCOPT", None)
 
     def _build_mba(self, func, maturity):
         try:
@@ -607,7 +611,7 @@ class IntraTaintScanner:
         kill_keys = set()
         new_sources = set()
         callee_name, callee_ea = self._callee_info(insn.l)
-        args = self._call_args(insn.r)
+        args = self._call_args(insn)
         call_is_sink = self._matches_any(self.ruleset.sinks, callee_name, callee_ea)
         for idx, arg in enumerate(args):
             key, obj = self._resolve_mop_taint(state, arg)
@@ -937,24 +941,57 @@ class IntraTaintScanner:
             return None, None
         return None, ea
 
-    def _call_args(self, mop):
-        if mop is None:
+    def _is_arg_list(self, mop):
+        if ida_hexrays is None:
+            return False
+        return mop is not None and getattr(mop, "t", None) == self.mop_f
+
+    def _is_none_mop(self, mop):
+        if ida_hexrays is None:
+            return mop is None
+        return mop is None or getattr(mop, "t", None) == self.mop_z
+
+    def _select_call_operands(self, l, r, d):
+        arg_list_mop = None
+        if self._is_arg_list(r):
+            arg_list_mop = r
+        elif self._is_arg_list(d):
+            arg_list_mop = d
+        elif self._is_arg_list(l):
+            arg_list_mop = l
+
+        callee = l
+        if self._is_none_mop(callee) or self._is_arg_list(callee):
+            if r is not None and not self._is_arg_list(r):
+                callee = r
+            elif d is not None and not self._is_arg_list(d):
+                callee = d
+
+        ret_mop = d
+        if self._is_none_mop(ret_mop) or ret_mop == arg_list_mop or ret_mop == callee:
+            if r is not None and r != arg_list_mop and r != callee and not self._is_none_mop(r):
+                ret_mop = r
+            elif l is not None and l != arg_list_mop and l != callee and not self._is_none_mop(l):
+                ret_mop = l
+            else:
+                ret_mop = None
+
+        return callee, arg_list_mop, ret_mop
+
+    def _iter_call_args(self, obj):
+        if obj is None:
             return []
-        if self._mop_type(mop) == self.mop_f and hasattr(mop, "f"):
-            callinfo = mop.f
-            args = getattr(callinfo, "args", None)
-            if callable(args):
-                try:
-                    return list(args())
-                except Exception:
-                    return []
-            if args is not None:
-                try:
-                    return list(args)
-                except Exception:
-                    return []
-        if hasattr(mop, "args"):
-            args = getattr(mop, "args")
+        if callable(obj):
+            try:
+                obj = obj()
+            except Exception:
+                return []
+        try:
+            return list(obj)
+        except Exception:
+            pass
+        if hasattr(obj, "args"):
+            args = getattr(obj, "args")
             if callable(args):
                 try:
                     return list(args())
@@ -963,11 +1000,62 @@ class IntraTaintScanner:
             try:
                 return list(args)
             except Exception:
-                return []
-        try:
-            return list(mop)
-        except Exception:
+                pass
+        if hasattr(obj, "f"):
+            f = getattr(obj, "f", None)
+            if callable(f):
+                try:
+                    f = f()
+                except Exception:
+                    f = None
+            if f is not None:
+                if hasattr(f, "args"):
+                    try:
+                        return list(f.args)
+                    except Exception:
+                        pass
+                try:
+                    return list(f)
+                except Exception:
+                    pass
+        return []
+
+    def _normalize_call_arg(self, arg):
+        if arg is None:
+            return None
+        if hasattr(arg, "mop"):
+            return arg.mop
+        if hasattr(arg, "arg"):
+            return arg.arg
+        return arg
+
+    def _call_args(self, insn_or_mop):
+        if insn_or_mop is None:
             return []
+        if hasattr(insn_or_mop, "l") or hasattr(insn_or_mop, "opcode"):
+            insn = insn_or_mop
+            l = getattr(insn, "l", None)
+            r = getattr(insn, "r", None)
+            d = getattr(insn, "d", None)
+            _, arg_list_mop, _ = self._select_call_operands(l, r, d)
+            arg_sources = []
+            if hasattr(insn, "args") and getattr(insn, "args", None):
+                arg_sources.append(insn.args)
+            if arg_list_mop:
+                arg_sources.append(arg_list_mop)
+            args = []
+            for src in arg_sources:
+                for arg in self._iter_call_args(src):
+                    mop = self._normalize_call_arg(arg)
+                    if mop is not None:
+                        args.append(mop)
+            return args
+        args = []
+        for arg in self._iter_call_args(insn_or_mop):
+            mop = self._normalize_call_arg(arg)
+            if mop is not None:
+                args.append(mop)
+        return args
         return []
 
     def _mop_key(self, mop):
@@ -985,10 +1073,26 @@ class IntraTaintScanner:
         if mop_t == self.mop_v:
             ea = self._mop_addr(mop)
             return f"global:{hex(ea) if ea is not None else '0x0'}"
+        if mop_t == self.mop_a:
+            inner_key = self._mop_key(getattr(mop, "a", None))
+            return f"addr:{inner_key}" if inner_key else "addr:unknown"
         if mop_t == self.mop_n:
             return None
         if mop_t == self.mop_d:
-            return self._mop_key(getattr(mop, "d", None))
+            insn = getattr(mop, "d", None)
+            if insn is None:
+                return None
+            opcode = getattr(insn, "opcode", None)
+            if opcode in (self.m_add, self.m_sub):
+                l_key = self._mop_key(getattr(insn, "l", None))
+                r_key = self._mop_key(getattr(insn, "r", None))
+                def is_var(key):
+                    return key and (key.startswith("lvar:") or key.startswith("reg:") or key.startswith("stack:") or key.startswith("global:") or key.startswith("addr:"))
+                if is_var(l_key):
+                    return l_key
+                if is_var(r_key):
+                    return r_key
+            return self._mop_key(getattr(insn, "l", None)) or self._mop_key(getattr(insn, "r", None))
         return None
 
     def _mop_type(self, mop):
@@ -1040,6 +1144,11 @@ class IntraTaintScanner:
     def _resolve_mop_taint(self, state, mop):
         if mop is None:
             return None, None
+        if self._mop_type(mop) == self.mop_a:
+            inner = getattr(mop, "a", None)
+            inner_key, inner_obj = self._resolve_mop_taint(state, inner)
+            if inner_obj:
+                return inner_key, inner_obj
         if self._mop_type(mop) == self.mop_d:
             return self._resolve_insn_taint(state, mop.d)
         key = self._mop_key(mop)
@@ -1157,9 +1266,12 @@ class IntraTaintScanner:
         for idx in arg_indexes:
             if idx < 0 or idx >= len(args):
                 continue
-            key = self._mop_key(args[idx])
+            arg = args[idx]
+            if self._mop_type(arg) == self.mop_a:
+                arg = getattr(arg, "a", None) or arg
+            key = self._mop_key(arg)
             if key:
-                out.append((key, args[idx]))
+                out.append((key, arg))
         if rule.get("ret") and d is not None:
             key = self._mop_key(d)
             if key:
@@ -1176,8 +1288,20 @@ class IntraTaintScanner:
         if rule.get("ea") is not None and callee_ea is not None:
             return rule.get("ea") == callee_ea
         name = rule.get("name")
-        if name and callee_name and name.lower() == callee_name.lower():
-            return True
+        if name:
+            callee_norm = self.matcher.normalize_name(callee_name)
+            if callee_norm is None and callee_ea is not None:
+                ida_name = None
+                if ida_funcs:
+                    ida_name = ida_funcs.get_func_name(callee_ea)
+                if not ida_name and idc:
+                    try:
+                        ida_name = idc.get_name(callee_ea)
+                    except Exception:
+                        ida_name = None
+                callee_norm = self.matcher.normalize_name(ida_name)
+            if callee_norm and self.matcher.normalize_name(name) == callee_norm:
+                return True
         regex = rule.get("regex")
         if regex and callee_name:
             try:

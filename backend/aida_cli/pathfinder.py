@@ -7,6 +7,8 @@ import ida_funcs
 import idc
 import ida_idaapi
 
+from .rule_matcher import RuleMatcher
+
 
 @dataclass
 class PathFinderConfig:
@@ -69,56 +71,7 @@ class PathFinder:
         self.errors = []
         self.stats = SearchStats()
         self.nodes_visited = 0
-        self.badaddr = self._get_badaddr()
-
-    def _get_badaddr(self):
-        try:
-            import ida_idaapi
-            if hasattr(ida_idaapi, "BADADDR"):
-                return ida_idaapi.BADADDR
-        except ImportError:
-            pass
-        if idc:
-            try:
-                return idc.BADADDR
-            except:
-                pass
-        return 0xFFFFFFFFFFFFFFFF
-
-    def _resolve_name(self, name):
-        """Resolve a name to an effective address (EA)."""
-        if not name:
-            return self.badaddr
-
-        # Try exact match
-        try:
-            ea = idc.get_name_ea_simple(name)
-            if ea != self.badaddr:
-                return ea
-        except Exception:
-            pass
-
-        # Try imports
-        for prefix in ("_", "__imp_", "__imp__", "."):
-            candidate = prefix + name
-            try:
-                ea = idc.get_name_ea_simple(candidate)
-                if ea != self.badaddr:
-                    return ea
-            except Exception:
-                pass
-        return self.badaddr
-
-    def _collect_names(self):
-        """Collect all names from the binary for matching."""
-        name_map = {}
-        for ea, name in idautils.Names():
-            name_map[name] = ea
-            if name.startswith("__imp_"):
-                name_map[name[6:]] = ea
-            elif name.startswith("_"):
-                name_map[name[1:]] = ea
-        return name_map
+        self.matcher = RuleMatcher(logger)
 
     def _record_error(self, level, stage, message):
         self.errors.append(SearchError(level=level, stage=stage, message=message))
@@ -126,38 +79,6 @@ class PathFinder:
             self.logger.log(message, level="WARN")
         else:
             self.logger.log(message, level="ERROR")
-
-    def _match_rules_against_names(self, rules, name_map, target_set, rule_map):
-        """Match a list of rules against the collected names."""
-        unmatched = []
-        for rule in rules:
-            matched_ea = None
-
-            # 1. Try name match
-            name = rule.get("name")
-            if name:
-                if name in name_map:
-                    matched_ea = name_map[name]
-                else:
-                    matched_ea = self._resolve_name(name)
-                    if matched_ea == self.badaddr:
-                        matched_ea = None
-
-            # 2. Try regex match
-            if not matched_ea and rule.get("regex"):
-                regex = rule["regex"]
-                for n, ea in name_map.items():
-                    if regex.match(n):
-                        matched_ea = ea
-                        break
-
-            if matched_ea is not None and matched_ea != self.badaddr:
-                target_set.add(matched_ea)
-                rule_map[matched_ea] = rule
-                self.logger.log(f"Matched {rule.get('name') or rule.get('pattern')} @ {hex(matched_ea)}")
-            else:
-                unmatched.append(rule)
-        return unmatched
 
     def identify_markers(self):
         """Identify source and sink functions in the binary."""
@@ -167,9 +88,9 @@ class PathFinder:
         self.sink_rules = {}
         self.errors = []
         self.stats = SearchStats()
-        name_map = self._collect_names()
-        unmatched_sources = self._match_rules_against_names(self.ruleset.sources, name_map, self.source_eas, self.source_rules)
-        unmatched_sinks = self._match_rules_against_names(self.ruleset.sinks, name_map, self.sink_eas, self.sink_rules)
+        name_map = self.matcher.collect_names()
+        unmatched_sources = self.matcher.match_rules_against_names(self.ruleset.sources, name_map, self.source_eas, self.source_rules)
+        unmatched_sinks = self.matcher.match_rules_against_names(self.ruleset.sinks, name_map, self.sink_eas, self.sink_rules)
         for rule in unmatched_sources:
             self._record_error("warning", "marker_identification", f"No match for source rule: {rule.get('name') or rule.get('pattern')}")
         for rule in unmatched_sinks:
