@@ -1146,8 +1146,15 @@ class IntraTaintScanner:
         if mop is None:
             return None, None
         ea = None
-        if self._mop_type(mop) == self.mop_v:
+        mop_t = self._mop_type(mop)
+        if mop_t == self.mop_v:
             ea = self._mop_addr(mop)
+        elif mop_t == self.mop_d:
+            inner = getattr(mop, "d", None)
+            if inner is not None:
+                inner_ea = getattr(inner, "ea", None)
+                if inner_ea is not None:
+                    ea = inner_ea
         if ea is None and hasattr(mop, "g"):
             ea = getattr(mop, "g", None)
         name = None
@@ -1266,16 +1273,16 @@ class IntraTaintScanner:
             r = getattr(insn, "r", None)
             d = getattr(insn, "d", None)
             _, arg_list_mop, _ = self._select_call_operands(l, r, d)
-            arg_sources = []
-            if hasattr(insn, "args") and getattr(insn, "args", None):
-                arg_sources.append(insn.args)
-            if arg_list_mop:
-                arg_sources.append(arg_list_mop)
             args = []
-            for src in arg_sources:
-                for arg in self._iter_call_args(src):
+            if hasattr(insn, "args") and getattr(insn, "args", None):
+                for arg in self._iter_call_args(insn.args):
                     mop = self._normalize_call_arg(arg)
                     if mop is not None:
+                        args.append(mop)
+            if arg_list_mop:
+                for arg in self._iter_call_args(arg_list_mop):
+                    mop = self._normalize_call_arg(arg)
+                    if mop is not None and mop not in args:
                         args.append(mop)
             return args
         args = []
@@ -1284,7 +1291,6 @@ class IntraTaintScanner:
             if mop is not None:
                 args.append(mop)
         return args
-        return []
 
     def _mop_key(self, mop):
         if mop is None:
@@ -1404,6 +1410,10 @@ class IntraTaintScanner:
             l_key, l_obj = self._resolve_mop_taint(state, insn.l)
             r_key, r_obj = self._resolve_mop_taint(state, insn.r)
             return l_key or r_key, l_obj or r_obj
+        if op == self.m_call:
+            r_key, r_obj = self._resolve_mop_taint(state, insn.r)
+            d_key, d_obj = self._resolve_mop_taint(state, insn.d)
+            return r_key or d_key, r_obj or d_obj
         return None, None
 
     def _resolve_addr_key(self, base_mop, off_mop):

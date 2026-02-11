@@ -21,7 +21,7 @@ def _print_main_help():
     print("  install - Generate MCP client config")
     print("  workspace - Initialize a local workspace")
     print("  scan    - Run IDA Microcode taint scan")
-    print("  taint    - Run IDA Microcode taint scan")
+    print("  taint   - Run IDA Intra-function taint scan")
 
 def _build_opencode_stdio_config(project, python_cmd, server_name):
     command = python_cmd
