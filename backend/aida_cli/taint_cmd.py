@@ -192,7 +192,7 @@ def _run_single_scan(target, args, ruleset, logger):
     workdir = None
     
     path_finder = PathFinder(ruleset, logger)
-    taint_scanner = IntraTaintScanner(ruleset, logger=logger)
+    taint_scanner = IntraTaintScanner(ruleset, logger=logger, debug=True)
     findings = []
     
     try:

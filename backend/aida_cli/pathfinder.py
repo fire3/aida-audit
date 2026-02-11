@@ -91,11 +91,10 @@ class PathFinder:
         name_map = self.matcher.collect_names()
         unmatched_sources = self.matcher.match_rules_against_names(self.ruleset.sources, name_map, self.source_eas, self.source_rules)
         unmatched_sinks = self.matcher.match_rules_against_names(self.ruleset.sinks, name_map, self.sink_eas, self.sink_rules)
-        for rule in unmatched_sources:
-            self._record_error("warning", "marker_identification", f"No match for source rule: {rule.get('name') or rule.get('pattern')}")
-        for rule in unmatched_sinks:
-            self._record_error("warning", "marker_identification", f"No match for sink rule: {rule.get('name') or rule.get('pattern')}")
-
+        #for rule in unmatched_sources:
+        #    self._record_error("warning", "marker_identification", f"No match for source rule: {rule.get('name') or rule.get('pattern')}")
+        #for rule in unmatched_sinks:
+        #    self._record_error("warning", "marker_identification", f"No match for sink rule: {rule.get('name') or rule.get('pattern')}")
         self.logger.log(f"Found {len(self.source_eas)} sources and {len(self.sink_eas)} sinks")
         self.stats.source_funcs_found = len(self.source_eas)
         self.stats.sink_funcs_found = len(self.sink_eas)
