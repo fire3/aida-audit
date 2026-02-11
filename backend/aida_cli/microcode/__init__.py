@@ -1,6 +1,5 @@
 """
-Backward-compatible wrapper for microcode taint analysis.
-Imports from the new modular structure and re-exports all symbols.
+Microcode taint analysis module for IDA Pro.
 """
 
 import json
@@ -46,21 +45,20 @@ def get_badaddr():
 
 BADADDR = get_badaddr()
 
-ida_names = None
-
 try:
     import ida_xref
 except ImportError:
     ida_xref = None
 
-from .microcode import (
+from .analyzer import (
     MicrocodeAnalyzer,
     MopUsageVisitor,
     analyze_function,
-    TaintState,
-    EngineLogger,
-    MicrocodeTaintEngine,
 )
+
+from .state import TaintState
+from .logger import EngineLogger
+from .engine import MicrocodeTaintEngine
 
 __all__ = [
     "BADADDR",
@@ -76,7 +74,6 @@ __all__ = [
     "ida_gdl",
     "ida_idaapi",
     "ida_xref",
-    "ida_names",
     "MicrocodeAnalyzer",
     "MopUsageVisitor",
     "analyze_function",

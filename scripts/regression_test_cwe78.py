@@ -115,7 +115,7 @@ def process_test_case(file_path, output_dir, clean, keep, verbose):
         
     # Step 1: Scan (Handles export implicitly)
     # Use python -m aida_cli.cli scan directly on the binary
-    scan_cmd = f"{PYTHON_CMD} -m aida_cli.cli taint \"{file_path}\" --rules cwe-78"
+    scan_cmd = f"{PYTHON_CMD} -m aida_cli.cli scan \"{file_path}\" --rules cwe-78"
     if keep:
         scan_cmd += " --keep"
     if verbose:
