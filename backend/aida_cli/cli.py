@@ -11,7 +11,6 @@ import tempfile
 from . import export_cmd
 from . import server_cmd
 from . import scan_cmd
-from . import taint_cmd
 
 def _print_main_help():
     print("Usage: aida-cli <command> [args]")
