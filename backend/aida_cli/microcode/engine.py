@@ -101,7 +101,7 @@ class SummaryGenerator:
         for insn in func_info.insns:
             if insn.opcode == "ret":
                 for read in insn.reads:
-                    key = self.utils.op_key(read.location)
+                    key = self.utils.op_key(read.attr)
                     taint = state.get_taint(key)
                     if taint:
                         is_source = True
@@ -153,12 +153,12 @@ class InstructionTaintProcessor:
             if writes:
                 for call in calls:
                     if call.ret is None:
-                        call.ret = writes[0].location
+                        call.ret = writes[0].attr
 
         if self.utils.is_move_opcode(opcode) and len(writes) == 1:
-            w_key = self.utils.op_key(writes[0].location)
+            w_key = self.utils.op_key(writes[0].attr)
             for r in reads:
-                r_key = self.utils.op_key(r.location)
+                r_key = self.utils.op_key(r.attr)
                 if self.utils.is_addr_key(r_key) and w_key:
                     target = self.utils.strip_addr_key(r_key)
                     state.add_alias(w_key, target)
@@ -167,7 +167,7 @@ class InstructionTaintProcessor:
 
         if self.utils.is_store_opcode(opcode) and read_labels:
             for r in reads:
-                r_key = self.utils.op_key(r.location)
+                r_key = self.utils.op_key(r.attr)
                 if r_key and r_key in state.aliases:
                     target = state.aliases[r_key]
                     state.add_taint(target, read_labels, read_origins)
@@ -180,7 +180,7 @@ class InstructionTaintProcessor:
     def _propagate_writes(self, state, insn, labels, origins, read_keys):
         write_keys = []
         for write in insn.writes:
-            key = self.utils.op_key(write.location)
+            key = self.utils.op_key(write.attr)
             state.add_taint(key, labels, origins)
             if key:
                 write_keys.append(key)
@@ -190,7 +190,7 @@ class InstructionTaintProcessor:
         origins = set()
         keys = []
         for read in reads:
-            key = self.utils.op_key(read.location)
+            key = self.utils.op_key(read.attr)
             if not key:
                 continue
             keys.append(key)

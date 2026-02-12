@@ -174,8 +174,8 @@ class MicroCodeUtils:
             return None
         if isinstance(op, OperandAttr):
             return op.to_key()
-        if hasattr(op, "location") and op.location:
-            return op.location.to_key()
+        if hasattr(op, "attr") and op.attr:
+            return op.attr.to_key()
         if hasattr(op, "key"):
             return op.key or None
         if isinstance(op, dict):
