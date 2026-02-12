@@ -101,7 +101,7 @@ class SummaryGenerator:
         for insn in func_info.insns:
             if insn.opcode == "ret":
                 for read in insn.reads:
-                    key = self.utils.op_key(read.attr)
+                    key = read.attr.to_key()
                     taint = state.get_taint(key)
                     if taint:
                         is_source = True
@@ -156,9 +156,9 @@ class InstructionTaintProcessor:
                         call.ret = writes[0].attr
 
         if self.utils.is_move_opcode(opcode) and len(writes) == 1:
-            w_key = self.utils.op_key(writes[0].attr)
+            w_key = writes[0].attr.to_key()
             for r in reads:
-                r_key = self.utils.op_key(r.attr)
+                r_key = r.attr.to_key()
                 if self.utils.is_addr_key(r_key) and w_key:
                     target = self.utils.strip_addr_key(r_key)
                     state.add_alias(w_key, target)
@@ -167,7 +167,7 @@ class InstructionTaintProcessor:
 
         if self.utils.is_store_opcode(opcode) and read_labels:
             for r in reads:
-                r_key = self.utils.op_key(r.attr)
+                r_key = r.attr.to_key()
                 if r_key and r_key in state.aliases:
                     target = state.aliases[r_key]
                     state.add_taint(target, read_labels, read_origins)
@@ -180,7 +180,7 @@ class InstructionTaintProcessor:
     def _propagate_writes(self, state, insn, labels, origins, read_keys):
         write_keys = []
         for write in insn.writes:
-            key = self.utils.op_key(write.attr)
+            key = write.attr.to_key()
             state.add_taint(key, labels, origins)
             if key:
                 write_keys.append(key)
@@ -190,7 +190,7 @@ class InstructionTaintProcessor:
         origins = set()
         keys = []
         for read in reads:
-            key = self.utils.op_key(read.attr)
+            key = read.attr.to_key()
             if not key:
                 continue
             keys.append(key)
@@ -221,7 +221,7 @@ class InstructionTaintProcessor:
         for idx in indexes:
             if idx < 0 or idx >= len(args):
                 continue
-            key = self.utils.op_key(args[idx])
+            key = args[idx].to_key()
             labels.update(state.get_taint(key))
             origins.update(state.get_origins(key))
         return labels, origins
@@ -271,17 +271,17 @@ class InstructionTaintProcessor:
             for idx in out_args:
                 if idx < 0 or idx >= len(args):
                     continue
-                key = self.utils.op_key(args[idx])
+                key = args[idx].to_key()
                 changed = state.add_taint(key, {label}, origins)
                 if changed:
                     self.logger.log(f"[TAINTER]   Taint added: arg[{idx}] key={key}")
             if rule.get("ret"):
-                key = self.utils.op_key(ret)
+                key = ret.to_key()
                 changed = state.add_taint(key, {label}, origins)
                 if changed:
                     self.logger.log(f"[TAINTER]   Taint added: ret key={key}")
             if rule.get("ret"):
-                key = self.utils.op_key(ret)
+                key = ret.to_key()
                 print(f"[TAINT_DEBUG_SOURCE]   Adding return taint: key={key}", file=sys.stderr)
                 state.add_taint(key, {label}, origins)
 
@@ -300,13 +300,13 @@ class InstructionTaintProcessor:
             for idx in to_args:
                 if idx < 0 or idx >= len(args):
                     continue
-                key = self.utils.op_key(args[idx])
+                key = args[idx].to_key()
                 state.add_taint(key, labels, origins)
                 if key:
                     to_keys.append(key)
             ret_key = None
             if rule.get("to_ret"):
-                ret_key = self.utils.op_key(ret)
+                ret_key = ret.to_key()
                 state.add_taint(ret_key, labels, origins)
 
     def _apply_default_return_propagation(self, callee, args, ret, state, func_info):
@@ -314,7 +314,7 @@ class InstructionTaintProcessor:
             return
         labels, origins = self._collect_arg_taint(state, args, range(len(args)))
         if labels:
-            key = self.utils.op_key(ret)
+            key = ret.to_key()
             state.add_taint(key, labels, origins)
 
     def _apply_sinks(self, insn, callee, callee_ea, args, state, func_info):
@@ -331,7 +331,7 @@ class InstructionTaintProcessor:
             for idx in arg_indexes:
                 if idx < 0 or idx >= len(args):
                     continue
-                key = self.utils.op_key(args[idx])
+                key = args[idx].to_key()
                 t = state.get_taint(key)
                 if not t:
                     continue

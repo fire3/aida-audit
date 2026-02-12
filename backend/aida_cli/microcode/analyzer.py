@@ -153,7 +153,7 @@ class MicrocodeInstructionAnalyzer:
         if opname == "mov" and getattr(insn, "d", None):
             for call in calls:
                 if call.ret is None:
-                    call.ret = self.utils.mop_entry(insn.d)
+                    call.ret = self.utils.mop_to_attr(insn.d)
 
         return reads, writes, calls
 

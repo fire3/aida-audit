@@ -120,28 +120,6 @@ class MicroCodeUtils:
                 except Exception:
                     return "<?>"
 
-    def mop_entry(self, mop):
-        """返回 OperandAttr (新接口)"""
-        return self.mop_to_attr(mop)
-
-    def op_key(self, op):
-        """获取操作数字符串 key"""
-        if not op:
-            return None
-        if isinstance(op, OperandAttr):
-            return op.to_key()
-        if hasattr(op, "attr") and op.attr:
-            return op.attr.to_key()
-        if hasattr(op, "key"):
-            return op.key or None
-        if isinstance(op, dict):
-            key = op.get("key")
-            if key:
-                return key
-            text = op.get("text")
-            return text or None
-        return None
-
     def is_move_opcode(self, opcode):
         return opcode in ("op_4", "mov")
 
