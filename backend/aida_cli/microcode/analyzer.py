@@ -7,6 +7,75 @@ from .constants import (
     BADADDR,
 )
 from .common import MicroCodeUtils
+from dataclasses import dataclass, field
+from typing import Optional
+
+
+@dataclass
+class OpInfo:
+    """操作数信息"""
+    key: str = ""          # 标识符: reg:{name}, imm:{value}, addr:{ea}, lvar:{idx}
+    text: str = ""         # 原始文本表示
+
+
+@dataclass
+class OperandInfo:
+    """指令操作数 (reads/writes 列表元素)"""
+    role: str = ""         # "src" (读取) 或 "dst" (写入)
+    op: OpInfo = field(default_factory=OpInfo)
+    access_mode: Optional[str] = None  # 可选: "addr" 表示地址访问
+
+
+@dataclass
+class CallInfo:
+    """函数调用信息 (calls 列表元素)"""
+    kind: str = ""              # 操作码类型 (call/jmp)
+    callee_name: Optional[str] = None  # 被调用函数名
+    target: Optional[OpInfo] = None    # 调用目标操作数
+    args: list = field(default_factory=list)   # 参数操作数列表
+    ret: Optional[OpInfo] = None      # 返回值存储位置
+
+
+@dataclass
+class InsnInfo:
+    """指令信息 (insns 列表元素)"""
+    block_id: int = 0
+    insn_idx: int = 0
+    ea: str = ""              # 十六进制地址
+    opcode: str = ""          # 操作码名称
+    text: str = ""            # 文本表示
+    reads: list = field(default_factory=list)    # OperandInfo 列表
+    writes: list = field(default_factory=list)   # OperandInfo 列表
+    calls: list = field(default_factory=list)    # CallInfo 列表
+
+
+@dataclass
+class ArgInfo:
+    """函数参数信息"""
+    lvar_idx: int = 0
+    name: str = ""
+    width: int = 0
+
+
+@dataclass
+class FuncInfo:
+    """
+    函数分析结果 (analyze_function 返回类型)
+
+    Attributes:
+        function: 函数名称
+        ea: 函数起始地址 (十六进制字符串，如 "0x401000")
+        maturity: microcode 成熟度级别
+        args: 函数参数列表
+        return_vars: 返回值变量的 lvar_idx 列表
+        insns: 指令列表
+    """
+    function: str = ""
+    ea: str = ""
+    maturity: int = 0
+    args: list = field(default_factory=list)     # ArgInfo 列表
+    return_vars: list = field(default_factory=list)  # int 列表
+    insns: list = field(default_factory=list)    # InsnInfo 列表
 
 
 _mop_visitor_base = ida_hexrays.mop_visitor_t if ida_hexrays else object
@@ -170,21 +239,21 @@ class MicrocodeFunctionAnalyzer:
     def analyze_function(self, pfn, maturity):
         func_name = ida_funcs.get_func_name(pfn.start_ea)
         func_args, return_vars = self._collect_signature_vars()
-        output = {
-            "function": func_name,
-            "ea": hex(pfn.start_ea),
-            "maturity": maturity,
-            "args": func_args,
-            "return_vars": return_vars,
-            "insns": [],
-        }
+        insns = []
         for block_id, insn_idx, insn in self._iter_instructions():
             try:
                 insn_entry = self._build_insn_entry(block_id, insn_idx, insn)
-                output["insns"].append(insn_entry)
+                insns.append(insn_entry)
             except Exception:
                 pass
-        return output
+        return FuncInfo(
+            function=func_name,
+            ea=hex(pfn.start_ea),
+            maturity=maturity,
+            args=func_args,
+            return_vars=return_vars,
+            insns=insns,
+        )
 
     def _collect_signature_vars(self):
         func_args = []
@@ -193,7 +262,7 @@ class MicrocodeFunctionAnalyzer:
             try:
                 for i, v in enumerate(self.mba.vars):
                     if v.is_arg_var:
-                        func_args.append({"lvar_idx": i, "name": v.name, "width": v.width})
+                        func_args.append(ArgInfo(lvar_idx=i, name=v.name, width=v.width))
                     is_result = False
                     if hasattr(v, "is_result_var") and v.is_result_var:
                         is_result = True
@@ -218,16 +287,16 @@ class MicrocodeFunctionAnalyzer:
     def _build_insn_entry(self, block_id, insn_idx, insn):
         ea_str = hex(insn.ea)
         cpg_info = self.instruction_analyzer.analyze_instruction(insn)
-        return {
-            "block_id": block_id,
-            "insn_idx": insn_idx,
-            "ea": ea_str,
-            "opcode": cpg_info["opcode"],
-            "text": cpg_info["text"],
-            "reads": cpg_info["reads"],
-            "writes": cpg_info["writes"],
-            "calls": cpg_info["calls"],
-        }
+        return InsnInfo(
+            block_id=block_id,
+            insn_idx=insn_idx,
+            ea=ea_str,
+            opcode=cpg_info["opcode"],
+            text=cpg_info["text"],
+            reads=cpg_info["reads"],
+            writes=cpg_info["writes"],
+            calls=cpg_info["calls"],
+        )
 
 
 class MicrocodeAnalyzer(MicrocodeInstructionAnalyzer):
@@ -240,66 +309,15 @@ def analyze_function(pfn, maturity):
     """
     分析单个函数并返回其污点分析所需的信息。
 
-    数据结构组织 (返回的 dict 整体结构):
-    {
-        "function": "main",                    # 函数名
-        "ea": "0x401000",                      # 函数起始地址
-        "maturity": 3,                         # microcode 成熟度
-        "args": [                              # 参数列表
-            {"lvar_idx": 0, "name": "argc", "width": 4},
-            {"lvar_idx": 1, "name": "argv", "width": 8}
-        ],
-        "return_vars": [0],                    # 返回值变量索引
-        "insns": [                             # === 指令列表 (核心数据) ===
-            {
-                "block_id": 0,                 # 基本块 ID
-                "insn_idx": 0,                 # 块内索引
-                "ea": "0x401020",              # 指令地址
-                "opcode": "mov",               # 操作码
-                "text": "mov eax, edx",        # 文本表示
-                "reads": [...],                # === 读操作数列表 ===
-                "writes": [...],               # === 写操作数列表 ===
-                "calls": [...]                 # === 函数调用列表 ===
-            }
-        ]
-    }
-
-    Reads/Writes 操作数结构 (op 列表中的元素):
-    [
-        {
-            "role": "src",                     # "src"=读取, "dst"=写入
-            "op": {                            # === 操作数详情 ===
-                "key": "reg:eax",              # 标识符格式:
-                                               #   "reg:{name}" - 寄存器
-                                               #   "imm:{value}" - 立即数
-                                               #   "addr:{ea}" - 内存地址
-                                               #   "lvar:{idx}" - 局部变量
-                "text": "eax",                 # 原始文本
-            },
-            "access_mode": "addr"              # 可选: 地址访问模式
-        }
-    ]
-
-    Calls 函数调用结构 (calls 列表中的元素):
-    [
-        {
-            "kind": "call",                    # 操作码类型 (call/jmp)
-            "callee_name": "printf",           # 被调用函数名
-            "target": {"key": "addr:403000"},  # 调用目标地址操作数
-            "args": [                          # === 调用参数列表 (操作数) ===
-                {"key": "str:Hello", "text": "\"Hello\""},
-                {"key": "reg:eax", "text": "eax"}
-            ],
-            "ret": {"key": "reg:eax", "text": "eax"}  # 返回值存储位置
-        }
-    ]
-
-    Args:
-        pfn: IDA 的 func_t 对象，表示要分析的函数
-        maturity: microcode 成熟度级别 (0-5)
-
     Returns:
-        dict: 如上结构的函数分析结果，失败时返回 None
+        FuncInfo: 函数分析结果 dataclass，包含以下字段:
+            - function: str, 函数名称
+            - ea: str, 函数起始地址 (十六进制)
+            - maturity: int, 成熟度级别
+            - args: list[ArgInfo], 参数列表
+            - return_vars: list[int], 返回值变量索引
+            - insns: list[InsnInfo], 指令列表
+        None: 如果分析失败
     """
     hf = ida_hexrays.hexrays_failure_t()
     mbr = ida_hexrays.mba_ranges_t(pfn)
