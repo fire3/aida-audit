@@ -239,7 +239,7 @@ class InstructionTaintProcessor:
         self._apply_sources(insn, callee, callee_ea, args, ret, state, func_info)
         self._apply_propagators(callee, callee_ea, args, ret, state)
         self._apply_default_return_propagation(args, ret, state)
-        findings.extend(self._apply_sinks(insn, callee, args, state, func_info))
+        findings.extend(self._apply_sinks(insn, callee, callee_ea, args, state, func_info))
 
         return findings
 
@@ -336,10 +336,10 @@ class InstructionTaintProcessor:
         if labels:
             state.add_taint(ret, labels, origins)
 
-    def _apply_sinks(self, insn, callee, args, state, func_info):
+    def _apply_sinks(self, insn, callee, callee_ea, args, state, func_info):
         findings = []
         for rule in self.ruleset.sinks:
-            if "ea" in rule and not self._rule_matches(rule, callee):
+            if not self._rule_matches(rule, callee, callee_ea):
                 continue
 
             arg_indexes = rule.get("args")
