@@ -406,7 +406,6 @@ class FunctionScanner:
 
     def scan(self, func_info):
         state = TaintState()
-        self._seed_args(state, func_info)
         self.logger.log(f"[TAINTER] Initial state for {func_info.function}:\n{state}")
 
         findings = []
@@ -414,14 +413,6 @@ class FunctionScanner:
             self.processor.process(state, insn, func_info, findings)
         self.logger.log(f"[TAINTER] Final state for {func_info.function}:\n{state}")
         return findings, state
-
-    def _seed_args(self, state, func_info):
-        for arg in func_info.args:
-            lvar_idx = arg.lvar_idx
-            if lvar_idx is not None:
-                attr = LocalVarAttr(lvar_idx=lvar_idx)
-                sym_label = f"SYM:ARG:{lvar_idx}"
-                state.add_taint(attr, {sym_label}, set())
 
 
 class MicrocodeTaintEngine:
