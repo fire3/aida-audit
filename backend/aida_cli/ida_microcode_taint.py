@@ -80,6 +80,5 @@ __all__ = [
     "MopUsageVisitor",
     "analyze_function",
     "TaintState",
-    "EngineLogger",
     "MicrocodeTaintEngine",
 ]

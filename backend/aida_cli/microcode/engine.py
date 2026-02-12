@@ -1,5 +1,6 @@
 from collections import deque
 import sys
+import logging
 
 from .state import TaintState
 from .analyzer import analyze_function
@@ -15,6 +16,31 @@ from .constants import (
     BADADDR,
 )
 from ..pathfinder import PathFinder, PathFinderConfig
+
+
+class SimpleLogger:
+    """简单的日志适配器"""
+    def __init__(self, verbose=False):
+        self._logger = logging.getLogger(__name__)
+        self._verbose = verbose
+
+    def log(self, message):
+        if self._verbose:
+            self._logger.info(message)
+        else:
+            self._logger.debug(message)
+
+    def debug(self, message):
+        self._logger.debug(message)
+
+    def info(self, message):
+        self._logger.info(message)
+
+    def warn(self, message):
+        self._logger.warning(message)
+
+    def error(self, message):
+        self._logger.error(message)
 
 
 class RuleResolver:
