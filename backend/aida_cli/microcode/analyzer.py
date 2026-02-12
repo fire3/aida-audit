@@ -6,7 +6,7 @@ from .constants import (
     ida_idaapi,
     BADADDR,
 )
-from .common import MicroCodeUtils, OperandLocation, RegisterLocation, LocalVarLocation, StackLocation, GlobalLocation, ImmediateLocation, StringLocation, AddressLocation, LoadLocation, ExpressionLocation
+from .common import MicroCodeUtils, OperandAttr, RegisterAttr, LocalVarAttr, StackAttr, GlobalAttr, ImmediateAttr, StringAttr, AddressAttr, LoadAttr, ExpressionAttr
 from dataclasses import dataclass, field
 from typing import Optional
 import sys
@@ -16,14 +16,14 @@ import sys
 class OperandInfo:
     """指令操作数 (reads/writes 列表元素)"""
     role: str = ""                  # "src" (读取) 或 "dst" (写入)
-    location: Optional[OperandLocation] = None
+    attr: Optional[OperandAttr] = None
     text: str = ""
     access_mode: Optional[str] = None  # 可选: "addr" 表示地址访问
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
-        loc = self.location.to_string(indent + 1) if self.location else "None"
-        return f"{prefix}OperandInfo(\n{prefix}  role={self.role!r},\n{prefix}  location={loc},\n{prefix}  text={self.text!r},\n{prefix}  access_mode={self.access_mode!r}\n{prefix})"
+        loc = self.attr.to_string(indent + 1) if self.attr else "None"
+        return f"{prefix}OperandInfo(\n{prefix}  role={self.role!r},\n{prefix}  attr={loc},\n{prefix}  text={self.text!r},\n{prefix}  access_mode={self.access_mode!r}\n{prefix})"
 
 
 @dataclass
@@ -31,9 +31,9 @@ class CallInfo:
     """函数调用信息 (calls 列表元素)"""
     kind: str = ""                      # 操作码类型 (call/jmp)
     callee_name: Optional[str] = None   # 被调用函数名
-    target: Optional[OperandLocation] = None    # 调用目标
-    args: list = field(default_factory=list)    # OperandLocation 列表
-    ret: Optional[OperandLocation] = None       # 返回值存储位置
+    target: Optional[OperandAttr] = None    # 调用目标
+    args: list = field(default_factory=list)    # OperandAttr 列表
+    ret: Optional[OperandAttr] = None       # 返回值存储位置
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
@@ -159,7 +159,7 @@ class MopUsageVisitor(_mop_visitor_base):
             if t == ida_hexrays.mop_a:
                 access_mode = "addr"
 
-            op = self.utils.mop_to_location(mop)
+            op = self.utils.mop_to_attr(mop)
             if op is None:
                 return 0
 
@@ -238,7 +238,7 @@ class MicrocodeInstructionAnalyzer:
 
         callee_mop, arg_list_mop, ret_mop = self.utils.select_call_operands(l, r, d)
 
-        callee = self.utils.mop_to_location(callee_mop) if not self.utils.is_none_mop(callee_mop) else None
+        callee = self.utils.mop_to_attr(callee_mop) if not self.utils.is_none_mop(callee_mop) else None
 
         args = []
         arg_sources = []
@@ -248,26 +248,26 @@ class MicrocodeInstructionAnalyzer:
             arg_sources.append(arg_list_mop)
         for src in arg_sources:
             for arg in self.utils.iter_call_args(src):
-                loc = self.utils.mop_to_location(arg)
+                loc = self.utils.mop_to_attr(arg)
                 if loc is not None:
                     args.append(loc)
 
-        ret = self.utils.mop_to_location(ret_mop) if not self.utils.is_none_mop(ret_mop) else None
+        ret = self.utils.mop_to_attr(ret_mop) if not self.utils.is_none_mop(ret_mop) else None
 
         callee_name = None
         callee_ea = None
         if callee:
-            if isinstance(callee, GlobalLocation):
+            if isinstance(callee, GlobalAttr):
                 callee_ea = callee.ea
-            elif isinstance(callee, ExpressionLocation):
+            elif isinstance(callee, ExpressionAttr):
                 callee_name = self.utils._get_func_name_from_helper(callee.expr)
                 if callee_name is None:
                     callee_name = callee.expr
-            elif isinstance(callee, ImmediateLocation):
+            elif isinstance(callee, ImmediateAttr):
                 callee_ea = callee.value
-            elif isinstance(callee, RegisterLocation):
+            elif isinstance(callee, RegisterAttr):
                 pass
-            elif isinstance(callee, LocalVarLocation):
+            elif isinstance(callee, LocalVarAttr):
                 pass
             if callee_ea and idc:
                 try:

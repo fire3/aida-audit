@@ -11,8 +11,8 @@ from dataclasses import dataclass
 from typing import Union, Optional
 
 
-class LocationType:
-    """操作数位置类型枚举"""
+class AttrType:
+    """操作数属性类型枚举"""
     REGISTER = "register"
     LOCAL_VAR = "local_var"
     STACK = "stack"
@@ -24,16 +24,16 @@ class LocationType:
     EXPRESSION = "expression"
 
 
-class OperandLocation(ABC):
+class OperandAttr(ABC):
     """
-    操作数位置抽象基类 (ADT 模式)
+    操作数属性抽象基类 (ADT 模式)
 
     替代字符串 key，提供类型安全的访问接口。
     """
 
     @property
     @abstractmethod
-    def location_type(self) -> str:
+    def attr_type(self) -> str:
         pass
 
     @abstractmethod
@@ -48,115 +48,115 @@ class OperandLocation(ABC):
 
 
 @dataclass(frozen=True, eq=True)
-class RegisterLocation(OperandLocation):
-    """寄存器位置"""
+class RegisterAttr(OperandAttr):
+    """寄存器属性"""
     reg_id: int
 
     @property
-    def location_type(self) -> str:
-        return LocationType.REGISTER
+    def attr_type(self) -> str:
+        return AttrType.REGISTER
 
     def to_key(self) -> str:
         return f"reg:{self.reg_id}"
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
-        return f"{prefix}RegisterLocation(reg_id={self.reg_id})"
+        return f"{prefix}RegisterAttr(reg_id={self.reg_id})"
 
 
 @dataclass(frozen=True, eq=True)
-class LocalVarLocation(OperandLocation):
-    """局部变量位置 (按索引)"""
+class LocalVarAttr(OperandAttr):
+    """局部变量属性 (按索引)"""
     lvar_idx: int
 
     @property
-    def location_type(self) -> str:
-        return LocationType.LOCAL_VAR
+    def attr_type(self) -> str:
+        return AttrType.LOCAL_VAR
 
     def to_key(self) -> str:
         return f"lvar:{self.lvar_idx}"
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
-        return f"{prefix}LocalVarLocation(lvar_idx={self.lvar_idx})"
+        return f"{prefix}LocalVarAttr(lvar_idx={self.lvar_idx})"
 
 
 @dataclass(frozen=True, eq=True)
-class StackLocation(OperandLocation):
-    """栈偏移位置"""
+class StackAttr(OperandAttr):
+    """栈偏移属性"""
     offset: int
 
     @property
-    def location_type(self) -> str:
-        return LocationType.STACK
+    def attr_type(self) -> str:
+        return AttrType.STACK
 
     def to_key(self) -> str:
         return f"stack:{self.offset}"
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
-        return f"{prefix}StackLocation(offset={self.offset})"
+        return f"{prefix}StackAttr(offset={self.offset})"
 
 
 @dataclass(frozen=True, eq=True)
-class GlobalLocation(OperandLocation):
-    """全局地址位置"""
+class GlobalAttr(OperandAttr):
+    """全局地址属性"""
     ea: int
 
     @property
-    def location_type(self) -> str:
-        return LocationType.GLOBAL
+    def attr_type(self) -> str:
+        return AttrType.GLOBAL
 
     def to_key(self) -> str:
         return f"global:{hex(self.ea)}"
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
-        return f"{prefix}GlobalLocation(ea={hex(self.ea)})"
+        return f"{prefix}GlobalAttr(ea={hex(self.ea)})"
 
 
 @dataclass(frozen=True, eq=True)
-class ImmediateLocation(OperandLocation):
-    """立即数位置"""
+class ImmediateAttr(OperandAttr):
+    """立即数属性"""
     value: int
 
     @property
-    def location_type(self) -> str:
-        return LocationType.IMMEDIATE
+    def attr_type(self) -> str:
+        return AttrType.IMMEDIATE
 
     def to_key(self) -> str:
         return f"imm:{self.value}"
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
-        return f"{prefix}ImmediateLocation(value={self.value})"
+        return f"{prefix}ImmediateAttr(value={self.value})"
 
 
 @dataclass(frozen=True, eq=True)
-class StringLocation(OperandLocation):
-    """字符串常量位置"""
+class StringAttr(OperandAttr):
+    """字符串常量属性"""
     value: str
 
     @property
-    def location_type(self) -> str:
-        return LocationType.STRING
+    def attr_type(self) -> str:
+        return AttrType.STRING
 
     def to_key(self) -> str:
         return f"str:{self.value}"
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
-        return f"{prefix}StringLocation(value={self.value!r})"
+        return f"{prefix}StringAttr(value={self.value!r})"
 
 
 @dataclass(frozen=True, eq=True)
-class AddressLocation(OperandLocation):
-    """地址引用 (指向另一位置)"""
-    inner: OperandLocation
+class AddressAttr(OperandAttr):
+    """地址引用属性 (指向另一属性)"""
+    inner: OperandAttr
 
     @property
-    def location_type(self) -> str:
-        return LocationType.ADDRESS
+    def attr_type(self) -> str:
+        return AttrType.ADDRESS
 
     def to_key(self) -> str:
         return f"addr:{self.inner.to_key()}"
@@ -164,17 +164,17 @@ class AddressLocation(OperandLocation):
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
         inner_dump = self.inner.to_string(indent + 1)
-        return f"{prefix}AddressLocation(\n{prefix}  inner={inner_dump}\n{prefix})"
+        return f"{prefix}AddressAttr(\n{prefix}  inner={inner_dump}\n{prefix})"
 
 
 @dataclass(frozen=True, eq=True)
-class LoadLocation(OperandLocation):
-    """内存解引用 (load ptr)"""
-    ptr: OperandLocation
+class LoadAttr(OperandAttr):
+    """内存解引用属性 (load ptr)"""
+    ptr: OperandAttr
 
     @property
-    def location_type(self) -> str:
-        return LocationType.LOAD
+    def attr_type(self) -> str:
+        return AttrType.LOAD
 
     def to_key(self) -> str:
         return f"load:{self.ptr.to_key()}"
@@ -182,36 +182,36 @@ class LoadLocation(OperandLocation):
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
         ptr_dump = self.ptr.to_string(indent + 1)
-        return f"{prefix}LoadLocation(\n{prefix}  ptr={ptr_dump}\n{prefix})"
+        return f"{prefix}LoadAttr(\n{prefix}  ptr={ptr_dump}\n{prefix})"
 
 
 @dataclass(frozen=True, eq=True)
-class ExpressionLocation(OperandLocation):
-    """复杂表达式 (不可分解)"""
+class ExpressionAttr(OperandAttr):
+    """复杂表达式属性 (不可分解)"""
     expr: str
 
     @property
-    def location_type(self) -> str:
-        return LocationType.EXPRESSION
+    def attr_type(self) -> str:
+        return AttrType.EXPRESSION
 
     def to_key(self) -> str:
         return f"expr:{self.expr}"
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
-        return f"{prefix}ExpressionLocation(expr={self.expr!r})"
+        return f"{prefix}ExpressionAttr(expr={self.expr!r})"
 
 
-OperandLoc = Union[
-    RegisterLocation,
-    LocalVarLocation,
-    StackLocation,
-    GlobalLocation,
-    ImmediateLocation,
-    StringLocation,
-    AddressLocation,
-    LoadLocation,
-    ExpressionLocation,
+OperandAttrList = Union[
+    RegisterAttr,
+    LocalVarAttr,
+    StackAttr,
+    GlobalAttr,
+    ImmediateAttr,
+    StringAttr,
+    AddressAttr,
+    LoadAttr,
+    ExpressionAttr,
 ]
 
 
@@ -341,8 +341,8 @@ class MicroCodeUtils:
             return None
 
     def mop_entry(self, mop):
-        """返回 OperandLocation 而非 OpInfo (新接口)"""
-        return self.mop_to_location(mop)
+        """返回 OperandAttr 而非 OpInfo (新接口)"""
+        return self.mop_to_attr(mop)
 
     def mop_entry_legacy(self, mop):
         """旧接口: 返回 dict (兼容)"""
@@ -368,7 +368,7 @@ class MicroCodeUtils:
         """获取操作数字符串 key，兼容新旧接口"""
         if not op:
             return None
-        if isinstance(op, OperandLocation):
+        if isinstance(op, OperandAttr):
             return op.to_key()
         if hasattr(op, "location") and op.location:
             return op.location.to_key()
@@ -523,8 +523,8 @@ class MicroCodeUtils:
             return None
         return helper
 
-    def mop_to_location(self, mop) -> Optional[OperandLocation]:
-        """将 mop 转换为 OperandLocation (ADT 模式)"""
+    def mop_to_attr(self, mop) -> Optional[OperandAttr]:
+        """将 mop 转换为 OperandAttr (ADT 模式)"""
         if mop is None or ida_hexrays is None:
             return None
 
@@ -535,14 +535,14 @@ class MicroCodeUtils:
 
         if t == ida_hexrays.mop_r:
             reg_id = self.to_int(getattr(mop, "r", None))
-            return RegisterLocation(reg_id=reg_id) if reg_id is not None else ExpressionLocation(expr=self.safe_dstr(mop))
+            return RegisterAttr(reg_id=reg_id) if reg_id is not None else ExpressionAttr(expr=self.safe_dstr(mop))
 
         if t == ida_hexrays.mop_l:
             lv = getattr(mop, "l", None)
             idx = self.to_int(getattr(lv, "idx", None)) if lv is not None else None
             if idx is not None:
-                return LocalVarLocation(lvar_idx=idx)
-            return ExpressionLocation(expr=self.safe_dstr(mop))
+                return LocalVarAttr(lvar_idx=idx)
+            return ExpressionAttr(expr=self.safe_dstr(mop))
 
         if t == ida_hexrays.mop_S:
             sv = getattr(mop, "s", None)
@@ -550,22 +550,22 @@ class MicroCodeUtils:
                 sv = getattr(mop, "sv", None)
             off = self.to_int(getattr(sv, "off", None)) if sv is not None else None
             if off is not None:
-                return StackLocation(offset=off)
-            return ExpressionLocation(expr=self.safe_dstr(mop))
+                return StackAttr(offset=off)
+            return ExpressionAttr(expr=self.safe_dstr(mop))
 
         if t == ida_hexrays.mop_v:
             g = getattr(mop, "g", None)
             ea = self.to_int(getattr(g, "ea", None)) if g is not None else None
             if ea is not None:
-                return GlobalLocation(ea=ea)
-            return ExpressionLocation(expr=self.safe_dstr(mop))
+                return GlobalAttr(ea=ea)
+            return ExpressionAttr(expr=self.safe_dstr(mop))
 
         if t == ida_hexrays.mop_a:
             a = getattr(mop, "a", None)
-            inner = self.mop_to_location(a)
+            inner = self.mop_to_attr(a)
             if inner:
-                return AddressLocation(inner=inner)
-            return ExpressionLocation(expr=self.safe_dstr(mop))
+                return AddressAttr(inner=inner)
+            return ExpressionAttr(expr=self.safe_dstr(mop))
 
         if t == ida_hexrays.mop_n:
             n = getattr(mop, "n", None)
@@ -585,38 +585,38 @@ class MicroCodeUtils:
                             pass
 
             if value is not None:
-                return ImmediateLocation(value=value)
-            return ExpressionLocation(expr=self.safe_dstr(mop))
+                return ImmediateAttr(value=value)
+            return ExpressionAttr(expr=self.safe_dstr(mop))
 
         if t == ida_hexrays.mop_str:
             text = self.safe_dstr(mop)
             if text and text.startswith('"') and text.endswith('"'):
-                return StringLocation(value=text.strip('"'))
-            return StringLocation(value=text)
+                return StringAttr(value=text.strip('"'))
+            return StringAttr(value=text)
             
         if t == ida_hexrays.mop_h:
             helper = getattr(mop, "helper", None)
             if helper:
                 func_name = self._get_func_name_from_helper(helper)
                 if func_name:
-                    return ExpressionLocation(expr=func_name)
-            return ExpressionLocation(expr=self.safe_dstr(mop))
+                    return ExpressionAttr(expr=func_name)
+            return ExpressionAttr(expr=self.safe_dstr(mop))
 
         if t == ida_hexrays.mop_d:
             insn = getattr(mop, "d", None)
             if insn:
                 # Arithmetic: add, sub (return the variable part)
                 if insn.opcode in (ida_hexrays.m_add, ida_hexrays.m_sub):
-                    l_loc = self.mop_to_location(insn.l)
-                    r_loc = self.mop_to_location(insn.r)
-                    if l_loc and l_loc.location_type != LocationType.IMMEDIATE:
+                    l_loc = self.mop_to_attr(insn.l)
+                    r_loc = self.mop_to_attr(insn.r)
+                    if l_loc and l_loc.attr_type != AttrType.IMMEDIATE:
                         return l_loc
-                    if r_loc and r_loc.location_type != LocationType.IMMEDIATE:
+                    if r_loc and r_loc.attr_type != AttrType.IMMEDIATE:
                         return r_loc
 
                 if hasattr(ida_hexrays, "m_ldx") and insn.opcode == ida_hexrays.m_ldx:
-                    addr_key = self.mop_to_location(insn.r)
+                    addr_key = self.mop_to_attr(insn.r)
                     if addr_key:
-                        return LoadLocation(ptr=addr_key)
+                        return LoadAttr(ptr=addr_key)
 
-        return ExpressionLocation(expr=self.safe_dstr(mop))
+        return ExpressionAttr(expr=self.safe_dstr(mop))
