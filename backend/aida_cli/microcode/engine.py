@@ -261,27 +261,25 @@ class InstructionTaintProcessor:
         return callee, callee_ea
 
     def _apply_sources(self, insn, callee, callee_ea, args, ret, state, func_info):
-        print(f"[TAINT_DEBUG_SOURCE] _apply_sources: callee={callee} callee_ea={callee_ea} args_count={len(args)}", file=sys.stderr)
         for rule in self.ruleset.sources:
-            print(f"[TAINT_DEBUG_SOURCE]   Checking rule: name={rule.get('name')} ea={rule.get('ea')} label={rule.get('label')}", file=sys.stderr)
             if not self._rule_matches(rule, callee, callee_ea):
-                print(f"[TAINT_DEBUG_SOURCE]   Rule does NOT match: {rule.get('name')}", file=sys.stderr)
                 continue
-            print(f"[TAINT_DEBUG_SOURCE]   Rule MATCHED: {rule.get('name')}", file=sys.stderr)
             label = rule.get("label") or callee
             origins = {(label, insn.ea, func_info.function)}
             out_args = rule.get("out_args") or rule.get("args") or []
-            print(f"[TAINT_DEBUG_SOURCE]   out_args={out_args}", file=sys.stderr)
+            self.logger.log(f"[TAINTER] Source matched: {rule.get('name')} -> label={label}")
             for idx in out_args:
                 if idx < 0 or idx >= len(args):
                     continue
                 key = self.utils.op_key(args[idx])
-                print(f"[TAINT_DEBUG_SOURCE]   Adding taint: idx={idx} key={key} labels={{{label}}}", file=sys.stderr)
-                state.add_taint(key, {label}, origins)
+                changed = state.add_taint(key, {label}, origins)
+                if changed:
+                    self.logger.log(f"[TAINTER]   Taint added: arg[{idx}] key={key}")
             if rule.get("ret"):
                 key = self.utils.op_key(ret)
-                print(f"[TAINT_DEBUG_SOURCE]   Adding return taint: key={key}", file=sys.stderr)
-                state.add_taint(key, {label}, origins)
+                changed = state.add_taint(key, {label}, origins)
+                if changed:
+                    self.logger.log(f"[TAINTER]   Taint added: ret key={key}")
             if rule.get("ret"):
                 key = self.utils.op_key(ret)
                 print(f"[TAINT_DEBUG_SOURCE]   Adding return taint: key={key}", file=sys.stderr)
@@ -330,13 +328,11 @@ class InstructionTaintProcessor:
             tainted_args = []
             labels = set()
             origins = set()
-            print(f"[TAINT_DEBUG_SINK] Checking sink: callee={callee} rule_name={rule.get('name')} arg_indexes={arg_indexes} args_count={len(args)}", file=sys.stderr)
             for idx in arg_indexes:
                 if idx < 0 or idx >= len(args):
                     continue
                 key = self.utils.op_key(args[idx])
                 t = state.get_taint(key)
-                print(f"[TAINT_DEBUG_SINK]   idx={idx} key={key} taint={t}", file=sys.stderr)
                 if not t:
                     continue
 
@@ -357,7 +353,7 @@ class InstructionTaintProcessor:
                 labels.update(t)
                 origins.update(state.get_origins(key))
             if tainted_args:
-                print(f"[TAINT_DEBUG_SINK]   FOUND TAINTED SINK: callee={callee} tainted_args={tainted_args} labels={labels}", file=sys.stderr)
+                self.logger.log(f"[TAINTER] Sink matched: {callee} rule={rule.get('name')} args={tainted_args}")
                 finding = {
                     "rule_id": self.ruleset.rule_id,
                     "cwe": self.ruleset.cwe,
@@ -473,6 +469,10 @@ class MicrocodeTaintEngine:
             
             if func_info:
                 f_findings, state = self.function_scanner.scan(func_info)
+
+                # Print taint state for debugging (only if there are findings or state is non-empty)
+                if state.entries:
+                    self.logger.log(f"[TAINTER] Function {func_info.function}: taint entries={len(state.entries)}")
 
                 real_findings = []
                 proxy_findings = []

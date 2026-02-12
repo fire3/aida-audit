@@ -220,3 +220,37 @@ class TaintState:
             frozenset((k, frozenset(v.labels)) for k, v in self.entries.items()),
             frozenset(self.aliases.items())
         ))
+
+    def __repr__(self) -> str:
+        """用于调试的字符串表示"""
+        lines = []
+        if self.entries:
+            lines.append("Taint entries:")
+            for key, entry in self.entries.items():
+                if entry.labels:
+                    lines.append(f"  {key}: labels={sorted(entry.labels)}")
+        if self.aliases:
+            lines.append(f"Aliases: {dict(self.aliases)}")
+        return "\n".join(lines) if lines else "TaintState(empty)"
+
+    def dump(self, indent: int = 0) -> str:
+        """详细打印taint state"""
+        prefix = "  " * indent
+        lines = [f"{prefix}TaintState:"]
+        
+        if self.entries:
+            lines.append(f"{prefix}  Entries ({len(self.entries)}):")
+            for key, entry in sorted(self.entries.items()):
+                if entry.labels or entry.origins:
+                    labels_str = ", ".join(sorted(entry.labels)) if entry.labels else "(none)"
+                    origins_str = ", ".join(f"{o.label}@{o.ea}" for o in sorted(entry.origins)) if entry.origins else "(none)"
+                    lines.append(f"{prefix}    {key}:")
+                    lines.append(f"{prefix}      labels: [{labels_str}]")
+                    lines.append(f"{prefix}      origins: [{origins_str}]")
+        
+        if self.aliases:
+            lines.append(f"{prefix}  Aliases ({len(self.aliases)}):")
+            for ptr, target in sorted(self.aliases.items()):
+                lines.append(f"{prefix}    {ptr} -> {target}")
+        
+        return "\n".join(lines) if lines else f"{prefix}TaintState: (empty)"
