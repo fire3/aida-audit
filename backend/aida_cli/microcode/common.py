@@ -530,6 +530,9 @@ class MicroCodeUtils:
 
         t = getattr(mop, "t", None)
 
+        if t == ida_hexrays.mop_z:
+            return None
+
         if t == ida_hexrays.mop_r:
             reg_id = self.to_int(getattr(mop, "r", None))
             return RegisterLocation(reg_id=reg_id) if reg_id is not None else ExpressionLocation(expr=self.safe_dstr(mop))
@@ -588,7 +591,8 @@ class MicroCodeUtils:
         if t == ida_hexrays.mop_d:
             insn = getattr(mop, "d", None)
             if insn:
-                if insn.opcode == ida_hexrays.m_add:
+                # Arithmetic: add, sub (return the variable part)
+                if insn.opcode in (ida_hexrays.m_add, ida_hexrays.m_sub):
                     l_loc = self.mop_to_location(insn.l)
                     r_loc = self.mop_to_location(insn.r)
                     if l_loc and l_loc.location_type != LocationType.IMMEDIATE:
@@ -596,22 +600,25 @@ class MicroCodeUtils:
                     if r_loc and r_loc.location_type != LocationType.IMMEDIATE:
                         return r_loc
 
+                # Load: ldx
                 if hasattr(ida_hexrays, "m_ldx") and insn.opcode == ida_hexrays.m_ldx:
                     addr_loc = self.mop_to_location(insn.r)
                     if addr_loc:
                         return LoadLocation(ptr=addr_loc)
 
+                # Move: mov
+                if insn.opcode == ida_hexrays.m_mov:
+                    return self.mop_to_location(insn.l)
+
+                # Extensions: xdu, xds
+                if hasattr(ida_hexrays, "m_xdu") and insn.opcode in (ida_hexrays.m_xdu, getattr(ida_hexrays, "m_xds", -1)):
+                    return self.mop_to_location(insn.l)
+
+                # Bitwise/Neg: not, neg, bnot
+                if hasattr(ida_hexrays, "m_not") and insn.opcode in (ida_hexrays.m_not, getattr(ida_hexrays, "m_neg", -1), getattr(ida_hexrays, "m_bnot", -1)):
+                    return self.mop_to_location(insn.l)
+
         text = self.safe_dstr(mop)
-        print(f"DEBUG: mop_to_location text='{text}', type={type(mop)}")  # DEBUG
         if text and text != "<?>":
-            if text.startswith('"') and text.endswith('"'):
-                return StringLocation(value=text.strip('"'))
-            # Check if this is a type description pattern like "int #6.4" or similar
-            # These are function parameter type descriptions from dstr, not actual expressions
-            if ' #0x' in text or (' #' in text and ('.4' in text or '.8' in text or '.2' in text)):
-                type_patterns = ['int ', 'unsigned int ', 'char *', 'const char *', 'size_t ', 'void *', 'sockaddr *', 'ssize_t ', 'time_t ', '_QWORD ']
-                if any(text.startswith(pattern) for pattern in type_patterns):
-                    print(f"DEBUG: Matching type description: '{text}'")  # DEBUG
-                    return StringLocation(value=text)
             return ExpressionLocation(expr=text)
         return None
