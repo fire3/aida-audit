@@ -83,15 +83,29 @@ class MopUsageVisitor(_mop_visitor_base):
 
             role = "dst" if is_target else "src"
             text = self.utils.safe_dstr(mop) if mop else ""
-            entry = OperandInfo(role=role, attr=op, text=text, access_mode=access_mode)
+            mop_type = getattr(mop, "t", None)
+            width = getattr(mop, "size", None)
+            try:
+                if width is not None:
+                    width = int(width)
+            except Exception:
+                width = None
+            entry = OperandInfo(
+                role=role,
+                attr=op,
+                text=text,
+                access_mode=access_mode,
+                mop_type=mop_type,
+                width=width,
+            )
 
             if is_target:
-                key = (role, op, access_mode, text)
+                key = (role, op, access_mode, text, mop_type, width)
                 if key not in self.seen_writes:
                     self.seen_writes.add(key)
                     self.writes.append(entry)
             else:
-                key = (role, op, access_mode, text)
+                key = (role, op, access_mode, text, mop_type, width)
                 if key not in self.seen_reads:
                     self.seen_reads.add(key)
                     self.reads.append(entry)
@@ -146,7 +160,7 @@ class MicrocodeInstructionAnalyzer:
                     pass
 
         opname = self.utils.get_opcode_name(insn.opcode)
-        if opname == "mov" and getattr(insn, "d", None):
+        if self.utils.is_move_opcode(opname) and getattr(insn, "d", None):
             for call in calls:
                 if call.ret is None:
                     call.ret = self.utils.mop_to_attr(insn.d)
@@ -205,6 +219,7 @@ class MicrocodeInstructionAnalyzer:
             CallInfo(
                 kind=opname,
                 callee_name=callee_name,
+                callee_ea=callee_ea,
                 target=callee,
                 args=args,
                 ret=ret,
@@ -288,7 +303,7 @@ class CFGBuilder:
                 targets = self._get_jump_targets(last_insn)
                 self.blocks[block_id].successors.extend(targets)
 
-            elif opcode_name in self.CONDITIONAL_JUMP_OPCODES:
+            elif opcode_name in self.CONDITIONAL_JUMP_OPCODES or (opcode_name.startswith("j") and opcode_name not in self.JUMP_OPCODES):
                 targets = self._get_jump_targets(last_insn)
                 self.blocks[block_id].successors.extend(targets)
                 next_block = self._get_next_block(block_ids, block_id)
@@ -431,7 +446,7 @@ class MicrocodeFunctionAnalyzer:
             insn_entry.jump_targets = targets
             insn_entry.is_conditional = False
 
-        elif opcode_name in CFGBuilder.CONDITIONAL_JUMP_OPCODES:
+        elif opcode_name in CFGBuilder.CONDITIONAL_JUMP_OPCODES or (opcode_name.startswith("j") and opcode_name not in CFGBuilder.JUMP_OPCODES):
             targets = []
             d = getattr(insn, "d", None)
             if d is not None:

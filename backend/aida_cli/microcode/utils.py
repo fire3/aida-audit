@@ -152,14 +152,16 @@ class MicroCodeUtils:
             return "move"
         if name in ("ldx", "stx", "ld", "st"):
             return "memory"
-        if name in ("add", "sub", "mul", "div", "mod", "neg", "udiv", "sdiv", "umod", "smod", "and", "or", "xor", "shl", "shr", "sar", "rol", "ror"):
+        if name in ("add", "sub", "mul", "div", "mod", "neg", "udiv", "sdiv", "umod", "smod", "and", "or", "xor", "shl", "shr", "sar", "rol", "ror", "udiv", "sdiv", "umul", "smul", "udivmod", "sdivmod"):
             return "arith"
-        if name in ("fadd", "fsub", "fmul", "fdiv", "fneg", "f2i", "i2f", "f2f", "fcmp"):
+        if name in ("fadd", "fsub", "fmul", "fdiv", "fneg", "f2i", "i2f", "f2f", "fcmp", "f2u", "u2f", "ftoi", "itof", "fptosi", "fptoui"):
             return "float"
         if name in ("cmp", "tst", "set", "sets", "setb", "seta", "setz", "setnz"):
             return "cmp"
         if name in ("ret", "leave"):
             return "ret"
+        if name.startswith("f"):
+            return "float"
         return ""
 
     def is_float_opcode(self, opcode_name: str) -> bool:

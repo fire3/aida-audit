@@ -205,11 +205,13 @@ class OperandInfo:
     attr: Optional[OperandAttr] = None
     text: str = ""
     access_mode: Optional[str] = None
+    mop_type: Optional[int] = None
+    width: Optional[int] = None
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
         loc = self.attr.to_string(indent + 1) if self.attr else "None"
-        return f"{prefix}OperandInfo(\n{prefix}  role={self.role!r},\n{prefix}  attr={loc},\n{prefix}  text={self.text!r},\n{prefix}  access_mode={self.access_mode!r}\n{prefix})"
+        return f"{prefix}OperandInfo(\n{prefix}  role={self.role!r},\n{prefix}  attr={loc},\n{prefix}  text={self.text!r},\n{prefix}  access_mode={self.access_mode!r},\n{prefix}  mop_type={self.mop_type!r},\n{prefix}  width={self.width!r}\n{prefix})"
 
 
 @dataclass
@@ -217,6 +219,7 @@ class CallInfo:
     """函数调用信息 (calls 列表元素)"""
     kind: str = ""
     callee_name: Optional[str] = None
+    callee_ea: Optional[int] = None
     target: Optional[OperandAttr] = None
     args: list = field(default_factory=list)
     ret: Optional[OperandAttr] = None
@@ -226,7 +229,7 @@ class CallInfo:
         tgt = self.target.to_string(indent + 1) if self.target else "None"
         args_str = ",\n".join(a.to_string(indent + 1) if a else "None" for a in self.args)
         ret_str = self.ret.to_string(indent + 1) if self.ret else "None"
-        return f"{prefix}CallInfo(\n{prefix}  kind={self.kind!r},\n{prefix}  callee_name={self.callee_name!r},\n{prefix}  target={tgt},\n{prefix}  args=[\n{args_str}\n{prefix}  ],\n{prefix}  ret={ret_str}\n{prefix})"
+        return f"{prefix}CallInfo(\n{prefix}  kind={self.kind!r},\n{prefix}  callee_name={self.callee_name!r},\n{prefix}  callee_ea={self.callee_ea!r},\n{prefix}  target={tgt},\n{prefix}  args=[\n{args_str}\n{prefix}  ],\n{prefix}  ret={ret_str}\n{prefix})"
 
 
 @dataclass
