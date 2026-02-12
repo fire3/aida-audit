@@ -3,6 +3,7 @@ from .constants import (
     idc,
     ida_funcs,
     idautils,
+    ida_nalt,
     ida_ida,
     ida_idaapi,
     ida_typeinf,
@@ -255,6 +256,8 @@ class MicrocodeInstructionAnalyzer:
                         callee_ea = ea
                 except Exception:
                     pass
+            if callee_ea is None and callee_name:
+                callee_ea = self._resolve_import_ea(callee_name)
 
         calls.append(
             CallInfo(
@@ -266,7 +269,7 @@ class MicrocodeInstructionAnalyzer:
                 ret=ret,
                 arg_order=list(range(len(args))),
                 call_conv=self._get_call_conv(insn, callee_ea, callee_name),
-                ret_width=self._get_ret_width(ret_mop, insn, callee_ea),
+                ret_width=self._get_ret_width(ret_mop, insn, callee_ea, callee_name),
             )
         )
 
@@ -312,7 +315,16 @@ class MicrocodeInstructionAnalyzer:
         hint = self.utils.get_opcode_signed_hint(opname)
         if hint is not None:
             return hint
-        if opname.startswith("j"):
+        token = opname
+        text = self.utils.safe_dstr(insn) or ""
+        if text:
+            token = text.strip().split()[0].lower()
+            token = token.split(".")[0]
+        if token.startswith("j"):
+            if token in ("jl", "jle", "jg", "jge"):
+                return True
+            if token in ("jb", "jbe", "ja", "jae"):
+                return False
             return False
         return None
 
@@ -334,6 +346,7 @@ class MicrocodeInstructionAnalyzer:
             text = self.utils.safe_dstr(insn) or ""
             if text:
                 token = text.strip().split()[0].lower()
+                token = token.split(".")[0]
                 if token.startswith(("cmp", "test", "tst", "set", "cmov", "add", "sub", "mul", "div", "and", "or", "xor", "shl", "shr", "sar", "rol", "ror", "neg", "inc", "dec", "adc", "sbb")):
                     return True
         return None
@@ -387,9 +400,13 @@ class MicrocodeInstructionAnalyzer:
                         return conv
             except Exception:
                 pass
+        if callee_name:
+            conv = self._parse_call_conv(callee_name)
+            if conv:
+                return conv
         return None
 
-    def _get_ret_width(self, ret_mop, insn=None, callee_ea=None) -> Optional[int]:
+    def _get_ret_width(self, ret_mop, insn=None, callee_ea=None, callee_name=None) -> Optional[int]:
         if ret_mop is None:
             size = None
             if insn is not None:
@@ -403,6 +420,10 @@ class MicrocodeInstructionAnalyzer:
                 return None
             if callee_ea and ida_typeinf:
                 ret = self._get_ret_width_from_tinfo(callee_ea)
+                if ret:
+                    return ret
+            if callee_name:
+                ret = self._get_ret_width_from_type_str(callee_name)
                 if ret:
                     return ret
             return None
@@ -423,6 +444,10 @@ class MicrocodeInstructionAnalyzer:
                 return None
         if callee_ea and ida_typeinf:
             ret = self._get_ret_width_from_tinfo(callee_ea)
+            if ret:
+                return ret
+        if callee_name:
+            ret = self._get_ret_width_from_type_str(callee_name)
             if ret:
                 return ret
         return None
@@ -500,6 +525,64 @@ class MicrocodeInstructionAnalyzer:
                 return int(size)
         except Exception:
             return None
+        return None
+
+    def _resolve_import_ea(self, name: str) -> Optional[int]:
+        if ida_nalt is None:
+            return None
+        base = name.lstrip("$")
+        base = base.replace("@", "")
+        candidates = {base, base.lstrip("_"), base.replace("__imp_", ""), base.replace("_imp__", "")}
+        try:
+            qty = ida_nalt.get_import_module_qty()
+        except Exception:
+            qty = 0
+        if not qty:
+            return None
+        for i in range(qty):
+            try:
+                def _cb(ea, n, _ord):
+                    if not n:
+                        return True
+                    if n in candidates or n.lstrip("_") in candidates:
+                        raise StopIteration(int(ea))
+                    return True
+                ida_nalt.enum_import_names(i, _cb)
+            except StopIteration as e:
+                return int(e.value)
+            except Exception:
+                continue
+        return None
+
+    def _get_ret_width_from_type_str(self, type_str: str) -> Optional[int]:
+        if not type_str:
+            return None
+        s = type_str.lower()
+        if "(" in s:
+            s = s.split("(", 1)[0]
+        s = s.replace("__cdecl", "").replace("__stdcall", "").replace("__fastcall", "").replace("__thiscall", "").replace("__vectorcall", "").replace("__usercall", "").replace("__userpurge", "")
+        s = s.strip()
+        if "*" in s:
+            return self._get_ptr_size()
+        if "void" in s:
+            return None
+        if "char" in s:
+            return 1
+        if "short" in s or "int16" in s:
+            return 2
+        if "long long" in s or "int64" in s:
+            return 8
+        if "size_t" in s or "ssize_t" in s:
+            return self._get_ptr_size()
+        if "int" in s or "long" in s:
+            ptr = self._get_ptr_size()
+            if "long" in s and ptr == 8:
+                return 8
+            return 4
+        if "float" in s:
+            return 4
+        if "double" in s:
+            return 8
         return None
 
     def _get_ptr_size(self) -> Optional[int]:
