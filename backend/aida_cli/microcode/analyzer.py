@@ -4,6 +4,7 @@ from .constants import (
     ida_funcs,
     idautils,
     ida_idaapi,
+    ida_typeinf,
     BADADDR,
 )
 from .common import (
@@ -109,7 +110,7 @@ class MopUsageVisitor(_mop_visitor_base):
                 width=width,
                 bit_width=width,
             )
-            self._enrich_operand_entry(entry)
+            self.analyzer._enrich_operand_entry(entry)
 
             if is_target:
                 key = (role, op, access_mode, text, mop_type, width)
@@ -186,6 +187,7 @@ class MicrocodeInstructionAnalyzer:
         if self.utils.is_store_opcode(opname):
             self._record_store(insn, writes)
 
+        calls = self._dedupe_calls(calls)
         return reads, writes, calls
 
     def _record_call(self, insn, calls):
@@ -269,14 +271,18 @@ class MicrocodeInstructionAnalyzer:
         size = getattr(insn, "size", None)
         try:
             if size is not None:
-                return int(size)
+                size = int(size)
+                if size > 0:
+                    return size
         except Exception:
             return None
         sizes = []
         for mop in (getattr(insn, "d", None), getattr(insn, "l", None), getattr(insn, "r", None)):
             sizes.extend(self._collect_mop_sizes(mop))
         if sizes:
-            return max(sizes)
+            size = max(sizes)
+            if size > 0:
+                return size
         text = self.utils.safe_dstr(insn) or ""
         for m in re.findall(r'\.(\d+)', text):
             try:
@@ -284,7 +290,9 @@ class MicrocodeInstructionAnalyzer:
             except Exception:
                 pass
         if sizes:
-            return max(sizes)
+            size = max(sizes)
+            if size > 0:
+                return size
         return None
 
     def _get_signed_flag(self, insn, opname: str) -> Optional[bool]:
@@ -294,7 +302,12 @@ class MicrocodeInstructionAnalyzer:
                 return bool(signed)
             except Exception:
                 return None
-        return self.utils.get_opcode_signed_hint(opname)
+        hint = self.utils.get_opcode_signed_hint(opname)
+        if hint is not None:
+            return hint
+        if opname.startswith("j"):
+            return False
+        return None
 
     def _get_flags_read(self, opname: str) -> Optional[bool]:
         category = self.utils.get_opcode_category(opname)
@@ -307,6 +320,8 @@ class MicrocodeInstructionAnalyzer:
     def _get_flags_write(self, opname: str) -> Optional[bool]:
         category = self.utils.get_opcode_category(opname)
         if category in ("arith", "logic", "cmp", "float", "vector"):
+            return True
+        if opname.startswith(("cmp", "test", "tst", "set", "cmov", "add", "sub", "mul", "div", "and", "or", "xor", "shl", "shr", "sar", "rol", "ror", "neg", "inc", "dec")):
             return True
         return None
 
@@ -322,6 +337,17 @@ class MicrocodeInstructionAnalyzer:
             try:
                 t = idc.get_type(callee_ea)
                 conv = self._parse_call_conv(t)
+                if conv:
+                    return conv
+            except Exception:
+                pass
+        if idc and callee_ea and ida_typeinf:
+            try:
+                if hasattr(idc, "FUNCATTR_CC"):
+                    cc = idc.get_func_attr(callee_ea, idc.FUNCATTR_CC)
+                else:
+                    cc = None
+                conv = self._cc_to_name(cc)
                 if conv:
                     return conv
             except Exception:
@@ -353,14 +379,18 @@ class MicrocodeInstructionAnalyzer:
                 size = getattr(insn, "size", None)
             try:
                 if size is not None:
-                    return int(size)
+                    size = int(size)
+                    if size > 0:
+                        return size
             except Exception:
                 return None
             return None
         size = getattr(ret_mop, "size", None)
         try:
             if size is not None:
-                return int(size)
+                size = int(size)
+                if size > 0:
+                    return size
         except Exception:
             return None
         text = self.utils.safe_dstr(ret_mop) or ""
@@ -371,6 +401,37 @@ class MicrocodeInstructionAnalyzer:
             except Exception:
                 return None
         return None
+
+    def _dedupe_calls(self, calls: List[CallInfo]) -> List[CallInfo]:
+        seen = set()
+        result = []
+        for call in calls:
+            key = (
+                call.kind,
+                call.callee_name,
+                call.callee_ea,
+                call.target,
+                tuple(call.args),
+                call.ret,
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(call)
+        return result
+
+    def _cc_to_name(self, cc) -> Optional[str]:
+        if cc is None or ida_typeinf is None:
+            return None
+        mapping = {
+            getattr(ida_typeinf, "CM_CC_CDECL", None): "cdecl",
+            getattr(ida_typeinf, "CM_CC_STDCALL", None): "stdcall",
+            getattr(ida_typeinf, "CM_CC_FASTCALL", None): "fastcall",
+            getattr(ida_typeinf, "CM_CC_THISCALL", None): "thiscall",
+            getattr(ida_typeinf, "CM_CC_VECTORCALL", None): "vectorcall",
+            getattr(ida_typeinf, "CM_CC_SPECIAL", None): "usercall",
+        }
+        return mapping.get(cc)
 
     def _record_store(self, insn, writes):
         d = getattr(insn, "d", None)
@@ -424,7 +485,9 @@ class MicrocodeInstructionAnalyzer:
         size = getattr(mop, "size", None)
         try:
             if size is not None:
-                sizes.append(int(size))
+                size = int(size)
+                if size > 0:
+                    sizes.append(size)
         except Exception:
             pass
         t = getattr(mop, "t", None)
@@ -434,7 +497,9 @@ class MicrocodeInstructionAnalyzer:
                 inner_size = getattr(inner, "size", None)
                 try:
                     if inner_size is not None:
-                        sizes.append(int(inner_size))
+                        inner_size = int(inner_size)
+                        if inner_size > 0:
+                            sizes.append(inner_size)
                 except Exception:
                     pass
                 for inner_mop in (getattr(inner, "d", None), getattr(inner, "l", None), getattr(inner, "r", None)):

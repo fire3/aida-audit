@@ -53,6 +53,11 @@ try:
 except ImportError:
     ida_xref = None
 
+try:
+    import ida_typeinf
+except ImportError:
+    ida_typeinf = None
+
 
 def get_badaddr():
     if ida_idaapi and hasattr(ida_idaapi, "BADADDR"):
