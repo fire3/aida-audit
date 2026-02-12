@@ -340,16 +340,6 @@ class PathFinder:
 
         self.logger.log(f"Tracing paths from {len(source_callers)} source callers to {len(sink_callers)} sink callers")
 
-        # DEBUG: Check if there's overlap between source and sink callers
-        overlap = source_callers & sink_callers
-        if overlap:
-            self.logger.log(f"[PATH_DEBUG] OVERLAP DETECTED: source and sink callers overlap at {[hex(ea) for ea in overlap]}")
-            for ea in overlap:
-                self.logger.log(f"[PATH_DEBUG]   Function at {hex(ea)}: {ida_funcs.get_func_name(ea)}")
-                # Check direct calls from this function
-                callees = self._get_callees(ea)
-                self.logger.log(f"[PATH_DEBUG]   Callees: {[hex(c[0]) for c in callees]}")
-        
         strategies = set(self.config.strategies or [])
         fwd_results = []
         rev_results = []
@@ -357,12 +347,9 @@ class PathFinder:
 
         if "forward" in strategies:
             fwd_paths = self._bfs_search(source_callers, sink_callers)
-            self.logger.log(f"[PATH_DEBUG] Forward search found {len(fwd_paths)} paths")
             for path_nodes, has_indirect in fwd_paths:
-                self.logger.log(f"[PATH_DEBUG]   FWD path: {[hex(n) for n in path_nodes]} has_indirect={has_indirect}")
                 res = self._build_result(path_nodes, has_indirect, "forward")
                 if res:
-                    self.logger.log(f"[PATH_DEBUG]   FWD result nodes: {[(n['ea'], n['name']) for n in res.get('nodes', [])]}")
                     fwd_results.append(res)
 
         if "reverse" in strategies:

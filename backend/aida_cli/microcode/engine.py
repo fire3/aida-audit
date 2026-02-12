@@ -1,5 +1,4 @@
 from collections import deque
-import os
 import sys
 
 from .state import TaintState
@@ -12,8 +11,6 @@ from .constants import (
     BADADDR,
 )
 from ..pathfinder import PathFinder, PathFinderConfig
-
-_DEBUG_MODE = os.environ.get("AIDA_DEBUG_TAINT", "") == "1"
 
 
 class RuleResolver:
@@ -455,15 +452,10 @@ class MicrocodeTaintEngine:
 
         raw_chains = [p["nodes"] for p in path_result]
 
-        self.logger.log(f"[PATH_DEBUG] raw_chains count={len(raw_chains)}")
-        for i, chain in enumerate(raw_chains):
-            self.logger.log(f"[PATH_DEBUG]   chain[{i}] nodes: {[(n.get('ea'), n.get('name')) for n in chain]}")
-
         chain_functions = set()
         for path in raw_chains:
             for node in path:
                 ea = int(node["ea"], 16)
-                self.logger.log(f"[PATH_DEBUG] Adding to chain_functions: ea={hex(ea)} name={node.get('name')}")
                 chain_functions.add(ea)
 
         if not chain_functions:
@@ -473,56 +465,14 @@ class MicrocodeTaintEngine:
 
         findings = []
         for ea in sorted_chain:
-            self.logger.log(f"[TAINT_DEBUG] Processing ea={hex(ea)} name={ida_funcs.get_func_name(ea)}")
             func = ida_funcs.get_func(ea)
             if not func:
-                self.logger.log(f"[TAINT_DEBUG] Skipping - no function found at {hex(ea)}")
                 continue
             
             func_info = analyze_function(func, maturity)
             
-            print(f"[TAINT_DEBUG] func_info result: func={func_info.function if func_info else 'None'} ea={hex(ea)}", file=sys.stderr)
-            
-            # DEBUG: Print func_info for all functions
-            if func_info:
-                func_name = func_info.function
-                # Get all calls in this function
-                all_calls = []
-                for insn in func_info.insns:
-                    for c in insn.calls:
-                        if c.callee_name:
-                            all_calls.append(c.callee_name)
-                
-                print(f"[TAINT_DEBUG] Function details: name={func_name} args={len(func_info.args)} return_vars={len(func_info.return_vars)} insns={len(func_info.insns)} calls={all_calls}", file=sys.stderr)
-                
-                # Print info for all functions
-                print(f"[TAINT_DEBUG] === Function ea={hex(ea)} name={func_name} ===", file=sys.stderr)
-                print(f"[TAINT_DEBUG] args_count={len(func_info.args)} return_vars_count={len(func_info.return_vars)} insns_count={len(func_info.insns)}", file=sys.stderr)
-                for arg in func_info.args:
-                    print(f"[TAINT_DEBUG]   arg: lvar_idx={arg.lvar_idx} name={arg.name} width={arg.width}", file=sys.stderr)
-                print(f"[TAINT_DEBUG]   === INSTRUCTIONS ===", file=sys.stderr)
-                for i, insn in enumerate(func_info.insns):
-                    calls_str = ", ".join([f"{c.callee_name}({len(c.args)} args)" for c in insn.calls]) if insn.calls else ""
-                    reads_str = ", ".join([f"{r.role}:{r.text}" for r in insn.reads]) if insn.reads else ""
-                    writes_str = ", ".join([f"{w.role}:{w.text}" for w in insn.writes]) if insn.writes else ""
-                    print(f"[TAINT_DEBUG]   [{i:2d}] ea={insn.ea} opcode={insn.opcode:12s} calls=[{calls_str}] reads=[{reads_str}] writes=[{writes_str}]", file=sys.stderr)
-            
             if func_info:
                 f_findings, state = self.function_scanner.scan(func_info)
-                
-                # DEBUG: Print findings and taint state
-                print(f"[TAINT_DEBUG] After scan: f_findings_count={len(f_findings)}", file=sys.stderr)
-                for i, f in enumerate(f_findings):
-                    print(f"[TAINT_DEBUG]   finding[{i}]: {f}", file=sys.stderr)
-                
-                # Print all taint in state
-                all_entries = list(state.entries.keys())
-                if all_entries:
-                    print(f"[TAINT_DEBUG] Taint state entries: {all_entries}", file=sys.stderr)
-                    for key in all_entries:
-                        entry = state.entries.get(key)
-                        if entry and entry.labels:
-                            print(f"[TAINT_DEBUG]   key={key} labels={entry.labels}", file=sys.stderr)
 
                 real_findings = []
                 proxy_findings = []

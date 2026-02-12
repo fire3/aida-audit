@@ -189,8 +189,6 @@ class MicrocodeInstructionAnalyzer:
         callee_mop, arg_list_mop, ret_mop = self.utils.select_call_operands(l, r, d)
 
         callee = self.utils.mop_to_location(callee_mop) if not self.utils.is_none_mop(callee_mop) else None
-        
-        print(f"[DEBUG_CALL] _record_call: opname={opname} callee_mop={callee_mop} callee={callee}", file=sys.stderr)
 
         args = []
         arg_sources = []
@@ -330,35 +328,12 @@ def analyze_function(pfn, maturity):
             - insns: list[InsnInfo], 指令列表
         None: 如果分析失败
     """
-    global _ANALYZER_DEBUG
-
-    if _ANALYZER_DEBUG:
-        func_name = ida_funcs.get_func_name(pfn.start_ea) if ida_funcs else "unknown"
-        print(f"[DEBUG analyze_function] START func={func_name} ea={hex(pfn.start_ea)} maturity={maturity}", file=sys.stderr)
-
     hf = ida_hexrays.hexrays_failure_t()
     mbr = ida_hexrays.mba_ranges_t(pfn)
     mba = ida_hexrays.gen_microcode(mbr, hf, None, ida_hexrays.DECOMP_WARNINGS, maturity)
 
     if not mba:
-        if _ANALYZER_DEBUG:
-            func_name = ida_funcs.get_func_name(pfn.start_ea) if ida_funcs else "unknown"
-            print(f"[DEBUG analyze_function] FAIL: mba is None for func={func_name}", file=sys.stderr)
         return None
 
     analyzer = MicrocodeFunctionAnalyzer(mba)
-    result = analyzer.analyze_function(pfn, maturity)
-
-    if _ANALYZER_DEBUG:
-        print(f"[DEBUG analyze_function] END func={result.function} ea={result.ea}", file=sys.stderr)
-        print(f"[DEBUG analyze_function] args_count={len(result.args)} return_vars_count={len(result.return_vars)} insns_count={len(result.insns)}", file=sys.stderr)
-        for arg in result.args:
-            print(f"[DEBUG analyze_function]   arg: lvar_idx={arg.lvar_idx} name={arg.name} width={arg.width}", file=sys.stderr)
-        print(f"[DEBUG analyze_function] --- insns ---", file=sys.stderr)
-        for i, insn in enumerate(result.insns):
-            print(f"[DEBUG analyze_function]   insn[{i}] ea={insn.ea} opcode={insn.opcode} text={insn.text}", file=sys.stderr)
-            print(f"[DEBUG analyze_function]     reads: {[(r.role, r.text) for r in insn.reads]}", file=sys.stderr)
-            print(f"[DEBUG analyze_function]     writes: {[(w.role, w.text) for w in insn.writes]}", file=sys.stderr)
-            print(f"[DEBUG analyze_function]     calls: {[(c.callee_name, [a.text for a in c.args]) for c in insn.calls]}", file=sys.stderr)
-
-    return result
+    return analyzer.analyze_function(pfn, maturity)
