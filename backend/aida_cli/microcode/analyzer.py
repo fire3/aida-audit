@@ -68,19 +68,9 @@ class MopUsageVisitor(_mop_visitor_base):
 
             if t == ida_hexrays.mop_f:
                 for arg_wrapper in self.utils.iter_call_args(mop):
-                    arg_mop = None
-                    if hasattr(arg_wrapper, "arg"): 
-                        arg_mop = arg_wrapper.arg
-                    elif hasattr(arg_wrapper, "mop"): 
-                        arg_mop = arg_wrapper.mop
-                    elif hasattr(arg_wrapper, "t"): 
-                        arg_mop = arg_wrapper
-                    
+                    arg_mop = self.utils.extract_arg_mop(arg_wrapper)
                     if arg_mop:
                         self.visit_mop(arg_mop, type_id, False)
-                return 0
-
-            if t in (ida_hexrays.mop_c, ida_hexrays.mop_sc):
                 return 0
 
             access_mode = None
@@ -96,12 +86,14 @@ class MopUsageVisitor(_mop_visitor_base):
             entry = OperandInfo(role=role, attr=op, text=text, access_mode=access_mode)
 
             if is_target:
-                if role not in self.seen_writes:
-                    self.seen_writes.add(role)
+                key = (role, op, access_mode, text)
+                if key not in self.seen_writes:
+                    self.seen_writes.add(key)
                     self.writes.append(entry)
             else:
-                if role not in self.seen_reads:
-                    self.seen_reads.add(role)
+                key = (role, op, access_mode, text)
+                if key not in self.seen_reads:
+                    self.seen_reads.add(key)
                     self.reads.append(entry)
         except Exception:
             pass
@@ -119,6 +111,9 @@ class MicrocodeInstructionAnalyzer:
         opname = self.utils.get_opcode_name(insn.opcode)
         return InsnInfo(
             opcode=opname,
+            opcode_id=getattr(insn, "opcode", 0),
+            category=self.utils.get_opcode_category(opname),
+            is_float=self.utils.is_float_opcode(opname),
             text=self.utils.safe_dstr(insn),
             reads=reads,
             writes=writes,
@@ -176,7 +171,10 @@ class MicrocodeInstructionAnalyzer:
             arg_sources.append(arg_list_mop)
         for src in arg_sources:
             for arg in self.utils.iter_call_args(src):
-                loc = self.utils.mop_to_attr(arg)
+                arg_mop = self.utils.extract_arg_mop(arg)
+                if arg_mop is None:
+                    continue
+                loc = self.utils.mop_to_attr(arg_mop)
                 if loc is not None:
                     args.append(loc)
 
@@ -216,7 +214,28 @@ class MicrocodeInstructionAnalyzer:
 
 class CFGBuilder:
     JUMP_OPCODES = frozenset({"goto", "jmp"})
-    CONDITIONAL_JUMP_OPCODES = frozenset({"jz", "jnz", "jc", "jnc", "jo", "jno", "js", "jns"})
+    CONDITIONAL_JUMP_OPCODES = frozenset({
+        "jz",
+        "jnz",
+        "jc",
+        "jnc",
+        "jo",
+        "jno",
+        "js",
+        "jns",
+        "jg",
+        "jge",
+        "jl",
+        "jle",
+        "ja",
+        "jae",
+        "jb",
+        "jbe",
+        "jp",
+        "jnp",
+        "jpe",
+        "jpo",
+    })
 
     def __init__(self, mba):
         self.mba = mba
@@ -390,6 +409,9 @@ class MicrocodeFunctionAnalyzer:
             insn_idx=insn_idx,
             ea=ea_str,
             opcode=cpg_info.opcode,
+            opcode_id=cpg_info.opcode_id,
+            category=cpg_info.category,
+            is_float=cpg_info.is_float,
             text=cpg_info.text,
             reads=cpg_info.reads,
             writes=cpg_info.writes,

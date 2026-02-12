@@ -21,6 +21,7 @@ class AttrType:
     STRING = "string"
     ADDRESS = "address"
     LOAD = "load"
+    BLOCK = "block"
     EXPRESSION = "expression"
 
 
@@ -99,7 +100,9 @@ class GlobalAttr(OperandAttr):
 @dataclass(frozen=True, eq=True)
 class ImmediateAttr(OperandAttr):
     """立即数属性"""
-    value: int
+    value: Optional[int] = None
+    fvalue: Optional[float] = None
+    text: str = ""
 
     @property
     def attr_type(self) -> str:
@@ -107,7 +110,7 @@ class ImmediateAttr(OperandAttr):
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
-        return f"{prefix}ImmediateAttr(value={self.value})"
+        return f"{prefix}ImmediateAttr(value={self.value}, fvalue={self.fvalue}, text={self.text!r})"
 
 
 @dataclass(frozen=True, eq=True)
@@ -155,6 +158,19 @@ class LoadAttr(OperandAttr):
 
 
 @dataclass(frozen=True, eq=True)
+class BlockAttr(OperandAttr):
+    block_id: int
+
+    @property
+    def attr_type(self) -> str:
+        return AttrType.BLOCK
+
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        return f"{prefix}BlockAttr(block_id={self.block_id})"
+
+
+@dataclass(frozen=True, eq=True)
 class ExpressionAttr(OperandAttr):
     """复杂表达式属性 (不可分解)"""
     expr: str
@@ -177,6 +193,7 @@ OperandAttrList = Union[
     StringAttr,
     AddressAttr,
     LoadAttr,
+    BlockAttr,
     ExpressionAttr,
 ]
 
@@ -219,6 +236,9 @@ class InsnInfo:
     insn_idx: int = 0
     ea: str = ""
     opcode: str = ""
+    opcode_id: int = 0
+    category: str = ""
+    is_float: bool = False
     text: str = ""
     reads: list = field(default_factory=list)
     writes: list = field(default_factory=list)
@@ -238,6 +258,9 @@ class InsnInfo:
             f"{prefix}  insn_idx={self.insn_idx},\n"
             f"{prefix}  ea={self.ea!r},\n"
             f"{prefix}  opcode={self.opcode!r},\n"
+            f"{prefix}  opcode_id={self.opcode_id},\n"
+            f"{prefix}  category={self.category!r},\n"
+            f"{prefix}  is_float={self.is_float},\n"
             f"{prefix}  text={self.text!r},\n"
             f"{prefix}  reads=[\n{reads_str}\n{prefix}  ],\n"
             f"{prefix}  writes=[\n{writes_str}\n{prefix}  ],\n"
@@ -327,6 +350,7 @@ __all__ = [
     "StringAttr",
     "AddressAttr",
     "LoadAttr",
+    "BlockAttr",
     "ExpressionAttr",
     "OperandAttrList",
     "OperandInfo",

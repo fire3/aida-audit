@@ -9,6 +9,7 @@ from .common import (
     StringAttr,
     AddressAttr,
     LoadAttr,
+    BlockAttr,
     ExpressionAttr,
     AttrType,
 )
@@ -82,6 +83,17 @@ class MicroCodeUtils:
                         pass
         return []
 
+    def extract_arg_mop(self, arg_wrapper):
+        if arg_wrapper is None:
+            return None
+        if hasattr(arg_wrapper, "arg"):
+            return arg_wrapper.arg
+        if hasattr(arg_wrapper, "mop"):
+            return arg_wrapper.mop
+        if hasattr(arg_wrapper, "t"):
+            return arg_wrapper
+        return None
+
     def get_opcode_name(self, opcode):
         if ida_hexrays and hasattr(ida_hexrays, "get_mcode_name"):
             return ida_hexrays.get_mcode_name(opcode)
@@ -125,6 +137,33 @@ class MicroCodeUtils:
 
     def is_store_opcode(self, opcode):
         return opcode in ("op_1", "stx")
+
+    def get_opcode_category(self, opcode_name: str) -> str:
+        name = (opcode_name or "").lower()
+        if not name:
+            return ""
+        if "call" in name:
+            return "call"
+        if name in ("jmp", "goto"):
+            return "jump"
+        if name.startswith("j"):
+            return "branch"
+        if name in ("mov", "xdu", "xds", "cast"):
+            return "move"
+        if name in ("ldx", "stx", "ld", "st"):
+            return "memory"
+        if name in ("add", "sub", "mul", "div", "mod", "neg", "udiv", "sdiv", "umod", "smod", "and", "or", "xor", "shl", "shr", "sar", "rol", "ror"):
+            return "arith"
+        if name in ("fadd", "fsub", "fmul", "fdiv", "fneg", "f2i", "i2f", "f2f", "fcmp"):
+            return "float"
+        if name in ("cmp", "tst", "set", "sets", "setb", "seta", "setz", "setnz"):
+            return "cmp"
+        if name in ("ret", "leave"):
+            return "ret"
+        return ""
+
+    def is_float_opcode(self, opcode_name: str) -> bool:
+        return self.get_opcode_category(opcode_name) == "float"
 
     def _get_func_name_from_helper(self, helper: str) -> Optional[str]:
         """从 helper 名称获取真实函数名，去除 $_ 前缀"""
@@ -199,8 +238,24 @@ class MicroCodeUtils:
                             pass
 
             if value is not None:
-                return ImmediateAttr(value=value)
+                return ImmediateAttr(value=value, text=self.safe_dstr(mop))
+            fvalue = self._parse_float_from_text(self.safe_dstr(mop))
+            if fvalue is not None:
+                return ImmediateAttr(fvalue=fvalue, text=self.safe_dstr(mop))
             return ExpressionAttr(expr=self.safe_dstr(mop))
+
+        if t in (getattr(ida_hexrays, "mop_c", None), getattr(ida_hexrays, "mop_sc", None)):
+            raw = getattr(mop, "value", None)
+            value = self._to_int(raw)
+            if value is None:
+                value = self._to_int(getattr(getattr(mop, "c", None), "value", None))
+            text = self.safe_dstr(mop)
+            if value is not None:
+                return ImmediateAttr(value=value, text=text)
+            fvalue = self._parse_float_from_text(text)
+            if fvalue is not None:
+                return ImmediateAttr(fvalue=fvalue, text=text)
+            return ExpressionAttr(expr=text)
 
         if t == ida_hexrays.mop_str:
             text = self.safe_dstr(mop)
@@ -214,6 +269,21 @@ class MicroCodeUtils:
                 func_name = self._get_func_name_from_helper(helper)
                 if func_name:
                     return ExpressionAttr(expr=func_name)
+            return ExpressionAttr(expr=self.safe_dstr(mop))
+
+        if t == getattr(ida_hexrays, "mop_b", None):
+            block_id = None
+            b = getattr(mop, "b", None)
+            if b is not None:
+                block_id = self._to_int(getattr(b, "serial", None))
+                if block_id is None:
+                    block_id = self._to_int(getattr(b, "id", None))
+                if block_id is None:
+                    block_id = self._to_int(getattr(b, "block_id", None))
+            if block_id is None:
+                block_id = self._to_int(getattr(mop, "block_id", None))
+            if block_id is not None:
+                return BlockAttr(block_id=block_id)
             return ExpressionAttr(expr=self.safe_dstr(mop))
 
         if t == ida_hexrays.mop_d:
@@ -240,6 +310,20 @@ class MicroCodeUtils:
             if x is None:
                 return None
             return int(x)
+        except Exception:
+            return None
+
+    def _parse_float_from_text(self, text: Optional[str]) -> Optional[float]:
+        if not text:
+            return None
+        s = text.strip()
+        match = re.search(r'[-+]?(?:\d+\.\d+|\d+\.)(?:[eE][-+]?\d+)?', s)
+        if not match:
+            match = re.search(r'[-+]?\d+(?:[eE][-+]?\d+)', s)
+        if not match:
+            return None
+        try:
+            return float(match.group(0))
         except Exception:
             return None
 
