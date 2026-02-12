@@ -9,6 +9,7 @@ from .constants import (
     idautils,
     BADADDR,
 )
+from ..pathfinder import PathFinder, PathFinderConfig
 
 
 class RuleResolver:
@@ -49,107 +50,6 @@ class RuleResolver:
             yield rule
         for rule in self.ruleset.propagators:
             yield rule
-
-
-class CallChainPlanner:
-    """调用链规划器，输出调用者集合与路径列表。"""
-    def __init__(self, logger):
-        self.logger = logger
-
-    def collect_callers(self, rules):
-        caller_set = set()
-        for rule in rules:
-            ea = rule.get("ea")
-            if not ea:
-                continue
-            for ref in idautils.CodeRefsTo(ea, 0):
-                func = ida_funcs.get_func(ref)
-                if func:
-                    caller_set.add(func.start_ea)
-        return caller_set
-
-    def find_call_chain(self, source_callers, sink_callers):
-        chain_functions = set()
-        all_paths = []
-
-        fwd_nodes, fwd_paths = self._bfs_search(source_callers, sink_callers, "Forward")
-        chain_functions.update(fwd_nodes)
-        all_paths.extend(fwd_paths)
-
-        rev_nodes, rev_paths = self._bfs_search(sink_callers, source_callers, "Reverse")
-        chain_functions.update(rev_nodes)
-        for path in rev_paths:
-            all_paths.append(path[::-1])
-
-        return chain_functions, all_paths
-
-    def sort_call_chain(self, chain_functions):
-        visited = set()
-        sorted_list = []
-
-        def visit(u):
-            visited.add(u)
-            func = ida_funcs.get_func(u)
-            if func:
-                for head in idautils.FuncItems(func.start_ea):
-                    for ref in idautils.CodeRefsFrom(head, 0):
-                        f = ida_funcs.get_func(ref)
-                        if f and f.start_ea == ref:
-                            callee = f.start_ea
-                            if callee in chain_functions and callee not in visited:
-                                visit(callee)
-            sorted_list.append(u)
-
-        for ea in chain_functions:
-            if ea not in visited:
-                visit(ea)
-
-        return sorted_list
-
-    def _bfs_search(self, start_nodes, end_nodes, direction_name):
-        max_depth = 10
-        found_nodes = set()
-        found_paths = []
-
-        queue = deque()
-        for ea in start_nodes:
-            queue.append((ea, [ea]))
-
-        visited = set(start_nodes)
-
-        while queue:
-            curr_ea, path = queue.popleft()
-
-            if curr_ea in end_nodes:
-                found_nodes.update(path)
-                found_paths.append(path)
-                names = [ida_funcs.get_func_name(x) for x in path]
-                continue
-
-            if len(path) >= max_depth:
-                continue
-
-            func = ida_funcs.get_func(curr_ea)
-            if not func:
-                continue
-
-            callees = set()
-            for head in idautils.FuncItems(func.start_ea):
-                for ref in idautils.CodeRefsFrom(head, 0):
-                    f = ida_funcs.get_func(ref)
-                    if f and f.start_ea == ref:
-                        callee_ea = f.start_ea
-                        if f.flags & (ida_funcs.FUNC_THUNK | ida_funcs.FUNC_LIB):
-                            if callee_ea not in end_nodes:
-                                continue
-                        callees.add(callee_ea)
-
-            for callee in callees:
-                if callee not in visited:
-                    visited.add(callee)
-                    queue.append((callee, path + [callee]))
-
-        return found_nodes, found_paths
 
 
 class SummaryGenerator:
@@ -488,7 +388,8 @@ class MicrocodeTaintEngine:
         self.logger = logger
         self.utils = MicroCodeUtils()
         self.rule_resolver = RuleResolver(ruleset, self.logger)
-        self.call_chain_planner = CallChainPlanner(self.logger)
+        self.pathfinder_config = PathFinderConfig(max_depth=10)
+        self.pathfinder = PathFinder(ruleset, self.logger, self.pathfinder_config)
         self.processor = InstructionTaintProcessor(
             ruleset, self.logger, self.rule_resolver, utils=self.utils
         )
@@ -498,29 +399,51 @@ class MicrocodeTaintEngine:
     def scan_function(self, func_info):
         return self.function_scanner.scan(func_info)
 
+    def _sort_call_chain(self, chain_functions):
+        visited = set()
+        sorted_list = []
+
+        def visit(u):
+            visited.add(u)
+            func = ida_funcs.get_func(u)
+            if func:
+                for head in idautils.FuncItems(func.start_ea):
+                    for ref in idautils.CodeRefsFrom(head, 0):
+                        f = ida_funcs.get_func(ref)
+                        if f and f.start_ea == ref:
+                            callee = f.start_ea
+                            if callee in chain_functions and callee not in visited:
+                                visit(callee)
+            sorted_list.append(u)
+
+        for ea in chain_functions:
+            if ea not in visited:
+                visit(ea)
+
+        return sorted_list
+
     def scan_global(self, maturity):
         self.rule_resolver.resolve_rules()
 
-        source_callers = self.call_chain_planner.collect_callers(self.ruleset.sources)
-        sink_callers = self.call_chain_planner.collect_callers(self.ruleset.sinks)
+        self.pathfinder.ruleset = self.ruleset
+        self.pathfinder.identify_markers()
+        path_result = self.pathfinder.find_paths()
 
-        if not source_callers or not sink_callers:
+        if not path_result:
             return []
 
-        chain_functions, raw_chains = self.call_chain_planner.find_call_chain(
-            source_callers, sink_callers
-        )
+        raw_chains = [p["nodes"] for p in path_result]
+
+        chain_functions = set()
+        for path in raw_chains:
+            for node in path:
+                ea = int(node["ea"], 16)
+                chain_functions.add(ea)
+
         if not chain_functions:
             return []
 
-        formatted_chains = []
-        for path in raw_chains:
-            chain_info = []
-            for ea in path:
-                chain_info.append({"ea": hex(ea), "name": ida_funcs.get_func_name(ea) or f"sub_{ea:x}"})
-            formatted_chains.append(chain_info)
-
-        sorted_chain = self.call_chain_planner.sort_call_chain(chain_functions)
+        sorted_chain = self._sort_call_chain(chain_functions)
 
         findings = []
         for ea in sorted_chain:
@@ -550,6 +473,6 @@ class MicrocodeTaintEngine:
                 self.summary_generator.generate(func_info, state, proxy_findings)
 
         for finding in findings:
-            finding["call_chains"] = formatted_chains
+            finding["call_chains"] = raw_chains
 
         return findings
