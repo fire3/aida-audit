@@ -126,13 +126,33 @@ class MopUsageVisitor(_mop_visitor_base):
             t = getattr(mop, "t", None)
             if t == ida_hexrays.mop_d:
                 inner = getattr(mop, "d", None)
-                if inner is not None and self.utils.is_call_opcode(inner.opcode):
-                    key = id(inner)
-                    if key not in self.seen_calls:
-                        self.seen_calls.add(key)
-                        self.analyzer._record_call(inner, self.calls)
+                if inner is not None:
+                    if self.utils.is_call_opcode(inner.opcode):
+                        key = id(inner)
+                        if key not in self.seen_calls:
+                            self.seen_calls.add(key)
+                            self.analyzer._record_call(inner, self.calls)
+                    
+                    # Recurse into nested instruction
+                    if hasattr(inner, "for_all_ops"):
+                        inner.for_all_ops(self)
+                return 0
 
-            if t in (ida_hexrays.mop_c, ida_hexrays.mop_sc, ida_hexrays.mop_f, ida_hexrays.mop_d):
+            if t == ida_hexrays.mop_f:
+                for arg_wrapper in self.utils.iter_call_args(mop):
+                    arg_mop = None
+                    if hasattr(arg_wrapper, "arg"): 
+                        arg_mop = arg_wrapper.arg
+                    elif hasattr(arg_wrapper, "mop"): 
+                        arg_mop = arg_wrapper.mop
+                    elif hasattr(arg_wrapper, "t"): 
+                        arg_mop = arg_wrapper
+                    
+                    if arg_mop:
+                        self.visit_mop(arg_mop, type_id, False)
+                return 0
+
+            if t in (ida_hexrays.mop_c, ida_hexrays.mop_sc):
                 return 0
 
             access_mode = None

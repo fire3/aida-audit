@@ -570,6 +570,20 @@ class MicroCodeUtils:
         if t == ida_hexrays.mop_n:
             n = getattr(mop, "n", None)
             value = self.to_int(getattr(n, "value", None)) if n is not None else None
+            
+            # If standard value extraction failed, try parsing from string representation
+            if value is None:
+                text = self.safe_dstr(mop)
+                if text and "#" in text:
+                    import re
+                    # Match #<value>.<size> or #<value>
+                    match = re.search(r'#((?:0x)?[0-9a-fA-F]+)', text)
+                    if match:
+                        try:
+                            value = int(match.group(1), 0)
+                        except ValueError:
+                            pass
+
             if value is not None:
                 return ImmediateLocation(value=value)
             return ExpressionLocation(expr=self.safe_dstr(mop))
@@ -600,25 +614,9 @@ class MicroCodeUtils:
                     if r_loc and r_loc.location_type != LocationType.IMMEDIATE:
                         return r_loc
 
-                # Load: ldx
                 if hasattr(ida_hexrays, "m_ldx") and insn.opcode == ida_hexrays.m_ldx:
-                    addr_loc = self.mop_to_location(insn.r)
-                    if addr_loc:
-                        return LoadLocation(ptr=addr_loc)
+                    addr_key = self.mop_to_location(insn.r)
+                    if addr_key:
+                        return LoadLocation(ptr=addr_key)
 
-                # Move: mov
-                if insn.opcode == ida_hexrays.m_mov:
-                    return self.mop_to_location(insn.l)
-
-                # Extensions: xdu, xds
-                if hasattr(ida_hexrays, "m_xdu") and insn.opcode in (ida_hexrays.m_xdu, getattr(ida_hexrays, "m_xds", -1)):
-                    return self.mop_to_location(insn.l)
-
-                # Bitwise/Neg: not, neg, bnot
-                if hasattr(ida_hexrays, "m_not") and insn.opcode in (ida_hexrays.m_not, getattr(ida_hexrays, "m_neg", -1), getattr(ida_hexrays, "m_bnot", -1)):
-                    return self.mop_to_location(insn.l)
-
-        text = self.safe_dstr(mop)
-        if text and text != "<?>":
-            return ExpressionLocation(expr=text)
-        return None
+        return ExpressionLocation(expr=self.safe_dstr(mop))
