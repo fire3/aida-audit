@@ -1,6 +1,18 @@
 from dataclasses import dataclass, field
 from typing import Optional, Set, Dict, FrozenSet, Tuple
-from .constants import BADADDR
+from .common import (
+    OperandAttr,
+    RegisterAttr,
+    LocalVarAttr,
+    StackAttr,
+    GlobalAttr,
+    ImmediateAttr,
+    StringAttr,
+    AddressAttr,
+    LoadAttr,
+    ExpressionAttr,
+    AttrType,
+)
 
 
 @dataclass(frozen=True)
@@ -17,8 +29,8 @@ class TaintOrigin:
 @dataclass(frozen=True)
 class TaintLabel:
     """污点标签 (不可变，便于哈希和比较)"""
-    source: str          # 来源类型: "SOURCE", "ARG", "DERIVED"
-    name: str            # 具体名称
+    source: str
+    name: str
 
     def __str__(self):
         return f"{self.source}:{self.name}"
@@ -29,13 +41,7 @@ class TaintLabel:
 
 @dataclass
 class TaintEntry:
-    """
-    单个位置的污点状态
-
-    Attributes:
-        labels: 污点标签集合 (如 {"SOURCE:printf", "ARG:0"})
-        origins: 来源信息集合，用于追踪污点路径
-    """
+    """单个位置的污点状态"""
     labels: Set[str] = field(default_factory=set)
     origins: Set[TaintOrigin] = field(default_factory=set)
 
@@ -43,7 +49,6 @@ class TaintEntry:
         return not self.labels
 
     def merge(self, other: "TaintEntry") -> bool:
-        """合并另一个污点条目，返回是否有新污点添加"""
         changed = False
         new_labels = other.labels - self.labels
         if new_labels:
@@ -56,14 +61,12 @@ class TaintEntry:
         return changed
 
     def union(self, other: "TaintEntry") -> "TaintEntry":
-        """返回两者的并集"""
         return TaintEntry(
             labels=self.labels | other.labels,
             origins=self.origins | other.origins,
         )
 
     def clone(self) -> "TaintEntry":
-        """深拷贝"""
         return TaintEntry(
             labels=set(self.labels),
             origins=set(self.origins),
@@ -72,97 +75,81 @@ class TaintEntry:
 
 @dataclass
 class TaintState:
-    """
-    函数内的污点状态
+    """函数内的污点状态"""
+    entries: Dict[OperandAttr, TaintEntry] = field(default_factory=dict)
+    aliases: Dict[OperandAttr, OperandAttr] = field(default_factory=dict)
 
-    支持不动点迭代所需的操作:
-    - clone(): 保存历史状态
-    - merge(): CFG 节点合并
-    - is_changed(): 检测收敛
-
-    Key 格式:
-        - "reg:{name}"      - 寄存器，如 "reg:eax"
-        - "imm:{value}"     - 立即数
-        - "addr:{ea}"       - 内存地址，如 "addr:0x401000"
-        - "lvar:{idx}"      - 局部变量，如 "lvar:0"
-        - "stack:{offset}"  - 栈偏移，如 "stack:-8"
-        - "load:{key}"      - 指针解引用，如 "load:reg:ptr"
-        - "arg:{idx}"       - 函数参数
-    """
-    entries: Dict[str, TaintEntry] = field(default_factory=dict)
-    aliases: Dict[str, str] = field(default_factory=dict)
-
-    def get_taint(self, key: str) -> FrozenSet[str]:
+    def get_taint(self, attr: Optional[OperandAttr]) -> FrozenSet[str]:
         """获取位置的污点标签"""
-        if not key:
+        if attr is None:
             return frozenset()
 
-        if key.startswith("load:"):
-            ptr_key = key[5:]
-            return self._resolve_load(ptr_key)
-
-        entry = self.entries.get(key)
+        resolved = self._resolve(attr)
+        entry = self.entries.get(resolved)
         if entry:
             return frozenset(entry.labels)
         return frozenset()
 
-    def _resolve_load(self, ptr_key: str) -> FrozenSet[str]:
-        """解析 load 操作：跟随指针链直到找到实际污点"""
-        visited = set()
-        current = ptr_key
-
-        while current in self.aliases and current not in visited:
-            visited.add(current)
-            current = self.aliases[current]
-
-        if current in self.entries:
-            return frozenset(self.entries[current].labels)
-        return frozenset()
-
-    def get_origins(self, key: str) -> FrozenSet[TaintOrigin]:
+    def get_origins(self, attr: Optional[OperandAttr]) -> FrozenSet[TaintOrigin]:
         """获取位置的污点来源"""
-        if not key:
+        if attr is None:
             return frozenset()
 
-        if key.startswith("load:"):
-            ptr_key = key[5:]
-            return self._resolve_load_origins(ptr_key)
-
-        entry = self.entries.get(key)
+        resolved = self._resolve(attr)
+        entry = self.entries.get(resolved)
         if entry:
             return frozenset(entry.origins)
         return frozenset()
 
-    def _resolve_load_origins(self, ptr_key: str) -> FrozenSet[TaintOrigin]:
-        """解析 load 操作的来源"""
-        visited = set()
-        current = ptr_key
+    def _resolve(self, attr: OperandAttr) -> OperandAttr:
+        """解析 LoadAttr，获取最终指向的位置"""
+        if isinstance(attr, LoadAttr):
+            visited = set()
+            current = attr.ptr
+            while isinstance(current, LoadAttr) and current not in visited:
+                visited.add(current)
+                current = current.ptr
+            if current in self.aliases:
+                return self.aliases[current]
+            return current
+        if attr in self.aliases:
+            return self.aliases[attr]
+        return attr
 
-        while current in self.aliases and current not in visited:
-            visited.add(current)
-            current = self.aliases[current]
-
-        if current in self.entries:
-            return frozenset(self.entries[current].origins)
-        return frozenset()
-
-    def add_alias(self, ptr: str, target: str) -> bool:
+    def add_alias(self, ptr: OperandAttr, target: OperandAttr) -> bool:
         """添加指针别名 ptr -> target，返回是否新增别名"""
-        if ptr and target and ptr != target:
-            if self.aliases.get(ptr) != target:
-                self.aliases[ptr] = target
-                return True
+        if ptr is None or target is None:
+            return False
+        if ptr == target:
+            return False
+        existing = self.aliases.get(ptr)
+        if existing != target:
+            self.aliases[ptr] = target
+            return True
         return False
 
-    def add_taint(self, key: str, labels: Set[str], origins: Set[TaintOrigin]) -> bool:
+    def add_taint(self, attr: Optional[OperandAttr], labels: Set[str], origins: Set[TaintOrigin]) -> bool:
         """添加污点，返回是否有变化"""
-        if not key:
+        if attr is None:
             return False
 
-        entry = self.entries.get(key)
+        resolved = self._resolve(attr)
+        entry = self.entries.get(resolved)
         if entry is None:
             entry = TaintEntry()
-            self.entries[key] = entry
+            self.entries[resolved] = entry
+
+        changed = bool(entry.labels - labels or entry.origins - origins)
+        entry.labels.update(labels)
+        entry.origins.update(origins)
+        return changed
+
+    def add_taint_to(self, attr: OperandAttr, labels: Set[str], origins: Set[TaintOrigin]) -> bool:
+        """直接添加污点到指定位置（不解析 load）"""
+        entry = self.entries.get(attr)
+        if entry is None:
+            entry = TaintEntry()
+            self.entries[attr] = entry
 
         changed = bool(entry.labels - labels or entry.origins - origins)
         entry.labels.update(labels)
@@ -173,12 +160,12 @@ class TaintState:
         """合并另一个状态到当前状态，返回是否有变化 (用于 CFG 合并)"""
         changed = False
 
-        for key, other_entry in other.entries.items():
-            if key in self.entries:
-                if self.entries[key].merge(other_entry):
+        for attr, other_entry in other.entries.items():
+            if attr in self.entries:
+                if self.entries[attr].merge(other_entry):
                     changed = True
             else:
-                self.entries[key] = other_entry.clone()
+                self.entries[attr] = other_entry.clone()
                 if not other_entry.is_empty():
                     changed = True
 
@@ -192,65 +179,13 @@ class TaintState:
     def clone(self) -> "TaintState":
         """深拷贝当前状态 (用于工作列表迭代保存历史)"""
         cloned = TaintState()
-        for key, entry in self.entries.items():
-            cloned.entries[key] = entry.clone()
+        for attr, entry in self.entries.items():
+            cloned.entries[attr] = entry.clone()
         cloned.aliases = dict(self.aliases)
         return cloned
 
     def is_empty(self) -> bool:
-        """检查是否没有任何污点"""
-        return not self.entries or all(e.is_empty() for e in self.entries.values())
+        return not self.entries
 
-    def __eq__(self, other: object) -> bool:
-        """状态相等比较 (用于不动点检测)"""
-        if not isinstance(other, TaintState):
-            return False
-        if self.entries.keys() != other.entries.keys():
-            return False
-        if self.aliases != other.aliases:
-            return False
-        for key in self.entries:
-            if self.entries[key].labels != other.entries[key].labels:
-                return False
-        return True
-
-    def __hash__(self) -> int:
-        """允许在 frozenset 中使用"""
-        return hash((
-            frozenset((k, frozenset(v.labels)) for k, v in self.entries.items()),
-            frozenset(self.aliases.items())
-        ))
-
-    def __repr__(self) -> str:
-        """用于调试的字符串表示"""
-        lines = []
-        if self.entries:
-            lines.append("Taint entries:")
-            for key, entry in self.entries.items():
-                if entry.labels:
-                    lines.append(f"  {key}: labels={sorted(entry.labels)}")
-        if self.aliases:
-            lines.append(f"Aliases: {dict(self.aliases)}")
-        return "\n".join(lines) if lines else "TaintState(empty)"
-
-    def dump(self, indent: int = 0) -> str:
-        """详细打印taint state"""
-        prefix = "  " * indent
-        lines = [f"{prefix}TaintState:"]
-        
-        if self.entries:
-            lines.append(f"{prefix}  Entries ({len(self.entries)}):")
-            for key, entry in sorted(self.entries.items()):
-                if entry.labels or entry.origins:
-                    labels_str = ", ".join(sorted(entry.labels)) if entry.labels else "(none)"
-                    origins_str = ", ".join(f"{o.label}@{o.ea}" for o in sorted(entry.origins)) if entry.origins else "(none)"
-                    lines.append(f"{prefix}    {key}:")
-                    lines.append(f"{prefix}      labels: [{labels_str}]")
-                    lines.append(f"{prefix}      origins: [{origins_str}]")
-        
-        if self.aliases:
-            lines.append(f"{prefix}  Aliases ({len(self.aliases)}):")
-            for ptr, target in sorted(self.aliases.items()):
-                lines.append(f"{prefix}    {ptr} -> {target}")
-        
-        return "\n".join(lines) if lines else f"{prefix}TaintState: (empty)"
+    def __bool__(self):
+        return self.is_empty()

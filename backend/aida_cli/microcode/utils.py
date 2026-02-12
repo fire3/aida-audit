@@ -126,14 +126,6 @@ class MicroCodeUtils:
     def is_store_opcode(self, opcode):
         return opcode in ("op_1", "stx")
 
-    def is_addr_key(self, key):
-        return bool(key) and key.startswith("addr:")
-
-    def strip_addr_key(self, key):
-        if not self.is_addr_key(key):
-            return None
-        return key[5:]
-
     def _get_func_name_from_helper(self, helper: str) -> Optional[str]:
         """从 helper 名称获取真实函数名，去除 $_ 前缀"""
         if not helper:
@@ -143,6 +135,10 @@ class MicroCodeUtils:
         if helper.startswith("$"):
             return None
         return helper
+
+    def mop_entry(self, mop):
+        """返回 OperandAttr (新接口)"""
+        return self.mop_to_attr(mop)
 
     def mop_to_attr(self, mop) -> Optional[OperandAttr]:
         """将 mop 转换为 OperandAttr (ADT 模式)"""

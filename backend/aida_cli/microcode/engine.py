@@ -4,6 +4,10 @@ import sys
 from .state import TaintState
 from .analyzer import analyze_function
 from .utils import MicroCodeUtils
+from .common import (
+    LocalVarAttr,
+    AddressAttr,
+)
 from .constants import (
     idc,
     ida_funcs,
@@ -54,7 +58,7 @@ class RuleResolver:
 
 
 class SummaryGenerator:
-    """基于污点状态生成动态规则，输出为对 ruleset 的就地更新。"""
+    """基于污点状态生成动态规则"""
 
     def __init__(self, ruleset, logger, utils=None):
         self.ruleset = ruleset
@@ -98,29 +102,27 @@ class SummaryGenerator:
     def _inspect_taint_outputs(self, func_info, state):
         is_source = False
         tainted_out_args = []
+
         for insn in func_info.insns:
             if insn.opcode == "ret":
                 for read in insn.reads:
-                    key = read.attr.to_key()
-                    taint = state.get_taint(key)
-                    if taint:
+                    if read.attr and state.get_taint(read.attr):
                         is_source = True
                         break
 
         if not is_source:
             for lvar_idx in func_info.return_vars:
-                key = f"lvar:{lvar_idx}"
-                taint = state.get_taint(key)
-                if taint:
+                attr = LocalVarAttr(lvar_idx=lvar_idx)
+                if state.get_taint(attr):
                     is_source = True
                     break
 
         args_map = {a.lvar_idx: i for i, a in enumerate(func_info.args)}
 
         for lvar_idx, arg_pos in args_map.items():
-            key = f"addr:lvar:{lvar_idx}"
-            taint = state.get_taint(key)
-            if taint:
+            inner = LocalVarAttr(lvar_idx=lvar_idx)
+            attr = AddressAttr(inner=inner)
+            if state.get_taint(attr):
                 tainted_out_args.append(arg_pos)
                 is_source = True
 
@@ -135,7 +137,7 @@ class SummaryGenerator:
 
 
 class InstructionTaintProcessor:
-    """指令级污点处理器，输出为对 state 与 findings 的就地更新。"""
+    """指令级污点处理器"""
 
     def __init__(self, ruleset, logger, rule_resolver, utils=None):
         self.ruleset = ruleset
@@ -156,74 +158,73 @@ class InstructionTaintProcessor:
                         call.ret = writes[0].attr
 
         if self.utils.is_move_opcode(opcode) and len(writes) == 1:
-            w_key = writes[0].attr.to_key()
+            w_attr = writes[0].attr
+            if w_attr:
+                for r in reads:
+                    r_attr = r.attr
+                    if r_attr and isinstance(r_attr, AddressAttr):
+                        state.add_alias(w_attr, r_attr.inner)
+
+        read_attrs, read_origins = self._collect_reads(state, insn.reads)
+
+        if self.utils.is_store_opcode(opcode) and read_attrs:
             for r in reads:
-                r_key = r.attr.to_key()
-                if self.utils.is_addr_key(r_key) and w_key:
-                    target = self.utils.strip_addr_key(r_key)
-                    state.add_alias(w_key, target)
+                r_attr = r.attr
+                if r_attr:
+                    resolved = state._resolve(r_attr)
+                    if resolved in state.aliases:
+                        target = state.aliases[resolved]
+                        state.add_taint(target, read_attrs, read_origins)
 
-        read_labels, read_origins, read_keys = self._collect_reads(state, insn.reads)
+        if read_attrs:
+            self._propagate_writes(state, insn, read_attrs, read_origins)
 
-        if self.utils.is_store_opcode(opcode) and read_labels:
-            for r in reads:
-                r_key = r.attr.to_key()
-                if r_key and r_key in state.aliases:
-                    target = state.aliases[r_key]
-                    state.add_taint(target, read_labels, read_origins)
-
-        if read_labels:
-            self._propagate_writes(state, insn, read_labels, read_origins, read_keys)
         for call in insn.calls:
             findings.extend(self._apply_call(insn, call, state, func_info))
 
-    def _propagate_writes(self, state, insn, labels, origins, read_keys):
-        write_keys = []
+    def _propagate_writes(self, state, insn, labels, origins):
         for write in insn.writes:
-            key = write.attr.to_key()
-            state.add_taint(key, labels, origins)
-            if key:
-                write_keys.append(key)
+            if write.attr:
+                state.add_taint(write.attr, labels, origins)
 
     def _collect_reads(self, state, reads):
         labels = set()
         origins = set()
-        keys = []
+        attrs = []
         for read in reads:
-            key = read.attr.to_key()
-            if not key:
+            if read.attr is None:
                 continue
-            keys.append(key)
-            labels.update(state.get_taint(key))
-            origins.update(state.get_origins(key))
-        return labels, origins, keys
+            attrs.append(read.attr)
+            labels.update(state.get_taint(read.attr))
+            origins.update(state.get_origins(read.attr))
+        return labels, origins
 
     def _apply_call(self, insn, call, state, func_info):
         findings = []
         callee, callee_ea = self._resolve_callee(call)
         if not callee and not callee_ea:
             return findings
+
         args = call.args or []
         ret = call.ret
 
-        labels, origins = self._collect_arg_taint(state, args, range(len(args)))
+        labels, origins = self._collect_arg_taint(state, args)
 
         self._apply_sources(insn, callee, callee_ea, args, ret, state, func_info)
-        self._apply_propagators(callee, callee_ea, args, ret, state, func_info)
-        self._apply_default_return_propagation(callee, args, ret, state, func_info)
-        findings.extend(self._apply_sinks(insn, callee, callee_ea, args, state, func_info))
+        self._apply_propagators(callee, callee_ea, args, ret, state)
+        self._apply_default_return_propagation(args, ret, state)
+        findings.extend(self._apply_sinks(insn, callee, args, state, func_info))
 
         return findings
 
-    def _collect_arg_taint(self, state, args, indexes):
+    def _collect_arg_taint(self, state, args):
         labels = set()
         origins = set()
-        for idx in indexes:
-            if idx < 0 or idx >= len(args):
+        for arg in args:
+            if arg is None:
                 continue
-            key = args[idx].to_key()
-            labels.update(state.get_taint(key))
-            origins.update(state.get_origins(key))
+            labels.update(state.get_taint(arg))
+            origins.update(state.get_origins(arg))
         return labels, origins
 
     def _rule_matches(self, rule, callee, callee_ea=None):
@@ -240,11 +241,8 @@ class InstructionTaintProcessor:
         callee = call.callee_name or ""
         target = call.target
         callee_ea = None
-        if target is not None:
-            if hasattr(target, "ea"):
-                callee_ea = target.ea
-            elif isinstance(target, dict):
-                callee_ea = target.get("ea")
+        if target is not None and hasattr(target, "ea"):
+            callee_ea = target.ea
         if callee_ea is None and callee:
             callee_ea = self.rule_resolver.resolve_rule_ea(callee)
         if callee_ea is not None:
@@ -268,90 +266,90 @@ class InstructionTaintProcessor:
             origins = {(label, insn.ea, func_info.function)}
             out_args = rule.get("out_args") or rule.get("args") or []
             self.logger.log(f"[TAINTER] Source matched: {rule.get('name')} -> label={label}")
+
             for idx in out_args:
                 if idx < 0 or idx >= len(args):
                     continue
-                key = args[idx].to_key()
-                changed = state.add_taint(key, {label}, origins)
-                if changed:
-                    self.logger.log(f"[TAINTER]   Taint added: arg[{idx}] key={key}")
-            if rule.get("ret"):
-                key = ret.to_key()
-                changed = state.add_taint(key, {label}, origins)
-                if changed:
-                    self.logger.log(f"[TAINTER]   Taint added: ret key={key}")
-            if rule.get("ret"):
-                key = ret.to_key()
-                print(f"[TAINT_DEBUG_SOURCE]   Adding return taint: key={key}", file=sys.stderr)
-                state.add_taint(key, {label}, origins)
+                attr = args[idx]
+                if attr:
+                    changed = state.add_taint(attr, {label}, origins)
+                    if changed:
+                        self.logger.log(f"[TAINTER]   Taint added: arg[{idx}]")
 
-    def _apply_propagators(self, callee, callee_ea, args, ret, state, func_info):
+            if rule.get("ret") and ret:
+                changed = state.add_taint(ret, {label}, origins)
+                if changed:
+                    self.logger.log(f"[TAINTER]   Taint added: ret")
+
+    def _apply_propagators(self, callee, callee_ea, args, ret, state):
         for rule in self.ruleset.propagators:
             if not self._rule_matches(rule, callee, callee_ea):
                 continue
             from_args = rule.get("from_args")
             if from_args is None:
                 from_args = list(range(len(args)))
-            labels, origins = self._collect_arg_taint(state, args, from_args)
+            labels, origins = self._collect_arg_taint(state, [args[i] for i in from_args if i < len(args)])
             if not labels:
                 continue
+
             to_args = rule.get("to_args") or []
-            to_keys = []
             for idx in to_args:
                 if idx < 0 or idx >= len(args):
                     continue
-                key = args[idx].to_key()
-                state.add_taint(key, labels, origins)
-                if key:
-                    to_keys.append(key)
-            ret_key = None
-            if rule.get("to_ret"):
-                ret_key = ret.to_key()
-                state.add_taint(ret_key, labels, origins)
+                attr = args[idx]
+                if attr:
+                    state.add_taint(attr, labels, origins)
 
-    def _apply_default_return_propagation(self, callee, args, ret, state, func_info):
+            if rule.get("to_ret") and ret:
+                state.add_taint(ret, labels, origins)
+
+    def _apply_default_return_propagation(self, args, ret, state):
         if not ret:
             return
-        labels, origins = self._collect_arg_taint(state, args, range(len(args)))
+        labels, origins = self._collect_arg_taint(state, args)
         if labels:
-            key = ret.to_key()
-            state.add_taint(key, labels, origins)
+            state.add_taint(ret, labels, origins)
 
-    def _apply_sinks(self, insn, callee, callee_ea, args, state, func_info):
+    def _apply_sinks(self, insn, callee, args, state, func_info):
         findings = []
         for rule in self.ruleset.sinks:
-            if not self._rule_matches(rule, callee, callee_ea):
+            if "ea" in rule and not self._rule_matches(rule, callee):
                 continue
+
             arg_indexes = rule.get("args")
             if arg_indexes is None:
                 arg_indexes = list(range(len(args)))
+
             tainted_args = []
             labels = set()
             origins = set()
+
             for idx in arg_indexes:
                 if idx < 0 or idx >= len(args):
                     continue
-                key = args[idx].to_key()
-                t = state.get_taint(key)
+                attr = args[idx]
+                if attr is None:
+                    continue
+
+                t = state.get_taint(attr)
                 if not t:
                     continue
 
                 for label in t:
                     if label.startswith("SYM:ARG:"):
                         try:
-                            findings.append(
-                                {
-                                    "type": "sink_proxy",
-                                    "proxy_args": [int(label.split(":")[2])],
-                                    "sink_rule": rule,
-                                }
-                            )
+                            findings.append({
+                                "type": "sink_proxy",
+                                "proxy_args": [int(label.split(":")[2])],
+                                "sink_rule": rule,
+                            })
                         except Exception:
                             pass
 
                 tainted_args.append(idx)
                 labels.update(t)
-                origins.update(state.get_origins(key))
+                origins.update(state.get_origins(attr))
+
             if tainted_args:
                 self.logger.log(f"[TAINTER] Sink matched: {callee} rule={rule.get('name')} args={tainted_args}")
                 finding = {
@@ -369,11 +367,13 @@ class InstructionTaintProcessor:
                     ],
                 }
                 findings.append(finding)
+
         return findings
 
 
 class FunctionScanner:
-    """函数扫描器，输出为 (findings, state)。"""
+    """函数扫描器"""
+
     def __init__(self, processor, logger):
         self.processor = processor
         self.logger = logger
@@ -391,9 +391,9 @@ class FunctionScanner:
         for arg in func_info.args:
             lvar_idx = arg.lvar_idx
             if lvar_idx is not None:
-                key = f"lvar:{lvar_idx}"
+                attr = LocalVarAttr(lvar_idx=lvar_idx)
                 sym_label = f"SYM:ARG:{lvar_idx}"
-                state.add_taint(key, {sym_label}, set())
+                state.add_taint(attr, {sym_label}, set())
 
 
 class MicrocodeTaintEngine:
@@ -464,14 +464,13 @@ class MicrocodeTaintEngine:
             func = ida_funcs.get_func(ea)
             if not func:
                 continue
-            
+
             func_info = analyze_function(func, maturity)
-            self.logger.log(f"[DEBUG] function  info {func_info.to_string()}")
-            
+            self.logger.log(f"[DEBUG] function info {func_info.to_string()}")
+
             if func_info:
                 f_findings, state = self.function_scanner.scan(func_info)
 
-                # Print taint state for debugging (only if there are findings or state is non-empty)
                 if state.entries:
                     self.logger.log(f"[TAINTER] Function {func_info.function}: taint entries={len(state.entries)}")
 
@@ -482,11 +481,7 @@ class MicrocodeTaintEngine:
                         proxy_findings.append(f)
                     else:
                         labels = f.get("taint_labels", [])
-                        has_real = False
-                        for label in labels:
-                            if not label.startswith("SYM:ARG:"):
-                                has_real = True
-                                break
+                        has_real = any(not label.startswith("SYM:ARG:") for label in labels)
                         if has_real or not labels:
                             real_findings.append(f)
 
