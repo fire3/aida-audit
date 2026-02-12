@@ -9,6 +9,10 @@ from .constants import (
 
 
 class MicroCodeUtils:
+    """Microcode 工具集合，输出规范：
+    - mop_entry 返回 {"key": str, "text": str, "ea": int?}
+    - mop_key/op_key 返回用于污点跟踪的字符串键或 None
+    """
     def is_arg_list(self, mop):
         if ida_hexrays is None:
             return False
@@ -140,6 +144,15 @@ class MicroCodeUtils:
                     if ea is not None:
                         res["ea"] = ea
         return res
+
+    def op_key(self, op):
+        if not op:
+            return None
+        key = op.get("key")
+        if key:
+            return key
+        text = op.get("text")
+        return text or None
 
     def resolve_name_ea(self, name):
         if not name:

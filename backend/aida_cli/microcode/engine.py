@@ -3,6 +3,7 @@ from collections import deque
 from .state import TaintState
 from .logger import EngineLogger
 from .analyzer import analyze_function
+from .common import MicroCodeUtils
 from .constants import (
     idc,
     ida_funcs,
@@ -13,6 +14,7 @@ from .constants import (
 
 
 class RuleResolver:
+    """解析规则名称到地址并写回 ruleset，输出为更新后的规则集内容。"""
     def __init__(self, ruleset, logger):
         self.ruleset = ruleset
         self.logger = logger
@@ -56,6 +58,7 @@ class RuleResolver:
 
 
 class CallChainPlanner:
+    """调用链规划器，输出调用者集合与路径列表。"""
     def __init__(self, logger):
         self.logger = logger
 
@@ -159,9 +162,12 @@ class CallChainPlanner:
 
 
 class SummaryGenerator:
-    def __init__(self, ruleset, logger):
+    """基于污点状态生成动态规则，输出为对 ruleset 的就地更新。"""
+
+    def __init__(self, ruleset, logger, utils=None):
         self.ruleset = ruleset
         self.logger = logger
+        self.utils = utils or MicroCodeUtils()
 
     def generate(self, func_info, state, proxy_findings=None):
         func_ea_str = func_info.get("ea")
@@ -209,7 +215,7 @@ class SummaryGenerator:
             if insn.get("opcode") == "ret":
                 self.logger.debug("summary.gen.ret_insn", ea=insn.get("ea"), reads=insn.get("reads"))
                 for read in insn.get("reads", []):
-                    key = self._op_key(read.get("op"))
+                    key = self.utils.op_key(read.get("op"))
                     taint = state.get_taint(key)
                     if taint:
                         self.logger.debug("summary.gen.ret_taint", key=key, labels=list(taint))
@@ -244,21 +250,15 @@ class SummaryGenerator:
                 proxy_args.add(arg)
         return proxy_args
 
-    def _op_key(self, op):
-        if not op:
-            return None
-        key = op.get("key")
-        if key:
-            return key
-        text = op.get("text")
-        return text or None
-
 
 class InstructionTaintProcessor:
-    def __init__(self, ruleset, logger, rule_resolver):
+    """指令级污点处理器，输出为对 state 与 findings 的就地更新。"""
+
+    def __init__(self, ruleset, logger, rule_resolver, utils=None):
         self.ruleset = ruleset
         self.logger = logger
         self.rule_resolver = rule_resolver
+        self.utils = utils or MicroCodeUtils()
 
     def process(self, state, insn, func_info, findings):
         calls = insn.get("calls", [])
@@ -273,9 +273,9 @@ class InstructionTaintProcessor:
                         call["ret"] = writes[0].get("op")
 
         if (opcode == "op_4" or opcode == "mov") and len(writes) == 1:
-            w_key = self._op_key(writes[0].get("op"))
+            w_key = self.utils.op_key(writes[0].get("op"))
             for r in reads:
-                r_key = self._op_key(r.get("op"))
+                r_key = self.utils.op_key(r.get("op"))
                 if r_key and r_key.startswith("addr:") and w_key:
                     target = r_key[5:]
                     state.add_alias(w_key, target)
@@ -286,7 +286,7 @@ class InstructionTaintProcessor:
 
         if (opcode == "op_1" or opcode == "stx") and read_labels:
             for r in reads:
-                r_key = self._op_key(r.get("op"))
+                r_key = self.utils.op_key(r.get("op"))
                 if r_key and r_key in state.aliases:
                     target = state.aliases[r_key]
                     state.add_taint(target, read_labels, read_origins)
@@ -301,7 +301,7 @@ class InstructionTaintProcessor:
     def _propagate_writes(self, state, insn, labels, origins, read_keys):
         write_keys = []
         for write in insn.get("writes", []):
-            key = self._op_key(write.get("op"))
+            key = self.utils.op_key(write.get("op"))
             state.add_taint(key, labels, origins)
             if key:
                 write_keys.append(key)
@@ -320,7 +320,7 @@ class InstructionTaintProcessor:
         origins = set()
         keys = []
         for read in reads:
-            key = self._op_key(read.get("op"))
+            key = self.utils.op_key(read.get("op"))
             if not key:
                 continue
             keys.append(key)
@@ -360,7 +360,7 @@ class InstructionTaintProcessor:
         for idx in indexes:
             if idx < 0 or idx >= len(args):
                 continue
-            key = self._op_key(args[idx])
+            key = self.utils.op_key(args[idx])
             labels.update(state.get_taint(key))
             origins.update(state.get_origins(key))
         return labels, origins
@@ -374,15 +374,6 @@ class InstructionTaintProcessor:
         if callee_ea is None:
             return False
         return rule["ea"] == callee_ea
-
-    def _op_key(self, op):
-        if not op:
-            return None
-        key = op.get("key")
-        if key:
-            return key
-        text = op.get("text")
-        return text or None
 
     def _resolve_callee(self, call):
         callee = call.get("callee_name") or ""
@@ -413,7 +404,7 @@ class InstructionTaintProcessor:
             for idx in out_args:
                 if idx < 0 or idx >= len(args):
                     continue
-                key = self._op_key(args[idx])
+                key = self.utils.op_key(args[idx])
                 state.add_taint(key, {label}, origins)
                 self.logger.debug(
                     "taint.source",
@@ -424,7 +415,7 @@ class InstructionTaintProcessor:
                     key=key,
                 )
             if rule.get("ret"):
-                key = self._op_key(ret)
+                key = self.utils.op_key(ret)
                 state.add_taint(key, {label}, origins)
                 self.logger.debug(
                     "taint.source",
@@ -450,13 +441,13 @@ class InstructionTaintProcessor:
             for idx in to_args:
                 if idx < 0 or idx >= len(args):
                     continue
-                key = self._op_key(args[idx])
+                key = self.utils.op_key(args[idx])
                 state.add_taint(key, labels, origins)
                 if key:
                     to_keys.append(key)
             ret_key = None
             if rule.get("to_ret"):
-                ret_key = self._op_key(ret)
+                ret_key = self.utils.op_key(ret)
                 state.add_taint(ret_key, labels, origins)
             self.logger.debug(
                 "taint.call.propagate",
@@ -474,7 +465,7 @@ class InstructionTaintProcessor:
             return
         labels, origins = self._collect_arg_taint(state, args, range(len(args)))
         if labels:
-            key = self._op_key(ret)
+            key = self.utils.op_key(ret)
             state.add_taint(key, labels, origins)
             self.logger.debug(
                 "taint.call.ret",
@@ -499,7 +490,7 @@ class InstructionTaintProcessor:
             for idx in arg_indexes:
                 if idx < 0 or idx >= len(args):
                     continue
-                key = self._op_key(args[idx])
+                key = self.utils.op_key(args[idx])
                 t = state.get_taint(key)
                 if self.logger._verbose:
                     self.logger.debug("sink.check", index=idx, key=key, taint=list(t))
@@ -551,6 +542,7 @@ class InstructionTaintProcessor:
 
 
 class FunctionScanner:
+    """函数扫描器，输出为 (findings, state)。"""
     def __init__(self, processor, logger):
         self.processor = processor
         self.logger = logger
@@ -588,14 +580,18 @@ class FunctionScanner:
 
 
 class MicrocodeTaintEngine:
+    """微码污点分析入口，输出 findings 列表。"""
     def __init__(self, ruleset, logger=None, verbose=False):
         self.ruleset = ruleset
         self.logger = EngineLogger(logger=logger, verbose=verbose)
+        self.utils = MicroCodeUtils()
         self.rule_resolver = RuleResolver(ruleset, self.logger)
         self.call_chain_planner = CallChainPlanner(self.logger)
-        self.processor = InstructionTaintProcessor(ruleset, self.logger, self.rule_resolver)
+        self.processor = InstructionTaintProcessor(
+            ruleset, self.logger, self.rule_resolver, utils=self.utils
+        )
         self.function_scanner = FunctionScanner(self.processor, self.logger)
-        self.summary_generator = SummaryGenerator(ruleset, self.logger)
+        self.summary_generator = SummaryGenerator(ruleset, self.logger, utils=self.utils)
 
     def scan_function(self, func_info):
         return self.function_scanner.scan(func_info)

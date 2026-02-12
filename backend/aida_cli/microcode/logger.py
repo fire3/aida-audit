@@ -1,4 +1,8 @@
+import logging
+
+
 class EngineLogger:
+    """事件格式化与分发器，输出为传递给 logger/logging 的消息字符串。"""
     def __init__(self, logger=None, verbose=False):
         self._logger = logger
         self._verbose = verbose
@@ -22,8 +26,13 @@ class EngineLogger:
         if self._logger and hasattr(self._logger, "log"):
             self._logger.log(message, level=level)
         else:
-            print(f"[{level}] {message}")
-            sys.stdout.flush()
+            level_map = {
+                "DEBUG": logging.DEBUG,
+                "INFO": logging.INFO,
+                "WARN": logging.WARNING,
+                "ERROR": logging.ERROR,
+            }
+            logging.getLogger("aida.microcode").log(level_map.get(level, logging.INFO), message)
 
     def _format_message(self, event, fields):
         formatted = self._format_event(event, fields)

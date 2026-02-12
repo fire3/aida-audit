@@ -4,6 +4,7 @@ Microcode taint analysis module for IDA Pro.
 
 import json
 import sys
+import logging
 from collections import deque
 
 try:
@@ -23,7 +24,7 @@ try:
     import ida_gdl
     import ida_idaapi
 except ImportError as e:
-    print(f"Warning: Failed to import main IDA modules: {e}")
+    logging.getLogger(__name__).warning("Failed to import main IDA modules: %s", e)
     ida_auto = None
     ida_pro = None
     ida_ida = None

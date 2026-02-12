@@ -13,6 +13,7 @@ _mop_visitor_base = ida_hexrays.mop_visitor_t if ida_hexrays else object
 
 
 class MopUsageVisitor(_mop_visitor_base):
+    """遍历 mop 使用情况，输出读/写/调用列表条目。"""
     def __init__(self, analyzer, reads, writes, calls):
         if ida_hexrays:
             ida_hexrays.mop_visitor_t.__init__(self)
@@ -69,6 +70,7 @@ class MopUsageVisitor(_mop_visitor_base):
 
 
 class MicrocodeInstructionAnalyzer:
+    """指令分析器，输出 {"text","opcode","reads","writes","calls"} 结构。"""
     def __init__(self, mba, utils=None):
         self.mba = mba
         self.utils = utils or MicroCodeUtils()
@@ -157,6 +159,7 @@ class MicrocodeInstructionAnalyzer:
 
 
 class MicrocodeFunctionAnalyzer:
+    """函数分析器，输出函数级 dict（包含 args/return_vars/insns）。"""
     def __init__(self, mba, utils=None, instruction_analyzer=None):
         self.mba = mba
         self.utils = utils or MicroCodeUtils()
@@ -228,6 +231,7 @@ class MicrocodeFunctionAnalyzer:
 
 
 class MicrocodeAnalyzer(MicrocodeInstructionAnalyzer):
+    """兼容包装类，输出与 MicrocodeInstructionAnalyzer 一致。"""
     def __init__(self, mba):
         super().__init__(mba)
 
