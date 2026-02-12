@@ -16,6 +16,7 @@ from .common import (
     StringAttr,
     AddressAttr,
     LoadAttr,
+    StoreAttr,
     ExpressionAttr,
     OperandInfo,
     CallInfo,
@@ -97,7 +98,9 @@ class MopUsageVisitor(_mop_visitor_base):
                 access_mode=access_mode,
                 mop_type=mop_type,
                 width=width,
+                bit_width=width,
             )
+            self._enrich_operand_entry(entry)
 
             if is_target:
                 key = (role, op, access_mode, text, mop_type, width)
@@ -128,6 +131,11 @@ class MicrocodeInstructionAnalyzer:
             opcode_id=getattr(insn, "opcode", 0),
             category=self.utils.get_opcode_category(opname),
             is_float=self.utils.is_float_opcode(opname),
+            op_size=self._get_insn_size(insn),
+            op_type=self.utils.get_opcode_type(opname),
+            signed=self._get_signed_flag(insn, opname),
+            flags_read=self._get_flags_read(opname),
+            flags_write=self._get_flags_write(opname),
             text=self.utils.safe_dstr(insn),
             reads=reads,
             writes=writes,
@@ -164,6 +172,9 @@ class MicrocodeInstructionAnalyzer:
             for call in calls:
                 if call.ret is None:
                     call.ret = self.utils.mop_to_attr(insn.d)
+
+        if self.utils.is_store_opcode(opname):
+            self._record_store(insn, writes)
 
         return reads, writes, calls
 
@@ -223,8 +234,108 @@ class MicrocodeInstructionAnalyzer:
                 target=callee,
                 args=args,
                 ret=ret,
+                arg_order=list(range(len(args))),
+                call_conv=self._get_call_conv(insn),
+                ret_width=self._get_ret_width(ret_mop),
             )
         )
+
+    def _get_insn_size(self, insn):
+        size = getattr(insn, "size", None)
+        try:
+            if size is not None:
+                return int(size)
+        except Exception:
+            return None
+        return None
+
+    def _get_signed_flag(self, insn, opname: str) -> Optional[bool]:
+        signed = getattr(insn, "is_signed", None)
+        if signed is not None:
+            try:
+                return bool(signed)
+            except Exception:
+                return None
+        return self.utils.get_opcode_signed_hint(opname)
+
+    def _get_flags_read(self, opname: str) -> Optional[bool]:
+        if opname.startswith("j"):
+            return True
+        return None
+
+    def _get_flags_write(self, opname: str) -> Optional[bool]:
+        category = self.utils.get_opcode_category(opname)
+        if category in ("arith", "logic", "cmp", "float", "vector"):
+            return True
+        return None
+
+    def _get_call_conv(self, insn) -> Optional[str]:
+        for key in ("cconv", "cc", "call_conv"):
+            val = getattr(insn, key, None)
+            if val:
+                try:
+                    return str(val)
+                except Exception:
+                    return None
+        return None
+
+    def _get_ret_width(self, ret_mop) -> Optional[int]:
+        if ret_mop is None:
+            return None
+        size = getattr(ret_mop, "size", None)
+        try:
+            if size is not None:
+                return int(size)
+        except Exception:
+            return None
+        return None
+
+    def _record_store(self, insn, writes):
+        d = getattr(insn, "d", None)
+        l = getattr(insn, "l", None)
+        r = getattr(insn, "r", None)
+        addr_attr = self.utils.mop_to_attr(d) if d is not None else None
+        value_attr = None
+        if l is not None:
+            value_attr = self.utils.mop_to_attr(l)
+        if value_attr is None and r is not None:
+            value_attr = self.utils.mop_to_attr(r)
+        mem_size = self._get_insn_size(insn)
+        if addr_attr is None:
+            return
+        store_attr = StoreAttr(ptr=addr_attr, value=value_attr, mem_size=mem_size)
+        writes[:] = [
+            w for w in writes if not (w.role == "dst" and w.attr == addr_attr)
+        ]
+        entry = OperandInfo(
+            role="dst",
+            attr=store_attr,
+            text=self.utils.safe_dstr(d) if d is not None else "",
+            access_mode="store",
+            mop_type=getattr(d, "t", None) if d is not None else None,
+            width=mem_size,
+            bit_width=mem_size,
+            mem_size=mem_size,
+            is_pointer=True,
+        )
+        self._enrich_operand_entry(entry)
+        writes.append(entry)
+
+    def _enrich_operand_entry(self, entry: OperandInfo):
+        attr = entry.attr
+        if isinstance(attr, ImmediateAttr):
+            entry.value_raw = attr.raw if attr.raw is not None else attr.value
+            entry.value_float = attr.fvalue
+        if isinstance(attr, AddressAttr):
+            entry.is_pointer = True
+            entry.base = attr.base or attr.inner
+            entry.offset = attr.offset
+        if isinstance(attr, LoadAttr):
+            entry.is_pointer = True
+            entry.mem_size = attr.mem_size
+        if isinstance(attr, StoreAttr):
+            entry.is_pointer = True
+            entry.mem_size = attr.mem_size
 
 
 class CFGBuilder:
@@ -427,6 +538,11 @@ class MicrocodeFunctionAnalyzer:
             opcode_id=cpg_info.opcode_id,
             category=cpg_info.category,
             is_float=cpg_info.is_float,
+            op_size=cpg_info.op_size,
+            op_type=cpg_info.op_type,
+            signed=cpg_info.signed,
+            flags_read=cpg_info.flags_read,
+            flags_write=cpg_info.flags_write,
             text=cpg_info.text,
             reads=cpg_info.reads,
             writes=cpg_info.writes,
@@ -445,6 +561,7 @@ class MicrocodeFunctionAnalyzer:
                     targets.append(target.block_id)
             insn_entry.jump_targets = targets
             insn_entry.is_conditional = False
+            insn_entry.jump_kind = "jump"
 
         elif opcode_name in CFGBuilder.CONDITIONAL_JUMP_OPCODES or (opcode_name.startswith("j") and opcode_name not in CFGBuilder.JUMP_OPCODES):
             targets = []
@@ -455,11 +572,22 @@ class MicrocodeFunctionAnalyzer:
                     targets.append(target.block_id)
             insn_entry.jump_targets = targets
             insn_entry.is_conditional = True
+            insn_entry.jump_kind = "branch"
+            insn_entry.condition = self._get_condition_expr(insn)
 
         if block_id in cfg_blocks:
             successors = cfg_blocks[block_id].successors
             if successors and not insn_entry.jump_targets:
                 insn_entry.fallthrough_block = successors[0]
+
+    def _get_condition_expr(self, insn) -> str:
+        l = getattr(insn, "l", None)
+        r = getattr(insn, "r", None)
+        if l is not None:
+            return self.utils.safe_dstr(l) or ""
+        if r is not None:
+            return self.utils.safe_dstr(r) or ""
+        return ""
 
 
 class MicrocodeAnalyzer(MicrocodeInstructionAnalyzer):

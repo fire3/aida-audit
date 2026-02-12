@@ -9,6 +9,7 @@ from .common import (
     StringAttr,
     AddressAttr,
     LoadAttr,
+    StoreAttr,
     BlockAttr,
     ExpressionAttr,
     AttrType,
@@ -152,10 +153,14 @@ class MicroCodeUtils:
             return "move"
         if name in ("ldx", "stx", "ld", "st"):
             return "memory"
-        if name in ("add", "sub", "mul", "div", "mod", "neg", "udiv", "sdiv", "umod", "smod", "and", "or", "xor", "shl", "shr", "sar", "rol", "ror", "udiv", "sdiv", "umul", "smul", "udivmod", "sdivmod"):
+        if name in ("and", "or", "xor", "not", "test", "tst"):
+            return "logic"
+        if name in ("add", "sub", "mul", "div", "mod", "neg", "udiv", "sdiv", "umod", "smod", "shl", "shr", "sar", "rol", "ror", "udiv", "sdiv", "umul", "smul", "udivmod", "sdivmod"):
             return "arith"
         if name in ("fadd", "fsub", "fmul", "fdiv", "fneg", "f2i", "i2f", "f2f", "fcmp", "f2u", "u2f", "ftoi", "itof", "fptosi", "fptoui"):
             return "float"
+        if name.startswith("v") and any(k in name for k in ("add", "sub", "mul", "div", "mov", "shl", "shr", "and", "or", "xor", "cmp")):
+            return "vector"
         if name in ("cmp", "tst", "set", "sets", "setb", "seta", "setz", "setnz"):
             return "cmp"
         if name in ("ret", "leave"):
@@ -166,6 +171,24 @@ class MicroCodeUtils:
 
     def is_float_opcode(self, opcode_name: str) -> bool:
         return self.get_opcode_category(opcode_name) == "float"
+
+    def get_opcode_type(self, opcode_name: str) -> str:
+        category = self.get_opcode_category(opcode_name)
+        if category in ("float",):
+            return "float"
+        if category in ("memory", "call"):
+            return "ptr"
+        if category in ("vector",):
+            return "vector"
+        return "int"
+
+    def get_opcode_signed_hint(self, opcode_name: str) -> Optional[bool]:
+        name = (opcode_name or "").lower()
+        if any(k in name for k in ("sdiv", "smul", "smod", "sar", "setl", "setle", "jlt", "jle")):
+            return True
+        if any(k in name for k in ("udiv", "umul", "umod", "shr", "setb", "setbe", "ja", "jae")):
+            return False
+        return None
 
     def _get_func_name_from_helper(self, helper: str) -> Optional[str]:
         """从 helper 名称获取真实函数名，去除 $_ 前缀"""
@@ -222,7 +245,7 @@ class MicroCodeUtils:
             a = getattr(mop, "a", None)
             inner = self.mop_to_attr(a)
             if inner:
-                return AddressAttr(inner=inner)
+                return AddressAttr(inner=inner, base=inner, offset=None)
             return ExpressionAttr(expr=self.safe_dstr(mop))
 
         if t == ida_hexrays.mop_n:
@@ -240,7 +263,7 @@ class MicroCodeUtils:
                             pass
 
             if value is not None:
-                return ImmediateAttr(value=value, text=self.safe_dstr(mop))
+                return ImmediateAttr(value=value, raw=value, text=self.safe_dstr(mop))
             fvalue = self._parse_float_from_text(self.safe_dstr(mop))
             if fvalue is not None:
                 return ImmediateAttr(fvalue=fvalue, text=self.safe_dstr(mop))
@@ -253,7 +276,7 @@ class MicroCodeUtils:
                 value = self._to_int(getattr(getattr(mop, "c", None), "value", None))
             text = self.safe_dstr(mop)
             if value is not None:
-                return ImmediateAttr(value=value, text=text)
+                return ImmediateAttr(value=value, raw=value, text=text)
             fvalue = self._parse_float_from_text(text)
             if fvalue is not None:
                 return ImmediateAttr(fvalue=fvalue, text=text)
@@ -294,6 +317,13 @@ class MicroCodeUtils:
                 if insn.opcode in (ida_hexrays.m_add, ida_hexrays.m_sub):
                     l_loc = self.mop_to_attr(insn.l)
                     r_loc = self.mop_to_attr(insn.r)
+                    if l_loc and r_loc:
+                        if l_loc.attr_type != AttrType.IMMEDIATE and r_loc.attr_type == AttrType.IMMEDIATE:
+                            offset = self._normalize_offset(r_loc, insn.opcode)
+                            return AddressAttr(inner=l_loc, base=l_loc, offset=offset)
+                        if r_loc.attr_type != AttrType.IMMEDIATE and l_loc.attr_type == AttrType.IMMEDIATE:
+                            offset = self._normalize_offset(l_loc, insn.opcode)
+                            return AddressAttr(inner=r_loc, base=r_loc, offset=offset)
                     if l_loc and l_loc.attr_type != AttrType.IMMEDIATE:
                         return l_loc
                     if r_loc and r_loc.attr_type != AttrType.IMMEDIATE:
@@ -302,7 +332,13 @@ class MicroCodeUtils:
                 if hasattr(ida_hexrays, "m_ldx") and insn.opcode == ida_hexrays.m_ldx:
                     addr_key = self.mop_to_attr(insn.r)
                     if addr_key:
-                        return LoadAttr(ptr=addr_key)
+                        mem_size = getattr(insn, "size", None)
+                        try:
+                            if mem_size is not None:
+                                mem_size = int(mem_size)
+                        except Exception:
+                            mem_size = None
+                        return LoadAttr(ptr=addr_key, mem_size=mem_size)
 
         return ExpressionAttr(expr=self.safe_dstr(mop))
 
@@ -328,6 +364,19 @@ class MicroCodeUtils:
             return float(match.group(0))
         except Exception:
             return None
+
+    def _normalize_offset(self, attr: OperandAttr, opcode) -> OperandAttr:
+        if not isinstance(attr, ImmediateAttr):
+            return attr
+        value = attr.value
+        if value is None:
+            return attr
+        try:
+            if ida_hexrays and hasattr(ida_hexrays, "m_sub") and opcode == ida_hexrays.m_sub:
+                value = -value
+        except Exception:
+            pass
+        return ImmediateAttr(value=value, raw=attr.raw, text=attr.text)
 
 
 __all__ = ["MicroCodeUtils"]

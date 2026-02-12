@@ -21,6 +21,7 @@ class AttrType:
     STRING = "string"
     ADDRESS = "address"
     LOAD = "load"
+    STORE = "store"
     BLOCK = "block"
     EXPRESSION = "expression"
 
@@ -102,6 +103,7 @@ class ImmediateAttr(OperandAttr):
     """立即数属性"""
     value: Optional[int] = None
     fvalue: Optional[float] = None
+    raw: Optional[int] = None
     text: str = ""
 
     @property
@@ -110,7 +112,7 @@ class ImmediateAttr(OperandAttr):
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
-        return f"{prefix}ImmediateAttr(value={self.value}, fvalue={self.fvalue}, text={self.text!r})"
+        return f"{prefix}ImmediateAttr(value={self.value}, fvalue={self.fvalue}, raw={self.raw}, text={self.text!r})"
 
 
 @dataclass(frozen=True, eq=True)
@@ -131,6 +133,8 @@ class StringAttr(OperandAttr):
 class AddressAttr(OperandAttr):
     """地址引用属性 (指向另一属性)"""
     inner: OperandAttr
+    base: Optional[OperandAttr] = None
+    offset: Optional[OperandAttr] = None
 
     @property
     def attr_type(self) -> str:
@@ -139,13 +143,16 @@ class AddressAttr(OperandAttr):
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
         inner_dump = self.inner.to_string(indent + 1)
-        return f"{prefix}AddressAttr(\n{prefix}  inner={inner_dump}\n{prefix})"
+        base_dump = self.base.to_string(indent + 1) if self.base else "None"
+        offset_dump = self.offset.to_string(indent + 1) if self.offset else "None"
+        return f"{prefix}AddressAttr(\n{prefix}  inner={inner_dump}\n{prefix}  base={base_dump}\n{prefix}  offset={offset_dump}\n{prefix})"
 
 
 @dataclass(frozen=True, eq=True)
 class LoadAttr(OperandAttr):
     """内存解引用属性 (load ptr)"""
     ptr: OperandAttr
+    mem_size: Optional[int] = None
 
     @property
     def attr_type(self) -> str:
@@ -154,7 +161,24 @@ class LoadAttr(OperandAttr):
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
         ptr_dump = self.ptr.to_string(indent + 1)
-        return f"{prefix}LoadAttr(\n{prefix}  ptr={ptr_dump}\n{prefix})"
+        return f"{prefix}LoadAttr(\n{prefix}  ptr={ptr_dump}\n{prefix}  mem_size={self.mem_size!r}\n{prefix})"
+
+
+@dataclass(frozen=True, eq=True)
+class StoreAttr(OperandAttr):
+    ptr: OperandAttr
+    value: Optional[OperandAttr] = None
+    mem_size: Optional[int] = None
+
+    @property
+    def attr_type(self) -> str:
+        return AttrType.STORE
+
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        ptr_dump = self.ptr.to_string(indent + 1)
+        value_dump = self.value.to_string(indent + 1) if self.value else "None"
+        return f"{prefix}StoreAttr(\n{prefix}  ptr={ptr_dump}\n{prefix}  value={value_dump}\n{prefix}  mem_size={self.mem_size!r}\n{prefix})"
 
 
 @dataclass(frozen=True, eq=True)
@@ -193,6 +217,7 @@ OperandAttrList = Union[
     StringAttr,
     AddressAttr,
     LoadAttr,
+    StoreAttr,
     BlockAttr,
     ExpressionAttr,
 ]
@@ -207,11 +232,20 @@ class OperandInfo:
     access_mode: Optional[str] = None
     mop_type: Optional[int] = None
     width: Optional[int] = None
+    bit_width: Optional[int] = None
+    is_pointer: Optional[bool] = None
+    mem_size: Optional[int] = None
+    base: Optional[OperandAttr] = None
+    offset: Optional[OperandAttr] = None
+    value_raw: Optional[int] = None
+    value_float: Optional[float] = None
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
         loc = self.attr.to_string(indent + 1) if self.attr else "None"
-        return f"{prefix}OperandInfo(\n{prefix}  role={self.role!r},\n{prefix}  attr={loc},\n{prefix}  text={self.text!r},\n{prefix}  access_mode={self.access_mode!r},\n{prefix}  mop_type={self.mop_type!r},\n{prefix}  width={self.width!r}\n{prefix})"
+        base_dump = self.base.to_string(indent + 1) if self.base else "None"
+        offset_dump = self.offset.to_string(indent + 1) if self.offset else "None"
+        return f"{prefix}OperandInfo(\n{prefix}  role={self.role!r},\n{prefix}  attr={loc},\n{prefix}  text={self.text!r},\n{prefix}  access_mode={self.access_mode!r},\n{prefix}  mop_type={self.mop_type!r},\n{prefix}  width={self.width!r},\n{prefix}  bit_width={self.bit_width!r},\n{prefix}  is_pointer={self.is_pointer!r},\n{prefix}  mem_size={self.mem_size!r},\n{prefix}  base={base_dump},\n{prefix}  offset={offset_dump},\n{prefix}  value_raw={self.value_raw!r},\n{prefix}  value_float={self.value_float!r}\n{prefix})"
 
 
 @dataclass
@@ -223,13 +257,16 @@ class CallInfo:
     target: Optional[OperandAttr] = None
     args: list = field(default_factory=list)
     ret: Optional[OperandAttr] = None
+    arg_order: list = field(default_factory=list)
+    call_conv: Optional[str] = None
+    ret_width: Optional[int] = None
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
         tgt = self.target.to_string(indent + 1) if self.target else "None"
         args_str = ",\n".join(a.to_string(indent + 1) if a else "None" for a in self.args)
         ret_str = self.ret.to_string(indent + 1) if self.ret else "None"
-        return f"{prefix}CallInfo(\n{prefix}  kind={self.kind!r},\n{prefix}  callee_name={self.callee_name!r},\n{prefix}  callee_ea={self.callee_ea!r},\n{prefix}  target={tgt},\n{prefix}  args=[\n{args_str}\n{prefix}  ],\n{prefix}  ret={ret_str}\n{prefix})"
+        return f"{prefix}CallInfo(\n{prefix}  kind={self.kind!r},\n{prefix}  callee_name={self.callee_name!r},\n{prefix}  callee_ea={self.callee_ea!r},\n{prefix}  target={tgt},\n{prefix}  args=[\n{args_str}\n{prefix}  ],\n{prefix}  ret={ret_str},\n{prefix}  arg_order={self.arg_order!r},\n{prefix}  call_conv={self.call_conv!r},\n{prefix}  ret_width={self.ret_width!r}\n{prefix})"
 
 
 @dataclass
@@ -242,6 +279,13 @@ class InsnInfo:
     opcode_id: int = 0
     category: str = ""
     is_float: bool = False
+    op_size: Optional[int] = None
+    op_type: Optional[str] = None
+    signed: Optional[bool] = None
+    flags_read: Optional[bool] = None
+    flags_write: Optional[bool] = None
+    condition: str = ""
+    jump_kind: str = ""
     text: str = ""
     reads: list = field(default_factory=list)
     writes: list = field(default_factory=list)
@@ -264,6 +308,13 @@ class InsnInfo:
             f"{prefix}  opcode_id={self.opcode_id},\n"
             f"{prefix}  category={self.category!r},\n"
             f"{prefix}  is_float={self.is_float},\n"
+            f"{prefix}  op_size={self.op_size!r},\n"
+            f"{prefix}  op_type={self.op_type!r},\n"
+            f"{prefix}  signed={self.signed!r},\n"
+            f"{prefix}  flags_read={self.flags_read!r},\n"
+            f"{prefix}  flags_write={self.flags_write!r},\n"
+            f"{prefix}  condition={self.condition!r},\n"
+            f"{prefix}  jump_kind={self.jump_kind!r},\n"
             f"{prefix}  text={self.text!r},\n"
             f"{prefix}  reads=[\n{reads_str}\n{prefix}  ],\n"
             f"{prefix}  writes=[\n{writes_str}\n{prefix}  ],\n"
@@ -353,6 +404,7 @@ __all__ = [
     "StringAttr",
     "AddressAttr",
     "LoadAttr",
+    "StoreAttr",
     "BlockAttr",
     "ExpressionAttr",
     "OperandAttrList",
