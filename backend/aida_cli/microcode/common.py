@@ -9,7 +9,6 @@ from .constants import (
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Union, Optional
-import re
 
 
 class LocationType:
@@ -570,12 +569,7 @@ class MicroCodeUtils:
             value = self.to_int(getattr(n, "value", None)) if n is not None else None
             if value is not None:
                 return ImmediateLocation(value=value)
-            text = self.safe_dstr(mop)
-            if text:
-                imm_value = self._extract_immediate_value(text)
-                if imm_value is not None:
-                    return ImmediateLocation(value=imm_value)
-            return ExpressionLocation(expr=text)
+            return ExpressionLocation(expr=self.safe_dstr(mop))
 
         if t == ida_hexrays.mop_str:
             text = self.safe_dstr(mop)
@@ -608,60 +602,16 @@ class MicroCodeUtils:
                         return LoadLocation(ptr=addr_loc)
 
         text = self.safe_dstr(mop)
+        print(f"DEBUG: mop_to_location text='{text}', type={type(mop)}")  # DEBUG
         if text and text != "<?>":
             if text.startswith('"') and text.endswith('"'):
                 return StringLocation(value=text.strip('"'))
-            imm_value = self._extract_immediate_value(text)
-            if imm_value is not None:
-                return ImmediateLocation(value=imm_value)
-            str_value = self._extract_string_value(text)
-            if str_value:
-                return StringLocation(value=str_value)
+            # Check if this is a type description pattern like "int #6.4" or similar
+            # These are function parameter type descriptions from dstr, not actual expressions
+            if ' #0x' in text or (' #' in text and ('.4' in text or '.8' in text or '.2' in text)):
+                type_patterns = ['int ', 'unsigned int ', 'char *', 'const char *', 'size_t ', 'void *', 'sockaddr *', 'ssize_t ', 'time_t ', '_QWORD ']
+                if any(text.startswith(pattern) for pattern in type_patterns):
+                    print(f"DEBUG: Matching type description: '{text}'")  # DEBUG
+                    return StringLocation(value=text)
             return ExpressionLocation(expr=text)
-        return None
-
-    def _extract_immediate_value(self, text: str) -> Optional[int]:
-        """从文本中提取立即数值"""
-        if not text:
-            return None
-        hex_pattern = r'#(0x[0-9a-fA-F]+)'
-        dec_pattern = r'#(\d+)'
-        hex_match = re.search(hex_pattern, text)
-        if hex_match:
-            try:
-                return int(hex_match.group(1), 16)
-            except ValueError:
-                pass
-        dec_match = re.search(dec_pattern, text)
-        if dec_match:
-            try:
-                return int(dec_match.group(1))
-            except ValueError:
-                pass
-        return None
-
-    def _is_string_constant(self, text: str) -> bool:
-        """检查文本是否为字符串常量"""
-        if not text:
-            return False
-        if text.startswith('$a') and '{' in text:
-            return True
-        if text.startswith('"') and text.endswith('"'):
-            return True
-        if text.startswith("'") and text.endswith("'"):
-            return True
-        return False
-
-    def _extract_string_value(self, text: str) -> Optional[str]:
-        """从字符串常量表达式中提取值"""
-        if not text:
-            return None
-        if text.startswith('$a'):
-            match = re.search(r'\$a(\w+)\{(\d+)\}', text)
-            if match:
-                return text
-        if text.startswith('"') and text.endswith('"'):
-            return text.strip('"')
-        if text.startswith("'") and text.endswith("'"):
-            return text.strip("'")
         return None
