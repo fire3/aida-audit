@@ -237,6 +237,70 @@ class MicrocodeAnalyzer(MicrocodeInstructionAnalyzer):
 
 
 def analyze_function(pfn, maturity):
+    """
+    分析单个函数并返回其污点分析所需的信息。
+
+    数据结构组织 (返回的 dict 整体结构):
+    {
+        "function": "main",                    # 函数名
+        "ea": "0x401000",                      # 函数起始地址
+        "maturity": 3,                         # microcode 成熟度
+        "args": [                              # 参数列表
+            {"lvar_idx": 0, "name": "argc", "width": 4},
+            {"lvar_idx": 1, "name": "argv", "width": 8}
+        ],
+        "return_vars": [0],                    # 返回值变量索引
+        "insns": [                             # === 指令列表 (核心数据) ===
+            {
+                "block_id": 0,                 # 基本块 ID
+                "insn_idx": 0,                 # 块内索引
+                "ea": "0x401020",              # 指令地址
+                "opcode": "mov",               # 操作码
+                "text": "mov eax, edx",        # 文本表示
+                "reads": [...],                # === 读操作数列表 ===
+                "writes": [...],               # === 写操作数列表 ===
+                "calls": [...]                 # === 函数调用列表 ===
+            }
+        ]
+    }
+
+    Reads/Writes 操作数结构 (op 列表中的元素):
+    [
+        {
+            "role": "src",                     # "src"=读取, "dst"=写入
+            "op": {                            # === 操作数详情 ===
+                "key": "reg:eax",              # 标识符格式:
+                                               #   "reg:{name}" - 寄存器
+                                               #   "imm:{value}" - 立即数
+                                               #   "addr:{ea}" - 内存地址
+                                               #   "lvar:{idx}" - 局部变量
+                "text": "eax",                 # 原始文本
+            },
+            "access_mode": "addr"              # 可选: 地址访问模式
+        }
+    ]
+
+    Calls 函数调用结构 (calls 列表中的元素):
+    [
+        {
+            "kind": "call",                    # 操作码类型 (call/jmp)
+            "callee_name": "printf",           # 被调用函数名
+            "target": {"key": "addr:403000"},  # 调用目标地址操作数
+            "args": [                          # === 调用参数列表 (操作数) ===
+                {"key": "str:Hello", "text": "\"Hello\""},
+                {"key": "reg:eax", "text": "eax"}
+            ],
+            "ret": {"key": "reg:eax", "text": "eax"}  # 返回值存储位置
+        }
+    ]
+
+    Args:
+        pfn: IDA 的 func_t 对象，表示要分析的函数
+        maturity: microcode 成熟度级别 (0-5)
+
+    Returns:
+        dict: 如上结构的函数分析结果，失败时返回 None
+    """
     hf = ida_hexrays.hexrays_failure_t()
     mbr = ida_hexrays.mba_ranges_t(pfn)
     mba = ida_hexrays.gen_microcode(mbr, hf, None, ida_hexrays.DECOMP_WARNINGS, maturity)
