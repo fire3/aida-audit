@@ -3,6 +3,7 @@ from .constants import (
     idc,
     ida_funcs,
     idautils,
+    ida_ida,
     ida_idaapi,
     ida_typeinf,
     BADADDR,
@@ -101,6 +102,8 @@ class MopUsageVisitor(_mop_visitor_base):
                     width = int(width)
             except Exception:
                 width = None
+            if width is not None and width <= 0:
+                width = None
             entry = OperandInfo(
                 role=role,
                 attr=op,
@@ -145,7 +148,7 @@ class MicrocodeInstructionAnalyzer:
             op_type=self.utils.get_opcode_type(opname),
             signed=self._get_signed_flag(insn, opname),
             flags_read=self._get_flags_read(opname),
-            flags_write=self._get_flags_write(opname),
+            flags_write=self._get_flags_write(opname, insn),
             text=self.utils.safe_dstr(insn),
             reads=reads,
             writes=writes,
@@ -263,7 +266,7 @@ class MicrocodeInstructionAnalyzer:
                 ret=ret,
                 arg_order=list(range(len(args))),
                 call_conv=self._get_call_conv(insn, callee_ea, callee_name),
-                ret_width=self._get_ret_width(ret_mop, insn),
+                ret_width=self._get_ret_width(ret_mop, insn, callee_ea),
             )
         )
 
@@ -293,6 +296,10 @@ class MicrocodeInstructionAnalyzer:
             size = max(sizes)
             if size > 0:
                 return size
+        if self.utils.get_opcode_category(self.utils.get_effective_opcode_name(insn.opcode, insn)) == "call":
+            ptr_size = self._get_ptr_size()
+            if ptr_size:
+                return ptr_size
         return None
 
     def _get_signed_flag(self, insn, opname: str) -> Optional[bool]:
@@ -317,12 +324,18 @@ class MicrocodeInstructionAnalyzer:
             return True
         return None
 
-    def _get_flags_write(self, opname: str) -> Optional[bool]:
+    def _get_flags_write(self, opname: str, insn=None) -> Optional[bool]:
         category = self.utils.get_opcode_category(opname)
         if category in ("arith", "logic", "cmp", "float", "vector"):
             return True
-        if opname.startswith(("cmp", "test", "tst", "set", "cmov", "add", "sub", "mul", "div", "and", "or", "xor", "shl", "shr", "sar", "rol", "ror", "neg", "inc", "dec")):
+        if opname.startswith(("cmp", "test", "tst", "set", "cmov", "add", "sub", "mul", "div", "and", "or", "xor", "shl", "shr", "sar", "rol", "ror", "neg", "inc", "dec", "adc", "sbb")):
             return True
+        if insn is not None:
+            text = self.utils.safe_dstr(insn) or ""
+            if text:
+                token = text.strip().split()[0].lower()
+                if token.startswith(("cmp", "test", "tst", "set", "cmov", "add", "sub", "mul", "div", "and", "or", "xor", "shl", "shr", "sar", "rol", "ror", "neg", "inc", "dec", "adc", "sbb")):
+                    return True
         return None
 
     def _get_call_conv(self, insn, callee_ea=None, callee_name=None) -> Optional[str]:
@@ -341,6 +354,10 @@ class MicrocodeInstructionAnalyzer:
                     return conv
             except Exception:
                 pass
+        if ida_typeinf and callee_ea:
+            conv = self._get_call_conv_from_tinfo(callee_ea)
+            if conv:
+                return conv
         if idc and callee_ea and ida_typeinf:
             try:
                 if hasattr(idc, "FUNCATTR_CC"):
@@ -372,7 +389,7 @@ class MicrocodeInstructionAnalyzer:
                 pass
         return None
 
-    def _get_ret_width(self, ret_mop, insn=None) -> Optional[int]:
+    def _get_ret_width(self, ret_mop, insn=None, callee_ea=None) -> Optional[int]:
         if ret_mop is None:
             size = None
             if insn is not None:
@@ -384,6 +401,10 @@ class MicrocodeInstructionAnalyzer:
                         return size
             except Exception:
                 return None
+            if callee_ea and ida_typeinf:
+                ret = self._get_ret_width_from_tinfo(callee_ea)
+                if ret:
+                    return ret
             return None
         size = getattr(ret_mop, "size", None)
         try:
@@ -400,6 +421,10 @@ class MicrocodeInstructionAnalyzer:
                 return int(match.group(1))
             except Exception:
                 return None
+        if callee_ea and ida_typeinf:
+            ret = self._get_ret_width_from_tinfo(callee_ea)
+            if ret:
+                return ret
         return None
 
     def _dedupe_calls(self, calls: List[CallInfo]) -> List[CallInfo]:
@@ -430,8 +455,68 @@ class MicrocodeInstructionAnalyzer:
             getattr(ida_typeinf, "CM_CC_THISCALL", None): "thiscall",
             getattr(ida_typeinf, "CM_CC_VECTORCALL", None): "vectorcall",
             getattr(ida_typeinf, "CM_CC_SPECIAL", None): "usercall",
+            getattr(ida_typeinf, "CM_CC_SYSV", None): "sysv",
+            getattr(ida_typeinf, "CM_CC_SYSV64", None): "sysv64",
         }
         return mapping.get(cc)
+
+    def _get_call_conv_from_tinfo(self, callee_ea) -> Optional[str]:
+        if ida_typeinf is None:
+            return None
+        try:
+            tinfo = ida_typeinf.tinfo_t()
+            if not ida_typeinf.get_tinfo(tinfo, callee_ea):
+                return None
+            if tinfo.is_funcptr():
+                tinfo = tinfo.get_pointed_object()
+            if not tinfo.is_func():
+                return None
+            fti = ida_typeinf.func_type_data_t()
+            if not tinfo.get_func_details(fti):
+                return None
+            return self._cc_to_name(getattr(fti, "cc", None))
+        except Exception:
+            return None
+
+    def _get_ret_width_from_tinfo(self, callee_ea) -> Optional[int]:
+        if ida_typeinf is None:
+            return None
+        try:
+            tinfo = ida_typeinf.tinfo_t()
+            if not ida_typeinf.get_tinfo(tinfo, callee_ea):
+                return None
+            if tinfo.is_funcptr():
+                tinfo = tinfo.get_pointed_object()
+            if not tinfo.is_func():
+                return None
+            fti = ida_typeinf.func_type_data_t()
+            if not tinfo.get_func_details(fti):
+                return None
+            ret = getattr(fti, "rettype", None)
+            if ret is None:
+                return None
+            size = ret.get_size()
+            if size and size > 0:
+                return int(size)
+        except Exception:
+            return None
+        return None
+
+    def _get_ptr_size(self) -> Optional[int]:
+        if ida_ida is None:
+            return None
+        try:
+            if hasattr(ida_ida, "inf_is_64bit") and ida_ida.inf_is_64bit():
+                return 8
+            if hasattr(ida_ida, "inf_is_32bit_exactly") and ida_ida.inf_is_32bit_exactly():
+                return 4
+            if hasattr(ida_ida, "idainfo_is_64bit") and ida_ida.idainfo_is_64bit():
+                return 8
+            if hasattr(ida_ida, "idainfo_is_32bit") and ida_ida.idainfo_is_32bit():
+                return 4
+        except Exception:
+            return None
+        return None
 
     def _record_store(self, insn, writes):
         d = getattr(insn, "d", None)
@@ -447,6 +532,8 @@ class MicrocodeInstructionAnalyzer:
         if addr_attr is None:
             return
         store_attr = StoreAttr(ptr=addr_attr, value=value_attr, mem_size=mem_size)
+        if mem_size is not None and mem_size <= 0:
+            mem_size = None
         writes[:] = [
             w for w in writes if not (w.role == "dst" and w.attr == addr_attr)
         ]
