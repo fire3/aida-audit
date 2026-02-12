@@ -100,6 +100,20 @@ class MicroCodeUtils:
             return ida_hexrays.get_mcode_name(opcode)
         return f"op_{opcode}"
 
+    def get_effective_opcode_name(self, opcode, insn=None, text=None):
+        name = self.get_opcode_name(opcode)
+        if name and not name.startswith("op_"):
+            return name
+        if text is None and insn is not None:
+            text = self.safe_dstr(insn)
+        if text:
+            parts = text.strip().split()
+            if parts:
+                token = parts[0].strip().lower()
+                if token:
+                    return token
+        return name
+
     def is_call_opcode(self, opcode):
         if ida_hexrays is None:
             return False

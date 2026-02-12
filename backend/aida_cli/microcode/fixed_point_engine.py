@@ -581,13 +581,15 @@ class CFGBuilder:
         return insn.opcode in ("goto", "jmp")
 
     def _is_conditional_jump(self, insn: InsnInfo) -> bool:
-        return insn.opcode in ("jz", "jnz", "jc", "jnc", "jo", "jno", "js", "jns")
+        return insn.opcode.startswith("j") and insn.opcode not in ("goto", "jmp")
 
     def _get_jump_targets(self, insn: InsnInfo) -> List[int]:
         targets = []
         for read in insn.reads:
             if read.attr and hasattr(read.attr, "block_id"):
                 targets.append(read.attr.block_id)
+        if not targets and insn.jump_targets:
+            targets.extend(insn.jump_targets)
         return targets
 
     def _get_next_block(self, current_block_id: int) -> Optional[int]:

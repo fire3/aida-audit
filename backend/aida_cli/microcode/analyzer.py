@@ -29,6 +29,7 @@ from .utils import MicroCodeUtils
 from dataclasses import dataclass, field
 from typing import Optional, Dict, List
 import sys
+import re
 
 
 _mop_visitor_base = ida_hexrays.mop_visitor_t if ida_hexrays else object
@@ -48,6 +49,17 @@ class MopUsageVisitor(_mop_visitor_base):
         self.seen_writes = set()
         self.seen_calls = set()
 
+    def _visit_inner_operands(self, insn):
+        l = getattr(insn, "l", None)
+        r = getattr(insn, "r", None)
+        d = getattr(insn, "d", None)
+        if l is not None:
+            self.visit_mop(l, None, False)
+        if r is not None:
+            self.visit_mop(r, None, False)
+        if l is None and r is None and d is not None:
+            self.visit_mop(d, None, False)
+
     def visit_mop(self, mop, type_id, is_target):
         if ida_hexrays is None:
             return 0
@@ -61,10 +73,7 @@ class MopUsageVisitor(_mop_visitor_base):
                         if key not in self.seen_calls:
                             self.seen_calls.add(key)
                             self.analyzer._record_call(inner, self.calls)
-                    
-                    # Recurse into nested instruction
-                    if hasattr(inner, "for_all_ops"):
-                        inner.for_all_ops(self)
+                    self._visit_inner_operands(inner)
                 return 0
 
             if t == ida_hexrays.mop_f:
@@ -125,7 +134,7 @@ class MicrocodeInstructionAnalyzer:
 
     def analyze_instruction(self, insn):
         reads, writes, calls = self._analyze_minsn(insn)
-        opname = self.utils.get_opcode_name(insn.opcode)
+        opname = self.utils.get_effective_opcode_name(insn.opcode, insn)
         return InsnInfo(
             opcode=opname,
             opcode_id=getattr(insn, "opcode", 0),
@@ -166,8 +175,9 @@ class MicrocodeInstructionAnalyzer:
                     mop.for_all_ops(visitor)
                 except Exception:
                     pass
+        self._ensure_basic_operands(visitor, insn)
 
-        opname = self.utils.get_opcode_name(insn.opcode)
+        opname = self.utils.get_effective_opcode_name(insn.opcode, insn)
         if self.utils.is_move_opcode(opname) and getattr(insn, "d", None):
             for call in calls:
                 if call.ret is None:
@@ -179,7 +189,7 @@ class MicrocodeInstructionAnalyzer:
         return reads, writes, calls
 
     def _record_call(self, insn, calls):
-        opname = self.utils.get_opcode_name(insn.opcode)
+        opname = self.utils.get_effective_opcode_name(insn.opcode, insn)
         l = getattr(insn, "l", None)
         r = getattr(insn, "r", None)
         d = getattr(insn, "d", None)
@@ -225,6 +235,21 @@ class MicrocodeInstructionAnalyzer:
                     callee_name = idc.get_name(callee_ea)
                 except Exception:
                     pass
+            if callee_ea is None and callee_name and idc:
+                try:
+                    lookup_name = callee_name
+                    if lookup_name.startswith("$"):
+                        lookup_name = lookup_name.lstrip("$")
+                    if hasattr(idc, "get_name_ea"):
+                        ea = idc.get_name_ea(BADADDR, lookup_name)
+                    elif hasattr(idc, "get_name_ea_simple"):
+                        ea = idc.get_name_ea_simple(lookup_name)
+                    else:
+                        ea = None
+                    if ea not in (None, BADADDR):
+                        callee_ea = ea
+                except Exception:
+                    pass
 
         calls.append(
             CallInfo(
@@ -235,8 +260,8 @@ class MicrocodeInstructionAnalyzer:
                 args=args,
                 ret=ret,
                 arg_order=list(range(len(args))),
-                call_conv=self._get_call_conv(insn),
-                ret_width=self._get_ret_width(ret_mop),
+                call_conv=self._get_call_conv(insn, callee_ea, callee_name),
+                ret_width=self._get_ret_width(ret_mop, insn),
             )
         )
 
@@ -247,6 +272,19 @@ class MicrocodeInstructionAnalyzer:
                 return int(size)
         except Exception:
             return None
+        sizes = []
+        for mop in (getattr(insn, "d", None), getattr(insn, "l", None), getattr(insn, "r", None)):
+            sizes.extend(self._collect_mop_sizes(mop))
+        if sizes:
+            return max(sizes)
+        text = self.utils.safe_dstr(insn) or ""
+        for m in re.findall(r'\.(\d+)', text):
+            try:
+                sizes.append(int(m))
+            except Exception:
+                pass
+        if sizes:
+            return max(sizes)
         return None
 
     def _get_signed_flag(self, insn, opname: str) -> Optional[bool]:
@@ -259,7 +297,10 @@ class MicrocodeInstructionAnalyzer:
         return self.utils.get_opcode_signed_hint(opname)
 
     def _get_flags_read(self, opname: str) -> Optional[bool]:
-        if opname.startswith("j"):
+        category = self.utils.get_opcode_category(opname)
+        if opname.startswith("j") or opname.startswith("set") or opname.startswith("cmov"):
+            return True
+        if category in ("branch", "cmp"):
             return True
         return None
 
@@ -269,7 +310,7 @@ class MicrocodeInstructionAnalyzer:
             return True
         return None
 
-    def _get_call_conv(self, insn) -> Optional[str]:
+    def _get_call_conv(self, insn, callee_ea=None, callee_name=None) -> Optional[str]:
         for key in ("cconv", "cc", "call_conv"):
             val = getattr(insn, key, None)
             if val:
@@ -277,10 +318,44 @@ class MicrocodeInstructionAnalyzer:
                     return str(val)
                 except Exception:
                     return None
+        if idc and callee_ea:
+            try:
+                t = idc.get_type(callee_ea)
+                conv = self._parse_call_conv(t)
+                if conv:
+                    return conv
+            except Exception:
+                pass
+        if idc and callee_name:
+            try:
+                lookup_name = callee_name
+                if lookup_name.startswith("$"):
+                    lookup_name = lookup_name.lstrip("$")
+                if hasattr(idc, "get_name_ea"):
+                    ea = idc.get_name_ea(BADADDR, lookup_name)
+                elif hasattr(idc, "get_name_ea_simple"):
+                    ea = idc.get_name_ea_simple(lookup_name)
+                else:
+                    ea = None
+                if ea not in (None, BADADDR):
+                    t = idc.get_type(ea)
+                    conv = self._parse_call_conv(t)
+                    if conv:
+                        return conv
+            except Exception:
+                pass
         return None
 
-    def _get_ret_width(self, ret_mop) -> Optional[int]:
+    def _get_ret_width(self, ret_mop, insn=None) -> Optional[int]:
         if ret_mop is None:
+            size = None
+            if insn is not None:
+                size = getattr(insn, "size", None)
+            try:
+                if size is not None:
+                    return int(size)
+            except Exception:
+                return None
             return None
         size = getattr(ret_mop, "size", None)
         try:
@@ -288,6 +363,13 @@ class MicrocodeInstructionAnalyzer:
                 return int(size)
         except Exception:
             return None
+        text = self.utils.safe_dstr(ret_mop) or ""
+        match = re.search(r'\.(\d+)', text)
+        if match:
+            try:
+                return int(match.group(1))
+            except Exception:
+                return None
         return None
 
     def _record_store(self, insn, writes):
@@ -320,6 +402,53 @@ class MicrocodeInstructionAnalyzer:
         )
         self._enrich_operand_entry(entry)
         writes.append(entry)
+
+    def _ensure_basic_operands(self, visitor: MopUsageVisitor, insn):
+        for mop, is_target in (
+            (getattr(insn, "d", None), True),
+            (getattr(insn, "l", None), False),
+            (getattr(insn, "r", None), False),
+        ):
+            if mop is None:
+                continue
+            visitor.visit_mop(mop, None, is_target)
+            try:
+                mop.for_all_ops(visitor)
+            except Exception:
+                pass
+
+    def _collect_mop_sizes(self, mop):
+        sizes = []
+        if mop is None or ida_hexrays is None:
+            return sizes
+        size = getattr(mop, "size", None)
+        try:
+            if size is not None:
+                sizes.append(int(size))
+        except Exception:
+            pass
+        t = getattr(mop, "t", None)
+        if t == ida_hexrays.mop_d:
+            inner = getattr(mop, "d", None)
+            if inner is not None:
+                inner_size = getattr(inner, "size", None)
+                try:
+                    if inner_size is not None:
+                        sizes.append(int(inner_size))
+                except Exception:
+                    pass
+                for inner_mop in (getattr(inner, "d", None), getattr(inner, "l", None), getattr(inner, "r", None)):
+                    sizes.extend(self._collect_mop_sizes(inner_mop))
+        return sizes
+
+    def _parse_call_conv(self, type_str: Optional[str]) -> Optional[str]:
+        if not type_str:
+            return None
+        s = type_str.lower()
+        for key in ("__cdecl", "__stdcall", "__fastcall", "__thiscall", "__vectorcall", "__usercall", "__userpurge"):
+            if key in s:
+                return key.lstrip("_")
+        return None
 
     def _enrich_operand_entry(self, entry: OperandInfo):
         attr = entry.attr
@@ -408,7 +537,7 @@ class CFGBuilder:
                 continue
 
             last_idx, last_insn = insns[-1]
-            opcode_name = self.utils.get_opcode_name(last_insn.opcode)
+            opcode_name = self.utils.get_effective_opcode_name(last_insn.opcode, last_insn)
 
             if opcode_name in self.JUMP_OPCODES:
                 targets = self._get_jump_targets(last_insn)
@@ -434,11 +563,20 @@ class CFGBuilder:
 
     def _get_jump_targets(self, insn):
         targets = []
-        d = getattr(insn, "d", None)
-        if d is not None:
-            target = self.utils.mop_to_attr(d)
+        for mop in (getattr(insn, "d", None), getattr(insn, "l", None), getattr(insn, "r", None)):
+            if mop is None:
+                continue
+            target = self.utils.mop_to_attr(mop)
             if target is not None and hasattr(target, "block_id"):
                 targets.append(target.block_id)
+        if targets:
+            return targets
+        text = self.utils.safe_dstr(insn) or ""
+        for match in re.findall(r'@(\d+)', text):
+            try:
+                targets.append(int(match))
+            except Exception:
+                pass
         return targets
 
     def _get_next_block(self, block_ids, current):
@@ -550,29 +688,22 @@ class MicrocodeFunctionAnalyzer:
         )
 
     def _populate_jump_info(self, insn_entry: InsnInfo, insn, block_id: int, cfg_blocks: dict):
-        opcode_name = self.utils.get_opcode_name(insn.opcode)
+        opcode_name = self.utils.get_effective_opcode_name(insn.opcode, insn)
+        category = self.utils.get_opcode_category(opcode_name)
+        is_unconditional = opcode_name in CFGBuilder.JUMP_OPCODES or category == "jump"
+        is_conditional = opcode_name in CFGBuilder.CONDITIONAL_JUMP_OPCODES or (opcode_name.startswith("j") and opcode_name not in CFGBuilder.JUMP_OPCODES)
 
-        if opcode_name in CFGBuilder.JUMP_OPCODES:
-            targets = []
-            d = getattr(insn, "d", None)
-            if d is not None:
-                target = self.utils.mop_to_attr(d)
-                if target is not None and hasattr(target, "block_id"):
-                    targets.append(target.block_id)
+        if is_unconditional:
+            targets = self._extract_jump_targets(insn)
             insn_entry.jump_targets = targets
             insn_entry.is_conditional = False
-            insn_entry.jump_kind = "jump"
+            insn_entry.jump_kind = opcode_name
 
-        elif opcode_name in CFGBuilder.CONDITIONAL_JUMP_OPCODES or (opcode_name.startswith("j") and opcode_name not in CFGBuilder.JUMP_OPCODES):
-            targets = []
-            d = getattr(insn, "d", None)
-            if d is not None:
-                target = self.utils.mop_to_attr(d)
-                if target is not None and hasattr(target, "block_id"):
-                    targets.append(target.block_id)
+        elif is_conditional:
+            targets = self._extract_jump_targets(insn)
             insn_entry.jump_targets = targets
             insn_entry.is_conditional = True
-            insn_entry.jump_kind = "branch"
+            insn_entry.jump_kind = opcode_name
             insn_entry.condition = self._get_condition_expr(insn)
 
         if block_id in cfg_blocks:
@@ -588,6 +719,32 @@ class MicrocodeFunctionAnalyzer:
         if r is not None:
             return self.utils.safe_dstr(r) or ""
         return ""
+
+    def _extract_jump_targets(self, insn):
+        targets = self._extract_jump_targets_from_mops(insn)
+        if not targets:
+            targets = self._extract_jump_targets_from_text(insn)
+        return targets
+
+    def _extract_jump_targets_from_mops(self, insn):
+        targets = []
+        for mop in (getattr(insn, "d", None), getattr(insn, "l", None), getattr(insn, "r", None)):
+            if mop is None:
+                continue
+            target = self.utils.mop_to_attr(mop)
+            if target is not None and hasattr(target, "block_id"):
+                targets.append(target.block_id)
+        return targets
+
+    def _extract_jump_targets_from_text(self, insn):
+        text = self.utils.safe_dstr(insn) or ""
+        targets = []
+        for match in re.findall(r'@(\d+)', text):
+            try:
+                targets.append(int(match))
+            except Exception:
+                pass
+        return targets
 
 
 class MicrocodeAnalyzer(MicrocodeInstructionAnalyzer):
