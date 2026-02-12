@@ -68,10 +68,10 @@ class MopUsageVisitor(_mop_visitor_base):
         return 0
 
 
-class MicrocodeAnalyzer:
-    def __init__(self, mba):
+class MicrocodeInstructionAnalyzer:
+    def __init__(self, mba, utils=None):
         self.mba = mba
-        self.utils = MicroCodeUtils()
+        self.utils = utils or MicroCodeUtils()
 
     def analyze_instruction(self, insn):
         reads, writes, calls = self._analyze_minsn(insn)
@@ -156,6 +156,82 @@ class MicrocodeAnalyzer:
         )
 
 
+class MicrocodeFunctionAnalyzer:
+    def __init__(self, mba, utils=None, instruction_analyzer=None):
+        self.mba = mba
+        self.utils = utils or MicroCodeUtils()
+        self.instruction_analyzer = instruction_analyzer or MicrocodeInstructionAnalyzer(
+            mba, self.utils
+        )
+
+    def analyze_function(self, pfn, maturity):
+        func_name = ida_funcs.get_func_name(pfn.start_ea)
+        func_args, return_vars = self._collect_signature_vars()
+        output = {
+            "function": func_name,
+            "ea": hex(pfn.start_ea),
+            "maturity": maturity,
+            "args": func_args,
+            "return_vars": return_vars,
+            "insns": [],
+        }
+        for block_id, insn_idx, insn in self._iter_instructions():
+            try:
+                insn_entry = self._build_insn_entry(block_id, insn_idx, insn)
+                output["insns"].append(insn_entry)
+            except Exception:
+                pass
+        return output
+
+    def _collect_signature_vars(self):
+        func_args = []
+        return_vars = []
+        if self.mba.vars:
+            try:
+                for i, v in enumerate(self.mba.vars):
+                    if v.is_arg_var:
+                        func_args.append({"lvar_idx": i, "name": v.name, "width": v.width})
+                    is_result = False
+                    if hasattr(v, "is_result_var") and v.is_result_var:
+                        is_result = True
+                    elif v.name and (v.name == "result" or v.name.startswith("retvar")):
+                        is_result = True
+                    if is_result:
+                        return_vars.append(i)
+            except Exception:
+                pass
+        return func_args, return_vars
+
+    def _iter_instructions(self):
+        for block_id in range(self.mba.qty):
+            block = self.mba.get_mblock(block_id)
+            curr = block.head
+            insn_idx = 0
+            while curr:
+                yield block_id, insn_idx, curr
+                curr = curr.next
+                insn_idx += 1
+
+    def _build_insn_entry(self, block_id, insn_idx, insn):
+        ea_str = hex(insn.ea)
+        cpg_info = self.instruction_analyzer.analyze_instruction(insn)
+        return {
+            "block_id": block_id,
+            "insn_idx": insn_idx,
+            "ea": ea_str,
+            "opcode": cpg_info["opcode"],
+            "text": cpg_info["text"],
+            "reads": cpg_info["reads"],
+            "writes": cpg_info["writes"],
+            "calls": cpg_info["calls"],
+        }
+
+
+class MicrocodeAnalyzer(MicrocodeInstructionAnalyzer):
+    def __init__(self, mba):
+        super().__init__(mba)
+
+
 def analyze_function(pfn, maturity):
     hf = ida_hexrays.hexrays_failure_t()
     mbr = ida_hexrays.mba_ranges_t(pfn)
@@ -164,64 +240,5 @@ def analyze_function(pfn, maturity):
     if not mba:
         return None
 
-    analyzer = MicrocodeAnalyzer(mba)
-    func_name = ida_funcs.get_func_name(pfn.start_ea)
-
-    func_args = []
-    return_vars = []
-    if mba.vars:
-        try:
-            for i, v in enumerate(mba.vars):
-                if v.is_arg_var:
-                    func_args.append({
-                        "lvar_idx": i,
-                        "name": v.name,
-                        "width": v.width
-                    })
-                is_result = False
-                if hasattr(v, "is_result_var") and v.is_result_var:
-                    is_result = True
-                elif v.name and (v.name == "result" or v.name.startswith("retvar")):
-                    is_result = True
-
-                if is_result:
-                    return_vars.append(i)
-
-        except Exception:
-            pass
-
-    output = {
-        "function": func_name,
-        "ea": hex(pfn.start_ea),
-        "maturity": maturity,
-        "args": func_args,
-        "return_vars": return_vars,
-        "insns": [],
-    }
-
-    for i in range(mba.qty):
-        block = mba.get_mblock(i)
-        curr = block.head
-        insn_idx = 0
-        while curr:
-            ea_str = hex(curr.ea)
-            try:
-                cpg_info = analyzer.analyze_instruction(curr)
-                insn_entry = {
-                    "block_id": i,
-                    "insn_idx": insn_idx,
-                    "ea": ea_str,
-                    "opcode": cpg_info["opcode"],
-                    "text": cpg_info["text"],
-                    "reads": cpg_info["reads"],
-                    "writes": cpg_info["writes"],
-                    "calls": cpg_info["calls"],
-                }
-                output["insns"].append(insn_entry)
-            except Exception:
-                pass
-
-            curr = curr.next
-            insn_idx += 1
-
-    return output
+    analyzer = MicrocodeFunctionAnalyzer(mba)
+    return analyzer.analyze_function(pfn, maturity)

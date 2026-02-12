@@ -12,30 +12,10 @@ from .constants import (
 )
 
 
-class MicrocodeTaintEngine:
-    def __init__(self, ruleset, logger=None, verbose=False):
+class RuleResolver:
+    def __init__(self, ruleset, logger):
         self.ruleset = ruleset
-        self.logger = EngineLogger(logger=logger, verbose=verbose)
-
-    def scan_function(self, func_info):
-        state = TaintState()
-
-        args = func_info.get("args", [])
-        for arg in args:
-            lvar_idx = arg.get("lvar_idx")
-            if lvar_idx is not None:
-                key = f"lvar:{lvar_idx}"
-                sym_label = f"SYM:ARG:{lvar_idx}"
-                state.add_taint(key, {sym_label}, set())
-
-        findings = []
-        insns = func_info.get("insns", [])
-        self.logger.info("scan.function.start", function=func_info.get("function"), insn_count=len(insns))
-        for insn in insns:
-            if self.logger._verbose:
-                self.logger.debug("scan.insn", ea=insn.get("ea"), text=insn.get("text"), opcode=insn.get("opcode"), writes=self.logger._format_value(insn.get("writes")), reads=self.logger._format_value(insn.get("reads")))
-            self._process_instruction(state, insn, func_info, findings)
-        return findings, state
+        self.logger = logger
 
     def resolve_rules(self):
         if not idc:
@@ -46,80 +26,72 @@ class MicrocodeTaintEngine:
             name = rule.get("name")
             if not name:
                 continue
-            ea = self._resolve_rule_ea(name)
+            ea = self.resolve_rule_ea(name)
             if ea is not None:
                 rule["ea"] = ea
                 self.logger.debug("rules.resolve.hit", name=name, ea=hex(ea))
 
-    def scan_global(self, maturity):
-        self.resolve_rules()
+    def resolve_rule_ea(self, name):
+        def try_name(value):
+            if idc:
+                try:
+                    return idc.get_name_ea_simple(value)
+                except Exception:
+                    pass
+            return BADADDR
 
-        source_callers = set()
-        sink_callers = set()
+        for candidate in (name, "_" + name, "__imp_" + name, "__imp__" + name, "." + name):
+            ea = try_name(candidate)
+            if ea != BADADDR:
+                return ea
+        return None
 
-        self._collect_callers(self.ruleset.sources, source_callers)
-        self._collect_callers(self.ruleset.sinks, sink_callers)
-        self.logger.info("scan.global.callers", sources=len(source_callers), sinks=len(sink_callers))
+    def _iter_rules(self):
+        for rule in self.ruleset.sources:
+            yield rule
+        for rule in self.ruleset.sinks:
+            yield rule
+        for rule in self.ruleset.propagators:
+            yield rule
 
-        if not source_callers or not sink_callers:
-            self.logger.warn("scan.global.missing_callers")
-            return []
 
-        chain_functions, raw_chains = self._find_call_chain(source_callers, sink_callers)
-        if not chain_functions:
-            self.logger.warn("scan.global.no_path")
-            return []
+class CallChainPlanner:
+    def __init__(self, logger):
+        self.logger = logger
 
-        self.logger.info("scan.global.chain", functions=len(chain_functions))
-        
-        formatted_chains = []
-        for path in raw_chains:
-            chain_info = []
-            for ea in path:
-                chain_info.append({
-                    "ea": hex(ea),
-                    "name": ida_funcs.get_func_name(ea) or f"sub_{ea:x}"
-                })
-            formatted_chains.append(chain_info)
-        
-        sorted_chain = self._sort_call_chain(chain_functions)
-        
-        findings = []
-        for ea in sorted_chain:
-            func = ida_funcs.get_func(ea)
-            if not func:
+    def collect_callers(self, rules):
+        caller_set = set()
+        for rule in rules:
+            ea = rule.get("ea")
+            if not ea:
                 continue
-            func_info = analyze_function(func, maturity)
-            if func_info:
-                f_findings, state = self.scan_function(func_info)
-                
-                real_findings = []
-                proxy_findings = []
-                for f in f_findings:
-                    if f.get("type") == "sink_proxy":
-                        proxy_findings.append(f)
-                    else:
-                        labels = f.get("taint_labels", [])
-                        has_real = False
-                        for label in labels:
-                            if not label.startswith("SYM:ARG:"):
-                                has_real = True
-                                break
-                        if has_real or not labels:
-                            real_findings.append(f)
+            for ref in idautils.CodeRefsTo(ea, 0):
+                func = ida_funcs.get_func(ref)
+                if func:
+                    caller_set.add(func.start_ea)
+        return caller_set
 
-                findings.extend(real_findings)
-                self._generate_summary(func_info, state, proxy_findings)
+    def find_call_chain(self, source_callers, sink_callers):
+        chain_functions = set()
+        all_paths = []
 
-        for finding in findings:
-            finding["call_chains"] = formatted_chains
+        self.logger.info("scan.global.bfs.fwd", sources=len(source_callers), sinks=len(sink_callers))
+        fwd_nodes, fwd_paths = self._bfs_search(source_callers, sink_callers, "Forward")
+        chain_functions.update(fwd_nodes)
+        all_paths.extend(fwd_paths)
 
-        return findings
+        self.logger.info("scan.global.bfs.rev", sources=len(source_callers), sinks=len(sink_callers))
+        rev_nodes, rev_paths = self._bfs_search(sink_callers, source_callers, "Reverse")
+        chain_functions.update(rev_nodes)
+        for path in rev_paths:
+            all_paths.append(path[::-1])
 
-    def _sort_call_chain(self, chain_functions):
+        return chain_functions, all_paths
+
+    def sort_call_chain(self, chain_functions):
         visited = set()
         sorted_list = []
-        
+
         def visit(u):
             visited.add(u)
             func = ida_funcs.get_func(u)
@@ -136,52 +108,70 @@ class MicrocodeTaintEngine:
         for ea in chain_functions:
             if ea not in visited:
                 visit(ea)
-                
+
         return sorted_list
 
-    def _generate_summary(self, func_info, state, proxy_findings=None):
+    def _bfs_search(self, start_nodes, end_nodes, direction_name):
+        max_depth = 10
+        found_nodes = set()
+        found_paths = []
+
+        queue = deque()
+        for ea in start_nodes:
+            queue.append((ea, [ea]))
+
+        visited = set(start_nodes)
+
+        while queue:
+            curr_ea, path = queue.popleft()
+
+            if curr_ea in end_nodes:
+                found_nodes.update(path)
+                found_paths.append(path)
+                names = [ida_funcs.get_func_name(x) for x in path]
+                self.logger.debug(f"scan.global.path.{direction_name.lower()}", path=" -> ".join(names))
+                continue
+
+            if len(path) >= max_depth:
+                continue
+
+            func = ida_funcs.get_func(curr_ea)
+            if not func:
+                continue
+
+            callees = set()
+            for head in idautils.FuncItems(func.start_ea):
+                for ref in idautils.CodeRefsFrom(head, 0):
+                    f = ida_funcs.get_func(ref)
+                    if f and f.start_ea == ref:
+                        callee_ea = f.start_ea
+                        if f.flags & (ida_funcs.FUNC_THUNK | ida_funcs.FUNC_LIB):
+                            if callee_ea not in end_nodes:
+                                continue
+                        callees.add(callee_ea)
+
+            for callee in callees:
+                if callee not in visited:
+                    visited.add(callee)
+                    queue.append((callee, path + [callee]))
+
+        return found_nodes, found_paths
+
+
+class SummaryGenerator:
+    def __init__(self, ruleset, logger):
+        self.ruleset = ruleset
+        self.logger = logger
+
+    def generate(self, func_info, state, proxy_findings=None):
         func_ea_str = func_info.get("ea")
         if not func_ea_str:
             return
         func_ea = int(func_ea_str, 16)
         func_name = func_info.get("function")
-        
-        is_source = False
-        tainted_out_args = []
-        
+
         self.logger.debug("summary.gen.start", function=func_name)
-
-        is_source = False
-        tainted_out_args = []
-        for insn in func_info.get("insns", []):
-            if insn.get("opcode") == "ret":
-                self.logger.debug("summary.gen.ret_insn", ea=insn.get("ea"), reads=insn.get("reads"))
-                for read in insn.get("reads", []):
-                    key = self._op_key(read.get("op"))
-                    taint = state.get_taint(key)
-                    if taint:
-                        self.logger.debug("summary.gen.ret_taint", key=key, labels=list(taint))
-                        is_source = True
-                        break
-        
-        if not is_source:
-             for lvar_idx in func_info.get("return_vars", []):
-                 key = f"lvar:{lvar_idx}"
-                 taint = state.get_taint(key)
-                 if taint:
-                     self.logger.debug("summary.gen.ret_var_taint", key=key, labels=list(taint))
-                     is_source = True
-                     break
-
-        args_map = {a["lvar_idx"]: i for i, a in enumerate(func_info.get("args", []))}
-        
-        for lvar_idx, arg_pos in args_map.items():
-            key = f"addr:lvar:{lvar_idx}"
-            taint = state.get_taint(key)
-            if taint:
-                self.logger.debug("summary.gen.arg_taint", arg_idx=arg_pos, key=key, labels=list(taint))
-                tainted_out_args.append(arg_pos)
-                is_source = True
+        is_source, tainted_out_args = self._inspect_taint_outputs(func_info, state)
 
         if is_source:
             self.logger.info("rules.dynamic.add", function=func_name, ret=is_source, out_args=tainted_out_args)
@@ -190,18 +180,14 @@ class MicrocodeTaintEngine:
                 "name": func_name,
                 "label": f"Dynamic:{func_name}",
                 "out_args": tainted_out_args,
-                "ret": True 
+                "ret": True,
             }
             self.ruleset.sources.append(new_rule)
         else:
             self.logger.debug("summary.gen.no_taint", function=func_name)
 
         if proxy_findings:
-            proxy_args = set()
-            for pf in proxy_findings:
-                for arg in pf.get("proxy_args", []):
-                    proxy_args.add(arg)
-            
+            proxy_args = self._collect_proxy_args(proxy_findings)
             if proxy_args:
                 self.logger.info("rules.dynamic.add_sink", function=func_name, args=list(proxy_args))
                 base_rule = proxy_findings[0].get("sink_rule", {})
@@ -216,8 +202,65 @@ class MicrocodeTaintEngine:
                 }
                 self.ruleset.sinks.append(new_rule)
 
+    def _inspect_taint_outputs(self, func_info, state):
+        is_source = False
+        tainted_out_args = []
+        for insn in func_info.get("insns", []):
+            if insn.get("opcode") == "ret":
+                self.logger.debug("summary.gen.ret_insn", ea=insn.get("ea"), reads=insn.get("reads"))
+                for read in insn.get("reads", []):
+                    key = self._op_key(read.get("op"))
+                    taint = state.get_taint(key)
+                    if taint:
+                        self.logger.debug("summary.gen.ret_taint", key=key, labels=list(taint))
+                        is_source = True
+                        break
 
-    def _process_instruction(self, state, insn, func_info, findings):
+        if not is_source:
+            for lvar_idx in func_info.get("return_vars", []):
+                key = f"lvar:{lvar_idx}"
+                taint = state.get_taint(key)
+                if taint:
+                    self.logger.debug("summary.gen.ret_var_taint", key=key, labels=list(taint))
+                    is_source = True
+                    break
+
+        args_map = {a["lvar_idx"]: i for i, a in enumerate(func_info.get("args", []))}
+
+        for lvar_idx, arg_pos in args_map.items():
+            key = f"addr:lvar:{lvar_idx}"
+            taint = state.get_taint(key)
+            if taint:
+                self.logger.debug("summary.gen.arg_taint", arg_idx=arg_pos, key=key, labels=list(taint))
+                tainted_out_args.append(arg_pos)
+                is_source = True
+
+        return is_source, tainted_out_args
+
+    def _collect_proxy_args(self, proxy_findings):
+        proxy_args = set()
+        for pf in proxy_findings:
+            for arg in pf.get("proxy_args", []):
+                proxy_args.add(arg)
+        return proxy_args
+
+    def _op_key(self, op):
+        if not op:
+            return None
+        key = op.get("key")
+        if key:
+            return key
+        text = op.get("text")
+        return text or None
+
+
+class InstructionTaintProcessor:
+    def __init__(self, ruleset, logger, rule_resolver):
+        self.ruleset = ruleset
+        self.logger = logger
+        self.rule_resolver = rule_resolver
+
+    def process(self, state, insn, func_info, findings):
         calls = insn.get("calls", [])
         opcode = insn.get("opcode")
         writes = insn.get("writes", [])
@@ -341,109 +384,12 @@ class MicrocodeTaintEngine:
         text = op.get("text")
         return text or None
 
-    def _resolve_rule_ea(self, name):
-        def try_name(value):
-            if idc:
-                try:
-                    return idc.get_name_ea_simple(value)
-                except Exception:
-                    pass
-            return BADADDR
-
-        for candidate in (name, "_" + name, "__imp_" + name, "__imp__" + name, "." + name):
-            ea = try_name(candidate)
-            if ea != BADADDR:
-                return ea
-        return None
-
-    def _iter_rules(self):
-        for rule in self.ruleset.sources:
-            yield rule
-        for rule in self.ruleset.sinks:
-            yield rule
-        for rule in self.ruleset.propagators:
-            yield rule
-
-    def _collect_callers(self, rules, caller_set):
-        for rule in rules:
-            ea = rule.get("ea")
-            if not ea:
-                continue
-            for ref in idautils.CodeRefsTo(ea, 0):
-                func = ida_funcs.get_func(ref)
-                if func:
-                    caller_set.add(func.start_ea)
-
-    def _find_call_chain(self, source_callers, sink_callers):
-        chain_functions = set()
-        all_paths = []
-        
-        self.logger.info("scan.global.bfs.fwd", sources=len(source_callers), sinks=len(sink_callers))
-        fwd_nodes, fwd_paths = self._bfs_search(source_callers, sink_callers, "Forward")
-        chain_functions.update(fwd_nodes)
-        all_paths.extend(fwd_paths)
-        
-        self.logger.info("scan.global.bfs.rev", sources=len(source_callers), sinks=len(sink_callers))
-        rev_nodes, rev_paths = self._bfs_search(sink_callers, source_callers, "Reverse")
-        chain_functions.update(rev_nodes)
-        
-        for path in rev_paths:
-            all_paths.append(path[::-1])
-        
-        return chain_functions, all_paths
-
-    def _bfs_search(self, start_nodes, end_nodes, direction_name):
-        MAX_DEPTH = 10
-        found_nodes = set()
-        found_paths = []
-        
-        queue = deque()
-        for ea in start_nodes:
-            queue.append((ea, [ea]))
-            
-        visited = set(start_nodes)
-        
-        while queue:
-            curr_ea, path = queue.popleft()
-            
-            if curr_ea in end_nodes:
-                found_nodes.update(path)
-                found_paths.append(path)
-                names = [ida_funcs.get_func_name(x) for x in path]
-                self.logger.debug(f"scan.global.path.{direction_name.lower()}", path=" -> ".join(names))
-                continue
-            
-            if len(path) >= MAX_DEPTH:
-                continue
-                
-            func = ida_funcs.get_func(curr_ea)
-            if not func:
-                continue
-                
-            callees = set()
-            for head in idautils.FuncItems(func.start_ea):
-                for ref in idautils.CodeRefsFrom(head, 0):
-                    f = ida_funcs.get_func(ref)
-                    if f and f.start_ea == ref:
-                        callee_ea = f.start_ea
-                        if f.flags & (ida_funcs.FUNC_THUNK | ida_funcs.FUNC_LIB):
-                            if callee_ea not in end_nodes:
-                                continue
-                        callees.add(callee_ea)
-                        
-            for callee in callees:
-                if callee not in visited:
-                    visited.add(callee)
-                    queue.append((callee, path + [callee]))
-                    
-        return found_nodes, found_paths
-
     def _resolve_callee(self, call):
         callee = call.get("callee_name") or ""
         target = call.get("target")
         callee_ea = target.get("ea") if target else None
         if callee_ea is None and callee:
-            callee_ea = self._resolve_rule_ea(callee)
+            callee_ea = self.rule_resolver.resolve_rule_ea(callee)
         if callee_ea is not None:
             ida_name = None
             if ida_funcs:
@@ -556,19 +502,21 @@ class MicrocodeTaintEngine:
                 key = self._op_key(args[idx])
                 t = state.get_taint(key)
                 if self.logger._verbose:
-                     self.logger.debug("sink.check", index=idx, key=key, taint=list(t))
+                    self.logger.debug("sink.check", index=idx, key=key, taint=list(t))
                 if not t:
                     continue
-                
+
                 for label in t:
                     if label.startswith("SYM:ARG:"):
                         try:
-                            findings.append({
-                                "type": "sink_proxy",
-                                "proxy_args": [int(label.split(":")[2])],
-                                "sink_rule": rule
-                            })
-                        except:
+                            findings.append(
+                                {
+                                    "type": "sink_proxy",
+                                    "proxy_args": [int(label.split(":")[2])],
+                                    "sink_rule": rule,
+                                }
+                            )
+                        except Exception:
                             pass
 
                 tainted_args.append(idx)
@@ -599,4 +547,116 @@ class MicrocodeTaintEngine:
                     labels=sorted(labels),
                     sources=sorted(origins),
                 )
+        return findings
+
+
+class FunctionScanner:
+    def __init__(self, processor, logger):
+        self.processor = processor
+        self.logger = logger
+
+    def scan(self, func_info):
+        state = TaintState()
+        self._seed_args(state, func_info)
+
+        findings = []
+        insns = func_info.get("insns", [])
+        self.logger.info(
+            "scan.function.start", function=func_info.get("function"), insn_count=len(insns)
+        )
+        for insn in insns:
+            if self.logger._verbose:
+                self.logger.debug(
+                    "scan.insn",
+                    ea=insn.get("ea"),
+                    text=insn.get("text"),
+                    opcode=insn.get("opcode"),
+                    writes=self.logger._format_value(insn.get("writes")),
+                    reads=self.logger._format_value(insn.get("reads")),
+                )
+            self.processor.process(state, insn, func_info, findings)
+        return findings, state
+
+    def _seed_args(self, state, func_info):
+        args = func_info.get("args", [])
+        for arg in args:
+            lvar_idx = arg.get("lvar_idx")
+            if lvar_idx is not None:
+                key = f"lvar:{lvar_idx}"
+                sym_label = f"SYM:ARG:{lvar_idx}"
+                state.add_taint(key, {sym_label}, set())
+
+
+class MicrocodeTaintEngine:
+    def __init__(self, ruleset, logger=None, verbose=False):
+        self.ruleset = ruleset
+        self.logger = EngineLogger(logger=logger, verbose=verbose)
+        self.rule_resolver = RuleResolver(ruleset, self.logger)
+        self.call_chain_planner = CallChainPlanner(self.logger)
+        self.processor = InstructionTaintProcessor(ruleset, self.logger, self.rule_resolver)
+        self.function_scanner = FunctionScanner(self.processor, self.logger)
+        self.summary_generator = SummaryGenerator(ruleset, self.logger)
+
+    def scan_function(self, func_info):
+        return self.function_scanner.scan(func_info)
+
+    def scan_global(self, maturity):
+        self.rule_resolver.resolve_rules()
+
+        source_callers = self.call_chain_planner.collect_callers(self.ruleset.sources)
+        sink_callers = self.call_chain_planner.collect_callers(self.ruleset.sinks)
+        self.logger.info("scan.global.callers", sources=len(source_callers), sinks=len(sink_callers))
+
+        if not source_callers or not sink_callers:
+            self.logger.warn("scan.global.missing_callers")
+            return []
+
+        chain_functions, raw_chains = self.call_chain_planner.find_call_chain(
+            source_callers, sink_callers
+        )
+        if not chain_functions:
+            self.logger.warn("scan.global.no_path")
+            return []
+
+        self.logger.info("scan.global.chain", functions=len(chain_functions))
+
+        formatted_chains = []
+        for path in raw_chains:
+            chain_info = []
+            for ea in path:
+                chain_info.append({"ea": hex(ea), "name": ida_funcs.get_func_name(ea) or f"sub_{ea:x}"})
+            formatted_chains.append(chain_info)
+
+        sorted_chain = self.call_chain_planner.sort_call_chain(chain_functions)
+
+        findings = []
+        for ea in sorted_chain:
+            func = ida_funcs.get_func(ea)
+            if not func:
+                continue
+            func_info = analyze_function(func, maturity)
+            if func_info:
+                f_findings, state = self.function_scanner.scan(func_info)
+
+                real_findings = []
+                proxy_findings = []
+                for f in f_findings:
+                    if f.get("type") == "sink_proxy":
+                        proxy_findings.append(f)
+                    else:
+                        labels = f.get("taint_labels", [])
+                        has_real = False
+                        for label in labels:
+                            if not label.startswith("SYM:ARG:"):
+                                has_real = True
+                                break
+                        if has_real or not labels:
+                            real_findings.append(f)
+
+                findings.extend(real_findings)
+                self.summary_generator.generate(func_info, state, proxy_findings)
+
+        for finding in findings:
+            finding["call_chains"] = formatted_chains
+
         return findings
