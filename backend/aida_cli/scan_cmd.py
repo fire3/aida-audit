@@ -143,18 +143,18 @@ def _is_idb(path):
     return low.endswith(".i64") or low.endswith(".idb")
 
 
-def _prepare_workdir(root, target):
-    base = os.path.abspath(root or os.getcwd())
-    os.makedirs(base, exist_ok=True)
+def _prepare_workdir(target):
+    temp_base = tempfile.gettempdir()
+    os.makedirs(temp_base, exist_ok=True)
     name = os.path.basename(target) if target else "input"
     safe = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in name)
-    return tempfile.mkdtemp(prefix=f"aida_scan_{safe}_", dir=base)
+    return tempfile.mkdtemp(prefix=f"aida_scan_{safe}_", dir=temp_base)
 
 
-def _prepare_scan_input(target, workdir_root, logger):
+def _prepare_scan_input(target, logger):
     if not target:
         return None, None, None
-    workdir = _prepare_workdir(workdir_root, target)
+    workdir = _prepare_workdir(target)
     logger.log(f"Working directory: {workdir}")
     if _is_idb(target):
         return target, workdir, target
@@ -198,8 +198,6 @@ def main():
     parser.add_argument("--rules-file", help="Path to custom rules JSON")
     parser.add_argument("--maturity", default="MMAT_LVARS", help="Microcode maturity level")
     parser.add_argument("--output", help="Write findings JSONL to this path")
-    parser.add_argument("--workdir", help="Root directory for scan workspaces")
-    parser.add_argument("--keep", action="store_true", help="Keep temporary workspace")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     args = parser.parse_args()
 
@@ -226,7 +224,7 @@ def main():
         workdir = None
         try:
             if target:
-                scan_path, workdir, input_path = _prepare_scan_input(target, args.workdir, logger)
+                scan_path, workdir, input_path = _prepare_scan_input(target, logger)
                 if not _open_database(scan_path, logger):
                     continue
                 _wait_analysis(logger)
@@ -250,7 +248,7 @@ def main():
             if scan_path:
                 _close_database()
             
-            if workdir and not args.keep and os.path.exists(workdir):
+            if workdir and os.path.exists(workdir):
                 try:
                     shutil.rmtree(workdir)
                 except Exception as e:

@@ -116,10 +116,6 @@ def process_test_case(file_path, output_dir, clean, keep, verbose):
     # Step 1: Scan (Handles export implicitly)
     # Use python -m aida_cli.cli scan directly on the binary
     scan_cmd = f"{PYTHON_CMD} -m aida_cli.cli scan \"{file_path}\" --rules cwe-78"
-    if keep:
-        scan_cmd += " --keep"
-    if verbose:
-        scan_cmd += " --verbose"
     scan_res = run_command(scan_cmd, cwd=PROJECT_ROOT, env=env)
     case_result["scan_time"] = scan_res["duration"]
     

@@ -466,6 +466,7 @@ class MicrocodeTaintEngine:
                 continue
             
             func_info = analyze_function(func, maturity)
+            self.logger.log(f"[DEBUG] function  info {func_info.to_string()}")
             
             if func_info:
                 f_findings, state = self.function_scanner.scan(func_info)

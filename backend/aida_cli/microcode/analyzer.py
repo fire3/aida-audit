@@ -144,7 +144,8 @@ class MopUsageVisitor(_mop_visitor_base):
                 return 0
 
             role = "dst" if is_target else "src"
-            entry = OperandInfo(role=role, location=op, access_mode=access_mode)
+            text = self.utils.safe_dstr(mop) if mop else ""
+            entry = OperandInfo(role=role, location=op, text=text, access_mode=access_mode)
 
             if is_target:
                 if role not in self.seen_writes:
