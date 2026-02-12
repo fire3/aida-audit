@@ -266,25 +266,25 @@ class InstructionTaintProcessor:
         writes = insn.get("writes", [])
         reads = insn.get("reads", [])
 
-        if calls and (opcode == "op_4" or opcode == "mov"):
+        if calls and self.utils.is_move_opcode(opcode):
             if writes:
                 for call in calls:
                     if call.get("ret") is None:
                         call["ret"] = writes[0].get("op")
 
-        if (opcode == "op_4" or opcode == "mov") and len(writes) == 1:
+        if self.utils.is_move_opcode(opcode) and len(writes) == 1:
             w_key = self.utils.op_key(writes[0].get("op"))
             for r in reads:
                 r_key = self.utils.op_key(r.get("op"))
-                if r_key and r_key.startswith("addr:") and w_key:
-                    target = r_key[5:]
+                if self.utils.is_addr_key(r_key) and w_key:
+                    target = self.utils.strip_addr_key(r_key)
                     state.add_alias(w_key, target)
                     if self.logger._verbose:
                         self.logger.debug("alias.add", ptr=w_key, target=target)
 
         read_labels, read_origins, read_keys = self._collect_reads(state, insn.get("reads", []))
 
-        if (opcode == "op_1" or opcode == "stx") and read_labels:
+        if self.utils.is_store_opcode(opcode) and read_labels:
             for r in reads:
                 r_key = self.utils.op_key(r.get("op"))
                 if r_key and r_key in state.aliases:

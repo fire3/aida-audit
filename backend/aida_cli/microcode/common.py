@@ -154,6 +154,20 @@ class MicroCodeUtils:
         text = op.get("text")
         return text or None
 
+    def is_move_opcode(self, opcode):
+        return opcode in ("op_4", "mov")
+
+    def is_store_opcode(self, opcode):
+        return opcode in ("op_1", "stx")
+
+    def is_addr_key(self, key):
+        return bool(key) and key.startswith("addr:")
+
+    def strip_addr_key(self, key):
+        if not self.is_addr_key(key):
+            return None
+        return key[5:]
+
     def resolve_name_ea(self, name):
         if not name:
             return None
