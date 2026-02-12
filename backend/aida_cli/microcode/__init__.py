@@ -59,6 +59,16 @@ from .analyzer import (
 
 from .state import TaintState
 from .engine import MicrocodeTaintEngine
+from .fixed_point_engine import (
+    FixedPointTaintEngine,
+    WorklistTaintEngine,
+    WorkItem,
+    Block,
+    CFG,
+    AliasChange,
+    TaintPolicy,
+    Finding,
+)
 
 __all__ = [
     "BADADDR",
@@ -79,4 +89,12 @@ __all__ = [
     "analyze_function",
     "TaintState",
     "MicrocodeTaintEngine",
+    "FixedPointTaintEngine",
+    "WorklistTaintEngine",
+    "WorkItem",
+    "Block",
+    "CFG",
+    "AliasChange",
+    "TaintPolicy",
+    "Finding",
 ]

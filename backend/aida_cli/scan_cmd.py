@@ -7,7 +7,7 @@ import tempfile
 
 from . import ida_utils
 from . import microcode as taint_mod
-from .microcode import analyze_function, MicrocodeTaintEngine
+from .microcode import analyze_function, WorklistTaintEngine
 from .taint_rules import RuleSet, default_cwe78_rules
 
 try:
@@ -181,6 +181,8 @@ def _print_findings(findings, output_path):
         out = open(output_path, "w", encoding="utf-8")
     try:
         for finding in findings:
+            if hasattr(finding, 'to_dict'):
+                finding = finding.to_dict()
             line = json.dumps(finding, ensure_ascii=False)
             if out:
                 out.write(line + "\n")
@@ -216,7 +218,7 @@ def main():
         logger.log("Hex-Rays decompiler not available", level="ERROR")
         sys.exit(1)
 
-    engine = MicrocodeTaintEngine(ruleset, logger=logger, verbose=args.verbose)
+    engine = WorklistTaintEngine(ruleset, logger=logger, verbose=args.verbose)
     findings = []
     for target in _iter_targets(args.target):
         scan_path = target
@@ -236,9 +238,6 @@ def main():
             logger.log("Starting global taint analysis...")
             try:
                 result = engine.scan_global(maturity)
-                if input_path:
-                    for item in result:
-                        item["input_path"] = input_path
                 findings.extend(result)
             except Exception as e:
                 logger.log(f"Global scan failed: {e}", level="ERROR")
