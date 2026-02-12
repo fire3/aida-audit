@@ -189,3 +189,13 @@ class TaintState:
 
     def __bool__(self):
         return self.is_empty()
+
+    def __repr__(self) -> str:
+        lines = []
+        lines.append(f"TaintState(entries={len(self.entries)}, aliases={len(self.aliases)})")
+        for attr, entry in self.entries.items():
+            if entry.labels:
+                lines.append(f"  {attr}: labels={sorted(entry.labels)}, origins={len(entry.origins)}")
+        for ptr, target in self.aliases.items():
+            lines.append(f"  alias: {ptr} -> {target}")
+        return "\n".join(lines) if lines else "TaintState()"

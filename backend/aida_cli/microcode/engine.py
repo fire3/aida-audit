@@ -407,10 +407,12 @@ class FunctionScanner:
     def scan(self, func_info):
         state = TaintState()
         self._seed_args(state, func_info)
+        self.logger.log(f"[TAINTER] Initial state for {func_info.function}:\n{state}")
 
         findings = []
         for insn in func_info.insns:
             self.processor.process(state, insn, func_info, findings)
+        self.logger.log(f"[TAINTER] Final state for {func_info.function}:\n{state}")
         return findings, state
 
     def _seed_args(self, state, func_info):
