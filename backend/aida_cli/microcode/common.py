@@ -8,7 +8,7 @@ from .constants import (
 )
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Union, Optional
+from typing import Union, Optional, List, Dict, List
 
 
 class AttrType:
@@ -223,13 +223,30 @@ class InsnInfo:
     reads: list = field(default_factory=list)
     writes: list = field(default_factory=list)
     calls: list = field(default_factory=list)
+    jump_targets: List[int] = field(default_factory=list)
+    is_conditional: bool = False
+    fallthrough_block: Optional[int] = None
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
         reads_str = ",\n".join(r.to_string(indent + 1) for r in self.reads) if self.reads else ""
         writes_str = ",\n".join(w.to_string(indent + 1) for w in self.writes) if self.writes else ""
         calls_str = ",\n".join(c.to_string(indent + 1) for c in self.calls) if self.calls else ""
-        return f"{prefix}InsnInfo(\n{prefix}  block_id={self.block_id},\n{prefix}  insn_idx={self.insn_idx},\n{prefix}  ea={self.ea!r},\n{prefix}  opcode={self.opcode!r},\n{prefix}  text={self.text!r},\n{prefix}  reads=[\n{reads_str}\n{prefix}  ],\n{prefix}  writes=[\n{writes_str}\n{prefix}  ],\n{prefix}  calls=[\n{calls_str}\n{prefix}  ]\n{prefix})"
+        return (
+            f"{prefix}InsnInfo(\n"
+            f"{prefix}  block_id={self.block_id},\n"
+            f"{prefix}  insn_idx={self.insn_idx},\n"
+            f"{prefix}  ea={self.ea!r},\n"
+            f"{prefix}  opcode={self.opcode!r},\n"
+            f"{prefix}  text={self.text!r},\n"
+            f"{prefix}  reads=[\n{reads_str}\n{prefix}  ],\n"
+            f"{prefix}  writes=[\n{writes_str}\n{prefix}  ],\n"
+            f"{prefix}  calls=[\n{calls_str}\n{prefix}  ],\n"
+            f"{prefix}  jump_targets={self.jump_targets},\n"
+            f"{prefix}  is_conditional={self.is_conditional},\n"
+            f"{prefix}  fallthrough_block={self.fallthrough_block}\n"
+            f"{prefix})"
+        )
 
 
 @dataclass
@@ -245,6 +262,28 @@ class ArgInfo:
 
 
 @dataclass
+class BlockInfo:
+    """基本块信息"""
+    block_id: int = 0
+    start_ea: int = 0
+    end_ea: int = 0
+    predecessors: List[int] = field(default_factory=list)
+    successors: List[int] = field(default_factory=list)
+
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        return (
+            f"{prefix}BlockInfo(\n"
+            f"{prefix}  block_id={self.block_id},\n"
+            f"{prefix}  start_ea={hex(self.start_ea)},\n"
+            f"{prefix}  end_ea={hex(self.end_ea)},\n"
+            f"{prefix}  predecessors={self.predecessors},\n"
+            f"{prefix}  successors={self.successors}\n"
+            f"{prefix})"
+        )
+
+
+@dataclass
 class FuncInfo:
     """函数分析结果 (analyze_function 返回类型)"""
     function: str = ""
@@ -253,12 +292,28 @@ class FuncInfo:
     args: list = field(default_factory=list)
     return_vars: list = field(default_factory=list)
     insns: list = field(default_factory=list)
+    cfg_blocks: Dict[int, BlockInfo] = field(default_factory=dict)
+    entry_block: int = 0
+    exit_blocks: List[int] = field(default_factory=list)
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
         args_str = ",\n".join(a.to_string(indent + 1) for a in self.args) if self.args else ""
         insns_str = ",\n".join(i.to_string(indent + 1) for i in self.insns) if self.insns else ""
-        return f"{prefix}FuncInfo(\n{prefix}  function={self.function!r},\n{prefix}  ea={self.ea!r},\n{prefix}  maturity={self.maturity},\n{prefix}  args=[\n{args_str}\n{prefix}  ],\n{prefix}  return_vars={self.return_vars},\n{prefix}  insns=[\n{insns_str}\n{prefix}  ]\n{prefix})"
+        cfg_str = ",\n".join(b.to_string(indent + 1) for b in self.cfg_blocks.values()) if self.cfg_blocks else ""
+        return (
+            f"{prefix}FuncInfo(\n"
+            f"{prefix}  function={self.function!r},\n"
+            f"{prefix}  ea={self.ea!r},\n"
+            f"{prefix}  maturity={self.maturity},\n"
+            f"{prefix}  args=[\n{args_str}\n{prefix}  ],\n"
+            f"{prefix}  return_vars={self.return_vars},\n"
+            f"{prefix}  insns=[\n{insns_str}\n{prefix}  ],\n"
+            f"{prefix}  cfg_blocks={{\n{cfg_str}\n{prefix}  }},\n"
+            f"{prefix}  entry_block={self.entry_block},\n"
+            f"{prefix}  exit_blocks={self.exit_blocks}\n"
+            f"{prefix})"
+        )
 
 
 __all__ = [
@@ -278,5 +333,6 @@ __all__ = [
     "CallInfo",
     "InsnInfo",
     "ArgInfo",
+    "BlockInfo",
     "FuncInfo",
 ]

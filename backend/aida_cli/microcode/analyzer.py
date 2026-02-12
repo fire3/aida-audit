@@ -21,11 +21,12 @@ from .common import (
     CallInfo,
     InsnInfo,
     ArgInfo,
+    BlockInfo,
     FuncInfo,
 )
 from .utils import MicroCodeUtils
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Dict, List
 import sys
 
 
