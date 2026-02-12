@@ -9,6 +9,7 @@ from .constants import (
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Union, Optional
+import re
 
 
 class LocationType:
@@ -41,6 +42,11 @@ class OperandLocation(ABC):
         """转换为字符串键 (兼容旧接口)"""
         pass
 
+    @abstractmethod
+    def to_string(self, indent: int = 0) -> str:
+        """转换为可打印的字符串"""
+        pass
+
 
 @dataclass(frozen=True, eq=True)
 class RegisterLocation(OperandLocation):
@@ -53,6 +59,10 @@ class RegisterLocation(OperandLocation):
 
     def to_key(self) -> str:
         return f"reg:{self.reg_id}"
+
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        return f"{prefix}RegisterLocation(reg_id={self.reg_id})"
 
 
 @dataclass(frozen=True, eq=True)
@@ -67,6 +77,10 @@ class LocalVarLocation(OperandLocation):
     def to_key(self) -> str:
         return f"lvar:{self.lvar_idx}"
 
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        return f"{prefix}LocalVarLocation(lvar_idx={self.lvar_idx})"
+
 
 @dataclass(frozen=True, eq=True)
 class StackLocation(OperandLocation):
@@ -79,6 +93,10 @@ class StackLocation(OperandLocation):
 
     def to_key(self) -> str:
         return f"stack:{self.offset}"
+
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        return f"{prefix}StackLocation(offset={self.offset})"
 
 
 @dataclass(frozen=True, eq=True)
@@ -93,6 +111,10 @@ class GlobalLocation(OperandLocation):
     def to_key(self) -> str:
         return f"global:{hex(self.ea)}"
 
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        return f"{prefix}GlobalLocation(ea={hex(self.ea)})"
+
 
 @dataclass(frozen=True, eq=True)
 class ImmediateLocation(OperandLocation):
@@ -105,6 +127,10 @@ class ImmediateLocation(OperandLocation):
 
     def to_key(self) -> str:
         return f"imm:{self.value}"
+
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        return f"{prefix}ImmediateLocation(value={self.value})"
 
 
 @dataclass(frozen=True, eq=True)
@@ -119,6 +145,10 @@ class StringLocation(OperandLocation):
     def to_key(self) -> str:
         return f"str:{self.value}"
 
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        return f"{prefix}StringLocation(value={self.value!r})"
+
 
 @dataclass(frozen=True, eq=True)
 class AddressLocation(OperandLocation):
@@ -131,6 +161,11 @@ class AddressLocation(OperandLocation):
 
     def to_key(self) -> str:
         return f"addr:{self.inner.to_key()}"
+
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        inner_dump = self.inner.to_string(indent + 1)
+        return f"{prefix}AddressLocation(\n{prefix}  inner={inner_dump}\n{prefix})"
 
 
 @dataclass(frozen=True, eq=True)
@@ -145,6 +180,11 @@ class LoadLocation(OperandLocation):
     def to_key(self) -> str:
         return f"load:{self.ptr.to_key()}"
 
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        ptr_dump = self.ptr.to_string(indent + 1)
+        return f"{prefix}LoadLocation(\n{prefix}  ptr={ptr_dump}\n{prefix})"
+
 
 @dataclass(frozen=True, eq=True)
 class ExpressionLocation(OperandLocation):
@@ -157,6 +197,10 @@ class ExpressionLocation(OperandLocation):
 
     def to_key(self) -> str:
         return f"expr:{self.expr}"
+
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        return f"{prefix}ExpressionLocation(expr={self.expr!r})"
 
 
 OperandLoc = Union[
@@ -476,6 +520,8 @@ class MicroCodeUtils:
             return None
         if helper.startswith("$_"):
             return helper[2:]
+        if helper.startswith("$"):
+            return None
         return helper
 
     def mop_to_location(self, mop) -> Optional[OperandLocation]:
@@ -524,10 +570,18 @@ class MicroCodeUtils:
             value = self.to_int(getattr(n, "value", None)) if n is not None else None
             if value is not None:
                 return ImmediateLocation(value=value)
-            return ExpressionLocation(expr=self.safe_dstr(mop))
+            text = self.safe_dstr(mop)
+            if text:
+                imm_value = self._extract_immediate_value(text)
+                if imm_value is not None:
+                    return ImmediateLocation(value=imm_value)
+            return ExpressionLocation(expr=text)
 
         if t == ida_hexrays.mop_str:
-            return StringLocation(value=self.safe_dstr(mop))
+            text = self.safe_dstr(mop)
+            if text and text.startswith('"') and text.endswith('"'):
+                return StringLocation(value=text.strip('"'))
+            return StringLocation(value=text)
             
         if t == ida_hexrays.mop_h:
             helper = getattr(mop, "helper", None)
@@ -555,5 +609,59 @@ class MicroCodeUtils:
 
         text = self.safe_dstr(mop)
         if text and text != "<?>":
+            if text.startswith('"') and text.endswith('"'):
+                return StringLocation(value=text.strip('"'))
+            imm_value = self._extract_immediate_value(text)
+            if imm_value is not None:
+                return ImmediateLocation(value=imm_value)
+            str_value = self._extract_string_value(text)
+            if str_value:
+                return StringLocation(value=str_value)
             return ExpressionLocation(expr=text)
+        return None
+
+    def _extract_immediate_value(self, text: str) -> Optional[int]:
+        """从文本中提取立即数值"""
+        if not text:
+            return None
+        hex_pattern = r'#(0x[0-9a-fA-F]+)'
+        dec_pattern = r'#(\d+)'
+        hex_match = re.search(hex_pattern, text)
+        if hex_match:
+            try:
+                return int(hex_match.group(1), 16)
+            except ValueError:
+                pass
+        dec_match = re.search(dec_pattern, text)
+        if dec_match:
+            try:
+                return int(dec_match.group(1))
+            except ValueError:
+                pass
+        return None
+
+    def _is_string_constant(self, text: str) -> bool:
+        """检查文本是否为字符串常量"""
+        if not text:
+            return False
+        if text.startswith('$a') and '{' in text:
+            return True
+        if text.startswith('"') and text.endswith('"'):
+            return True
+        if text.startswith("'") and text.endswith("'"):
+            return True
+        return False
+
+    def _extract_string_value(self, text: str) -> Optional[str]:
+        """从字符串常量表达式中提取值"""
+        if not text:
+            return None
+        if text.startswith('$a'):
+            match = re.search(r'\$a(\w+)\{(\d+)\}', text)
+            if match:
+                return text
+        if text.startswith('"') and text.endswith('"'):
+            return text.strip('"')
+        if text.startswith("'") and text.endswith("'"):
+            return text.strip("'")
         return None
