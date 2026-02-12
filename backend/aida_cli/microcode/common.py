@@ -127,32 +127,37 @@ class MicroCodeUtils:
             return None
 
     def mop_entry(self, mop):
+        from .analyzer import OpInfo
         key = self.mop_key(mop)
         if key is None:
             return None
-        res = {"key": key, "text": self.safe_dstr(mop)}
+        res = OpInfo(key=key, text=self.safe_dstr(mop))
         if mop and ida_hexrays:
             t = getattr(mop, "t", None)
             if t == ida_hexrays.mop_v:
                 g = getattr(mop, "g", None)
                 if g:
-                    res["ea"] = self.to_int(getattr(g, "ea", None))
+                    res.ea = self.to_int(getattr(g, "ea", None))
             elif t == ida_hexrays.mop_h:
                 helper = getattr(mop, "helper", None)
                 if helper:
                     ea = self.resolve_name_ea(helper)
                     if ea is not None:
-                        res["ea"] = ea
+                        res.ea = ea
         return res
 
     def op_key(self, op):
         if not op:
             return None
-        key = op.get("key")
-        if key:
-            return key
-        text = op.get("text")
-        return text or None
+        if hasattr(op, "key"):
+            return op.key or None
+        if isinstance(op, dict):
+            key = op.get("key")
+            if key:
+                return key
+            text = op.get("text")
+            return text or None
+        return None
 
     def is_move_opcode(self, opcode):
         return opcode in ("op_4", "mov")
@@ -206,11 +211,16 @@ class MicroCodeUtils:
         return None
 
     def ensure_callee_ea(self, insn, callee):
+        from .analyzer import OpInfo
         callee_ea = None
         callee_name = None
         if callee:
-            callee_ea = callee.get("ea")
-            callee_name = callee.get("text")
+            if hasattr(callee, "ea"):
+                callee_ea = callee.ea
+                callee_name = callee.text
+            elif isinstance(callee, dict):
+                callee_ea = callee.get("ea")
+                callee_name = callee.get("text")
         if callee_ea is None and callee_name:
             callee_ea = self.resolve_name_ea(callee_name)
         if callee_ea is None:
@@ -226,11 +236,16 @@ class MicroCodeUtils:
                     pass
             callee_name = ida_name or callee_name or ""
             if callee is None:
-                callee = {"key": f"callee:{callee_ea}", "text": callee_name, "ea": callee_ea}
+                callee = OpInfo(key=f"callee:{callee_ea}", text=callee_name, ea=callee_ea)
             else:
-                callee["ea"] = callee_ea
-                if callee_name:
-                    callee["text"] = callee_name
+                if hasattr(callee, "ea"):
+                    callee.ea = callee_ea
+                    if callee_name:
+                        callee.text = callee_name
+                elif isinstance(callee, dict):
+                    callee["ea"] = callee_ea
+                    if callee_name:
+                        callee["text"] = callee_name
         return callee, callee_name
 
     def mop_key(self, mop):

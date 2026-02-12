@@ -16,6 +16,7 @@ class OpInfo:
     """操作数信息"""
     key: str = ""          # 标识符: reg:{name}, imm:{value}, addr:{ea}, lvar:{idx}
     text: str = ""         # 原始文本表示
+    ea: Optional[int] = None  # 地址值 (仅用于某些类型)
 
 
 @dataclass
@@ -120,10 +121,8 @@ class MopUsageVisitor(_mop_visitor_base):
                 return 0
 
             role = "dst" if is_target else "src"
-            key = (role, op.get("key"), access_mode)
-            entry = {"role": role, "op": op}
-            if access_mode:
-                entry["access_mode"] = access_mode
+            key = (role, op.key, access_mode)
+            entry = OperandInfo(role=role, op=op, access_mode=access_mode)
 
             if is_target:
                 if key not in self.seen_writes:
@@ -147,13 +146,13 @@ class MicrocodeInstructionAnalyzer:
     def analyze_instruction(self, insn):
         reads, writes, calls = self._analyze_minsn(insn)
         opname = self.utils.get_opcode_name(insn.opcode)
-        return {
-            "text": self.utils.safe_dstr(insn),
-            "opcode": opname,
-            "reads": reads,
-            "writes": writes,
-            "calls": calls,
-        }
+        return InsnInfo(
+            opcode=opname,
+            text=self.utils.safe_dstr(insn),
+            reads=reads,
+            writes=writes,
+            calls=calls,
+        )
 
     def _analyze_minsn(self, insn):
         reads = []
@@ -183,8 +182,8 @@ class MicrocodeInstructionAnalyzer:
         opname = self.utils.get_opcode_name(insn.opcode)
         if opname == "mov" and getattr(insn, "d", None):
             for call in calls:
-                if call["ret"] is None:
-                    call["ret"] = self.utils.mop_entry(insn.d)
+                if call.ret is None:
+                    call.ret = self.utils.mop_entry(insn.d)
 
         return reads, writes, calls
 
@@ -217,13 +216,13 @@ class MicrocodeInstructionAnalyzer:
         callee, callee_name = self.utils.ensure_callee_ea(insn, callee)
 
         calls.append(
-            {
-                "kind": opname,
-                "callee_name": callee_name,
-                "target": callee,
-                "args": args,
-                "ret": ret,
-            }
+            CallInfo(
+                kind=opname,
+                callee_name=callee_name,
+                target=callee,
+                args=args,
+                ret=ret,
+            )
         )
 
 
@@ -291,11 +290,11 @@ class MicrocodeFunctionAnalyzer:
             block_id=block_id,
             insn_idx=insn_idx,
             ea=ea_str,
-            opcode=cpg_info["opcode"],
-            text=cpg_info["text"],
-            reads=cpg_info["reads"],
-            writes=cpg_info["writes"],
-            calls=cpg_info["calls"],
+            opcode=cpg_info.opcode,
+            text=cpg_info.text,
+            reads=cpg_info.reads,
+            writes=cpg_info.writes,
+            calls=cpg_info.calls,
         )
 
 

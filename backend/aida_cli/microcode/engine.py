@@ -61,11 +61,11 @@ class SummaryGenerator:
         self.utils = utils or MicroCodeUtils()
 
     def generate(self, func_info, state, proxy_findings=None):
-        func_ea_str = func_info.get("ea")
+        func_ea_str = func_info.ea
         if not func_ea_str:
             return
         func_ea = int(func_ea_str, 16)
-        func_name = func_info.get("function")
+        func_name = func_info.function
 
         is_source, tainted_out_args = self._inspect_taint_outputs(func_info, state)
 
@@ -97,24 +97,24 @@ class SummaryGenerator:
     def _inspect_taint_outputs(self, func_info, state):
         is_source = False
         tainted_out_args = []
-        for insn in func_info.get("insns", []):
-            if insn.get("opcode") == "ret":
-                for read in insn.get("reads", []):
-                    key = self.utils.op_key(read.get("op"))
+        for insn in func_info.insns:
+            if insn.opcode == "ret":
+                for read in insn.reads:
+                    key = self.utils.op_key(read.op)
                     taint = state.get_taint(key)
                     if taint:
                         is_source = True
                         break
 
         if not is_source:
-            for lvar_idx in func_info.get("return_vars", []):
+            for lvar_idx in func_info.return_vars:
                 key = f"lvar:{lvar_idx}"
                 taint = state.get_taint(key)
                 if taint:
                     is_source = True
                     break
 
-        args_map = {a["lvar_idx"]: i for i, a in enumerate(func_info.get("args", []))}
+        args_map = {a.lvar_idx: i for i, a in enumerate(func_info.args)}
 
         for lvar_idx, arg_pos in args_map.items():
             key = f"addr:lvar:{lvar_idx}"
@@ -143,43 +143,43 @@ class InstructionTaintProcessor:
         self.utils = utils or MicroCodeUtils()
 
     def process(self, state, insn, func_info, findings):
-        calls = insn.get("calls", [])
-        opcode = insn.get("opcode")
-        writes = insn.get("writes", [])
-        reads = insn.get("reads", [])
+        calls = insn.calls
+        opcode = insn.opcode
+        writes = insn.writes
+        reads = insn.reads
 
         if calls and self.utils.is_move_opcode(opcode):
             if writes:
                 for call in calls:
-                    if call.get("ret") is None:
-                        call["ret"] = writes[0].get("op")
+                    if call.ret is None:
+                        call.ret = writes[0].op
 
         if self.utils.is_move_opcode(opcode) and len(writes) == 1:
-            w_key = self.utils.op_key(writes[0].get("op"))
+            w_key = self.utils.op_key(writes[0].op)
             for r in reads:
-                r_key = self.utils.op_key(r.get("op"))
+                r_key = self.utils.op_key(r.op)
                 if self.utils.is_addr_key(r_key) and w_key:
                     target = self.utils.strip_addr_key(r_key)
                     state.add_alias(w_key, target)
 
-        read_labels, read_origins, read_keys = self._collect_reads(state, insn.get("reads", []))
+        read_labels, read_origins, read_keys = self._collect_reads(state, insn.reads)
 
         if self.utils.is_store_opcode(opcode) and read_labels:
             for r in reads:
-                r_key = self.utils.op_key(r.get("op"))
+                r_key = self.utils.op_key(r.op)
                 if r_key and r_key in state.aliases:
                     target = state.aliases[r_key]
                     state.add_taint(target, read_labels, read_origins)
 
         if read_labels:
             self._propagate_writes(state, insn, read_labels, read_origins, read_keys)
-        for call in insn.get("calls", []):
+        for call in insn.calls:
             findings.extend(self._apply_call(insn, call, state, func_info))
 
     def _propagate_writes(self, state, insn, labels, origins, read_keys):
         write_keys = []
-        for write in insn.get("writes", []):
-            key = self.utils.op_key(write.get("op"))
+        for write in insn.writes:
+            key = self.utils.op_key(write.op)
             state.add_taint(key, labels, origins)
             if key:
                 write_keys.append(key)
@@ -189,7 +189,7 @@ class InstructionTaintProcessor:
         origins = set()
         keys = []
         for read in reads:
-            key = self.utils.op_key(read.get("op"))
+            key = self.utils.op_key(read.op)
             if not key:
                 continue
             keys.append(key)
@@ -202,8 +202,8 @@ class InstructionTaintProcessor:
         callee, callee_ea = self._resolve_callee(call)
         if not callee and not callee_ea:
             return findings
-        args = call.get("args") or []
-        ret = call.get("ret")
+        args = call.args or []
+        ret = call.ret
 
         labels, origins = self._collect_arg_taint(state, args, range(len(args)))
 
@@ -236,9 +236,9 @@ class InstructionTaintProcessor:
         return rule["ea"] == callee_ea
 
     def _resolve_callee(self, call):
-        callee = call.get("callee_name") or ""
-        target = call.get("target")
-        callee_ea = target.get("ea") if target else None
+        callee = call.callee_name or ""
+        target = call.target
+        callee_ea = target.ea if target else None
         if callee_ea is None and callee:
             callee_ea = self.rule_resolver.resolve_rule_ea(callee)
         if callee_ea is not None:
@@ -259,7 +259,7 @@ class InstructionTaintProcessor:
             if not self._rule_matches(rule, callee, callee_ea):
                 continue
             label = rule.get("label") or callee
-            origins = {(label, insn.get("ea"), func_info.get("function"))}
+            origins = {(label, insn.ea, func_info.function)}
             out_args = rule.get("args") or rule.get("out_args") or []
             for idx in out_args:
                 if idx < 0 or idx >= len(args):
@@ -343,9 +343,9 @@ class InstructionTaintProcessor:
                     "cwe": self.ruleset.cwe,
                     "title": self.ruleset.title,
                     "severity": self.ruleset.severity,
-                    "func_name": func_info.get("function"),
-                    "func_ea": func_info.get("ea"),
-                    "sink": {"name": callee, "ea": insn.get("ea")},
+                    "func_name": func_info.function,
+                    "func_ea": func_info.ea,
+                    "sink": {"name": callee, "ea": insn.ea},
                     "arg_indexes": tainted_args,
                     "taint_labels": sorted(labels),
                     "sources": [
@@ -367,15 +367,13 @@ class FunctionScanner:
         self._seed_args(state, func_info)
 
         findings = []
-        insns = func_info.get("insns", [])
-        for insn in insns:
+        for insn in func_info.insns:
             self.processor.process(state, insn, func_info, findings)
         return findings, state
 
     def _seed_args(self, state, func_info):
-        args = func_info.get("args", [])
-        for arg in args:
-            lvar_idx = arg.get("lvar_idx")
+        for arg in func_info.args:
+            lvar_idx = arg.lvar_idx
             if lvar_idx is not None:
                 key = f"lvar:{lvar_idx}"
                 sym_label = f"SYM:ARG:{lvar_idx}"
