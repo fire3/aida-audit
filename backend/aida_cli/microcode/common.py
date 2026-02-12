@@ -27,18 +27,11 @@ class AttrType:
 class OperandAttr(ABC):
     """
     操作数属性抽象基类 (ADT 模式)
-
-    替代字符串 key，提供类型安全的访问接口。
     """
 
     @property
     @abstractmethod
     def attr_type(self) -> str:
-        pass
-
-    @abstractmethod
-    def to_key(self) -> str:
-        """转换为字符串键 (兼容旧接口)"""
         pass
 
     @abstractmethod
@@ -56,9 +49,6 @@ class RegisterAttr(OperandAttr):
     def attr_type(self) -> str:
         return AttrType.REGISTER
 
-    def to_key(self) -> str:
-        return f"reg:{self.reg_id}"
-
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
         return f"{prefix}RegisterAttr(reg_id={self.reg_id})"
@@ -72,9 +62,6 @@ class LocalVarAttr(OperandAttr):
     @property
     def attr_type(self) -> str:
         return AttrType.LOCAL_VAR
-
-    def to_key(self) -> str:
-        return f"lvar:{self.lvar_idx}"
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
@@ -90,9 +77,6 @@ class StackAttr(OperandAttr):
     def attr_type(self) -> str:
         return AttrType.STACK
 
-    def to_key(self) -> str:
-        return f"stack:{self.offset}"
-
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
         return f"{prefix}StackAttr(offset={self.offset})"
@@ -106,9 +90,6 @@ class GlobalAttr(OperandAttr):
     @property
     def attr_type(self) -> str:
         return AttrType.GLOBAL
-
-    def to_key(self) -> str:
-        return f"global:{hex(self.ea)}"
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
@@ -124,9 +105,6 @@ class ImmediateAttr(OperandAttr):
     def attr_type(self) -> str:
         return AttrType.IMMEDIATE
 
-    def to_key(self) -> str:
-        return f"imm:{self.value}"
-
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
         return f"{prefix}ImmediateAttr(value={self.value})"
@@ -141,9 +119,6 @@ class StringAttr(OperandAttr):
     def attr_type(self) -> str:
         return AttrType.STRING
 
-    def to_key(self) -> str:
-        return f"str:{self.value}"
-
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
         return f"{prefix}StringAttr(value={self.value!r})"
@@ -157,9 +132,6 @@ class AddressAttr(OperandAttr):
     @property
     def attr_type(self) -> str:
         return AttrType.ADDRESS
-
-    def to_key(self) -> str:
-        return f"addr:{self.inner.to_key()}"
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
@@ -176,9 +148,6 @@ class LoadAttr(OperandAttr):
     def attr_type(self) -> str:
         return AttrType.LOAD
 
-    def to_key(self) -> str:
-        return f"load:{self.ptr.to_key()}"
-
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
         ptr_dump = self.ptr.to_string(indent + 1)
@@ -193,9 +162,6 @@ class ExpressionAttr(OperandAttr):
     @property
     def attr_type(self) -> str:
         return AttrType.EXPRESSION
-
-    def to_key(self) -> str:
-        return f"expr:{self.expr}"
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
