@@ -214,25 +214,133 @@ class MicrocodeInstructionAnalyzer:
         )
 
 
+class CFGBuilder:
+    JUMP_OPCODES = frozenset({"goto", "jmp"})
+    CONDITIONAL_JUMP_OPCODES = frozenset({"jz", "jnz", "jc", "jnc", "jo", "jno", "js", "jns"})
+
+    def __init__(self, mba):
+        self.mba = mba
+        self.utils = MicroCodeUtils()
+        self.blocks = {}
+        self.block_insns = {}
+
+    def build(self):
+        self._collect_blocks()
+        self._connect_blocks()
+        return self.blocks
+
+    def _collect_blocks(self):
+        for block_id in range(self.mba.qty):
+            block = self.mba.get_mblock(block_id)
+            start_ea = getattr(block, "start_ea", 0)
+            end_ea = getattr(block, "end_ea", 0)
+            self.blocks[block_id] = BlockInfo(
+                block_id=block_id,
+                start_ea=start_ea,
+                end_ea=end_ea,
+            )
+
+        for block_id in range(self.mba.qty):
+            block = self.mba.get_mblock(block_id)
+            curr = block.head
+            insn_idx = 0
+            while curr:
+                if block_id not in self.block_insns:
+                    self.block_insns[block_id] = []
+                self.block_insns[block_id].append((insn_idx, curr))
+                curr = curr.next
+                insn_idx += 1
+
+    def _connect_blocks(self):
+        block_ids = sorted(self.blocks.keys())
+
+        for block_id in block_ids:
+            if block_id not in self.block_insns:
+                continue
+
+            insns = self.block_insns[block_id]
+            if not insns:
+                continue
+
+            last_idx, last_insn = insns[-1]
+            opcode_name = self.utils.get_opcode_name(last_insn.opcode)
+
+            if opcode_name in self.JUMP_OPCODES:
+                targets = self._get_jump_targets(last_insn)
+                self.blocks[block_id].successors.extend(targets)
+
+            elif opcode_name in self.CONDITIONAL_JUMP_OPCODES:
+                targets = self._get_jump_targets(last_insn)
+                self.blocks[block_id].successors.extend(targets)
+                next_block = self._get_next_block(block_ids, block_id)
+                if next_block is not None:
+                    self.blocks[block_id].successors.append(next_block)
+
+            else:
+                next_block = self._get_next_block(block_ids, block_id)
+                if next_block is not None:
+                    self.blocks[block_id].successors.append(next_block)
+
+        for block_id in block_ids:
+            for succ_id in self.blocks[block_id].successors:
+                if succ_id in self.blocks:
+                    if block_id not in self.blocks[succ_id].predecessors:
+                        self.blocks[succ_id].predecessors.append(block_id)
+
+    def _get_jump_targets(self, insn):
+        targets = []
+        d = getattr(insn, "d", None)
+        if d is not None:
+            target = self.utils.mop_to_attr(d)
+            if target is not None and hasattr(target, "block_id"):
+                targets.append(target.block_id)
+        return targets
+
+    def _get_next_block(self, block_ids, current):
+        try:
+            idx = block_ids.index(current)
+            if idx + 1 < len(block_ids):
+                return block_ids[idx + 1]
+        except ValueError:
+            pass
+        return None
+
+
 class MicrocodeFunctionAnalyzer:
-    """函数分析器，输出函数级 dict（包含 args/return_vars/insns）。"""
     def __init__(self, mba, utils=None, instruction_analyzer=None):
         self.mba = mba
         self.utils = utils or MicroCodeUtils()
         self.instruction_analyzer = instruction_analyzer or MicrocodeInstructionAnalyzer(
             mba, self.utils
         )
+        self.block_insns = {}
 
     def analyze_function(self, pfn, maturity):
         func_name = ida_funcs.get_func_name(pfn.start_ea)
         func_args, return_vars = self._collect_signature_vars()
+
+        cfg_builder = CFGBuilder(self.mba)
+        cfg_blocks = cfg_builder.build()
+        self.block_insns = cfg_builder.block_insns
+
+        exit_blocks = [bid for bid, b in cfg_blocks.items() if not b.successors]
+        entry_block = 0
+        if cfg_blocks:
+            entry_block = min(cfg_blocks.keys())
+
         insns = []
-        for block_id, insn_idx, insn in self._iter_instructions():
-            try:
-                insn_entry = self._build_insn_entry(block_id, insn_idx, insn)
-                insns.append(insn_entry)
-            except Exception:
-                pass
+        for block_id in range(self.mba.qty):
+            if block_id not in self.block_insns:
+                continue
+            insns_in_block = self.block_insns[block_id]
+            for idx_in_block, (insn_idx, insn) in enumerate(insns_in_block):
+                try:
+                    insn_entry = self._build_insn_entry(block_id, insn_idx, insn)
+                    self._populate_jump_info(insn_entry, insn, block_id, cfg_blocks)
+                    insns.append(insn_entry)
+                except Exception:
+                    pass
+
         return FuncInfo(
             function=func_name,
             ea=hex(pfn.start_ea),
@@ -240,6 +348,9 @@ class MicrocodeFunctionAnalyzer:
             args=func_args,
             return_vars=return_vars,
             insns=insns,
+            cfg_blocks=cfg_blocks,
+            entry_block=entry_block,
+            exit_blocks=exit_blocks,
         )
 
     def _collect_signature_vars(self):
@@ -284,6 +395,34 @@ class MicrocodeFunctionAnalyzer:
             writes=cpg_info.writes,
             calls=cpg_info.calls,
         )
+
+    def _populate_jump_info(self, insn_entry: InsnInfo, insn, block_id: int, cfg_blocks: dict):
+        opcode_name = self.utils.get_opcode_name(insn.opcode)
+
+        if opcode_name in CFGBuilder.JUMP_OPCODES:
+            targets = []
+            d = getattr(insn, "d", None)
+            if d is not None:
+                target = self.utils.mop_to_attr(d)
+                if target is not None and hasattr(target, "block_id"):
+                    targets.append(target.block_id)
+            insn_entry.jump_targets = targets
+            insn_entry.is_conditional = False
+
+        elif opcode_name in CFGBuilder.CONDITIONAL_JUMP_OPCODES:
+            targets = []
+            d = getattr(insn, "d", None)
+            if d is not None:
+                target = self.utils.mop_to_attr(d)
+                if target is not None and hasattr(target, "block_id"):
+                    targets.append(target.block_id)
+            insn_entry.jump_targets = targets
+            insn_entry.is_conditional = True
+
+        if block_id in cfg_blocks:
+            successors = cfg_blocks[block_id].successors
+            if successors and not insn_entry.jump_targets:
+                insn_entry.fallthrough_block = successors[0]
 
 
 class MicrocodeAnalyzer(MicrocodeInstructionAnalyzer):

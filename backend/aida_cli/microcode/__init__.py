@@ -69,6 +69,9 @@ from .fixed_point_engine import (
     TaintPolicy,
     Finding,
 )
+from .common import (
+    BlockInfo,
+)
 
 __all__ = [
     "BADADDR",
@@ -97,4 +100,5 @@ __all__ = [
     "AliasChange",
     "TaintPolicy",
     "Finding",
+    "BlockInfo",
 ]

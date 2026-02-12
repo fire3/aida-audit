@@ -630,7 +630,6 @@ class FixedPointTaintEngine:
 
         self.logger.log(f"[ENGINE] Analyzing {func_info.function}")
 
-        self._build_cfg()
         self._initialize_worklist()
         self._initialize_with_sources()
 
@@ -639,23 +638,18 @@ class FixedPointTaintEngine:
         self.logger.log(f"[ENGINE] Final state: {self.state}")
         return self.state, findings
 
-    def _build_cfg(self):
-        builder = CFGBuilder(self.func_info, self.logger)
-        self.cfg = builder.build()
-        self.logger.log(f"[CFG] Built {len(self.cfg.blocks)} blocks")
-
     def _initialize_worklist(self):
-        for block_id, block in self.cfg.blocks.items():
-            for insn_idx, insn in enumerate(block.insns):
-                self.worklist.append(
-                    WorkItem(
-                        block_id=block_id,
-                        insn_idx=insn_idx,
-                        insn=insn,
-                        reason="initial",
-                        priority=0,
-                    )
+        for insn in self.func_info.insns:
+            block_id = insn.block_id
+            self.worklist.append(
+                WorkItem(
+                    block_id=block_id,
+                    insn_idx=insn.insn_idx,
+                    insn=insn,
+                    reason="initial",
+                    priority=0,
                 )
+            )
 
     def _initialize_with_sources(self):
         for rule in self.ruleset.sources:
@@ -717,43 +711,63 @@ class FixedPointTaintEngine:
         return findings
 
     def _notify_successors(self, block_id: int, insn_idx: int):
-        block = self.cfg.get_block(block_id)
+        block = self.func_info.cfg_blocks.get(block_id)
         if not block:
             return
 
-        if insn_idx < len(block.insns) - 1:
-            next_idx = insn_idx + 1
-            next_key = (block_id, next_idx)
-            if next_key not in self.visited_items:
-                self.worklist.append(
-                    WorkItem(
-                        block_id=block_id,
-                        insn_idx=next_idx,
-                        insn=block.insns[next_idx],
-                        reason="taint_change",
-                        priority=1,
-                    )
-                )
+        for insn in self.func_info.insns:
+            if insn.block_id == block_id and insn.insn_idx == insn_idx:
+                if insn_idx < len(block.insns) - 1 if hasattr(block, 'insns') else False:
+                    next_idx = insn_idx + 1
+                    next_key = (block_id, next_idx)
+                    if next_key not in self.visited_items:
+                        next_insn = self._find_insn(block_id, next_idx)
+                        if next_insn:
+                            self.worklist.append(
+                                WorkItem(
+                                    block_id=block_id,
+                                    insn_idx=next_idx,
+                                    insn=next_insn,
+                                    reason="taint_change",
+                                    priority=1,
+                                )
+                            )
 
-        for succ_id in block.successors:
-            succ_block = self.cfg.get_block(succ_id)
-            if succ_block and succ_block.insns:
-                first_insn_key = (succ_id, 0)
-                if first_insn_key not in self.visited_items:
-                    self.worklist.append(
-                        WorkItem(
-                            block_id=succ_id,
-                            insn_idx=0,
-                            insn=succ_block.insns[0],
-                            reason="taint_change",
-                            priority=1,
-                        )
-                    )
+                for succ_id in insn.jump_targets:
+                    if succ_id != block_id:
+                        succ_key = (succ_id, 0)
+                        if succ_key not in self.visited_items:
+                            succ_insn = self._find_insn(succ_id, 0)
+                            if succ_insn:
+                                self.worklist.append(
+                                    WorkItem(
+                                        block_id=succ_id,
+                                        insn_idx=0,
+                                        insn=succ_insn,
+                                        reason="taint_change",
+                                        priority=1,
+                                    )
+                                )
+
+                if insn.fallthrough_block is not None:
+                    ft_key = (insn.fallthrough_block, 0)
+                    if ft_key not in self.visited_items:
+                        ft_insn = self._find_insn(insn.fallthrough_block, 0)
+                        if ft_insn:
+                            self.worklist.append(
+                                WorkItem(
+                                    block_id=insn.fallthrough_block,
+                                    insn_idx=0,
+                                    insn=ft_insn,
+                                    reason="taint_change",
+                                    priority=1,
+                                )
+                            )
 
     def _find_insn(self, block_id: int, insn_idx: int) -> Optional[InsnInfo]:
-        block = self.cfg.get_block(block_id)
-        if block and insn_idx < len(block.insns):
-            return block.insns[insn_idx]
+        for insn in self.func_info.insns:
+            if insn.block_id == block_id and insn.insn_idx == insn_idx:
+                return insn
         return None
 
     def scan_function(self, func_info: FuncInfo):
