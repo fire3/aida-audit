@@ -7,7 +7,6 @@ from .constants import (
     BADADDR,
 )
 from .common import (
-    MicroCodeUtils,
     OperandAttr,
     RegisterAttr,
     LocalVarAttr,
@@ -24,6 +23,7 @@ from .common import (
     ArgInfo,
     FuncInfo,
 )
+from .utils import MicroCodeUtils
 from dataclasses import dataclass, field
 from typing import Optional
 import sys

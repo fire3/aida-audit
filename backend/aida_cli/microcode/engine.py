@@ -3,7 +3,7 @@ import sys
 
 from .state import TaintState
 from .analyzer import analyze_function
-from .common import MicroCodeUtils
+from .utils import MicroCodeUtils
 from .constants import (
     idc,
     ida_funcs,
