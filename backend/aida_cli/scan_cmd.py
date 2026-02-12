@@ -6,8 +6,8 @@ import sys
 import tempfile
 
 from . import ida_utils
-from . import ida_microcode_taint as taint_mod
-from .ida_microcode_taint import analyze_function, MicrocodeTaintEngine
+from . import microcode as taint_mod
+from .microcode import analyze_function, MicrocodeTaintEngine
 from .taint_rules import RuleSet, default_cwe78_rules
 
 try:
