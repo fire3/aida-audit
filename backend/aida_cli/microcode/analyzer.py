@@ -6,100 +6,27 @@ from .constants import (
     ida_idaapi,
     BADADDR,
 )
-from .common import MicroCodeUtils, OperandAttr, RegisterAttr, LocalVarAttr, StackAttr, GlobalAttr, ImmediateAttr, StringAttr, AddressAttr, LoadAttr, ExpressionAttr
+from .common import (
+    MicroCodeUtils,
+    OperandAttr,
+    RegisterAttr,
+    LocalVarAttr,
+    StackAttr,
+    GlobalAttr,
+    ImmediateAttr,
+    StringAttr,
+    AddressAttr,
+    LoadAttr,
+    ExpressionAttr,
+    OperandInfo,
+    CallInfo,
+    InsnInfo,
+    ArgInfo,
+    FuncInfo,
+)
 from dataclasses import dataclass, field
 from typing import Optional
 import sys
-
-
-@dataclass
-class OperandInfo:
-    """指令操作数 (reads/writes 列表元素)"""
-    role: str = ""                  # "src" (读取) 或 "dst" (写入)
-    attr: Optional[OperandAttr] = None
-    text: str = ""
-    access_mode: Optional[str] = None  # 可选: "addr" 表示地址访问
-
-    def to_string(self, indent: int = 0) -> str:
-        prefix = "  " * indent
-        loc = self.attr.to_string(indent + 1) if self.attr else "None"
-        return f"{prefix}OperandInfo(\n{prefix}  role={self.role!r},\n{prefix}  attr={loc},\n{prefix}  text={self.text!r},\n{prefix}  access_mode={self.access_mode!r}\n{prefix})"
-
-
-@dataclass
-class CallInfo:
-    """函数调用信息 (calls 列表元素)"""
-    kind: str = ""                      # 操作码类型 (call/jmp)
-    callee_name: Optional[str] = None   # 被调用函数名
-    target: Optional[OperandAttr] = None    # 调用目标
-    args: list = field(default_factory=list)    # OperandAttr 列表
-    ret: Optional[OperandAttr] = None       # 返回值存储位置
-
-    def to_string(self, indent: int = 0) -> str:
-        prefix = "  " * indent
-        tgt = self.target.to_string(indent + 1) if self.target else "None"
-        args_str = ",\n".join(a.to_string(indent + 1) if a else "None" for a in self.args)
-        ret_str = self.ret.to_string(indent + 1) if self.ret else "None"
-        return f"{prefix}CallInfo(\n{prefix}  kind={self.kind!r},\n{prefix}  callee_name={self.callee_name!r},\n{prefix}  target={tgt},\n{prefix}  args=[\n{args_str}\n{prefix}  ],\n{prefix}  ret={ret_str}\n{prefix})"
-
-
-@dataclass
-class InsnInfo:
-    """指令信息 (insns 列表元素)"""
-    block_id: int = 0
-    insn_idx: int = 0
-    ea: str = ""              # 十六进制地址
-    opcode: str = ""          # 操作码名称
-    text: str = ""            # 文本表示
-    reads: list = field(default_factory=list)    # OperandInfo 列表
-    writes: list = field(default_factory=list)   # OperandInfo 列表
-    calls: list = field(default_factory=list)    # CallInfo 列表
-
-    def to_string(self, indent: int = 0) -> str:
-        prefix = "  " * indent
-        reads_str = ",\n".join(r.to_string(indent + 1) for r in self.reads) if self.reads else ""
-        writes_str = ",\n".join(w.to_string(indent + 1) for w in self.writes) if self.writes else ""
-        calls_str = ",\n".join(c.to_string(indent + 1) for c in self.calls) if self.calls else ""
-        return f"{prefix}InsnInfo(\n{prefix}  block_id={self.block_id},\n{prefix}  insn_idx={self.insn_idx},\n{prefix}  ea={self.ea!r},\n{prefix}  opcode={self.opcode!r},\n{prefix}  text={self.text!r},\n{prefix}  reads=[\n{reads_str}\n{prefix}  ],\n{prefix}  writes=[\n{writes_str}\n{prefix}  ],\n{prefix}  calls=[\n{calls_str}\n{prefix}  ]\n{prefix})"
-
-
-@dataclass
-class ArgInfo:
-    """函数参数信息"""
-    lvar_idx: int = 0
-    name: str = ""
-    width: int = 0
-
-    def to_string(self, indent: int = 0) -> str:
-        prefix = "  " * indent
-        return f"{prefix}ArgInfo(lvar_idx={self.lvar_idx}, name={self.name!r}, width={self.width})"
-
-
-@dataclass
-class FuncInfo:
-    """
-    函数分析结果 (analyze_function 返回类型)
-
-    Attributes:
-        function: 函数名称
-        ea: 函数起始地址 (十六进制字符串，如 "0x401000")
-        maturity: microcode 成熟度级别
-        args: 函数参数列表
-        return_vars: 返回值变量的 lvar_idx 列表
-        insns: 指令列表
-    """
-    function: str = ""
-    ea: str = ""
-    maturity: int = 0
-    args: list = field(default_factory=list)     # ArgInfo 列表
-    return_vars: list = field(default_factory=list)  # int 列表
-    insns: list = field(default_factory=list)    # InsnInfo 列表
-
-    def to_string(self, indent: int = 0) -> str:
-        prefix = "  " * indent
-        args_str = ",\n".join(a.to_string(indent + 1) for a in self.args) if self.args else ""
-        insns_str = ",\n".join(i.to_string(indent + 1) for i in self.insns) if self.insns else ""
-        return f"{prefix}FuncInfo(\n{prefix}  function={self.function!r},\n{prefix}  ea={self.ea!r},\n{prefix}  maturity={self.maturity},\n{prefix}  args=[\n{args_str}\n{prefix}  ],\n{prefix}  return_vars={self.return_vars},\n{prefix}  insns=[\n{insns_str}\n{prefix}  ]\n{prefix})"
 
 
 _mop_visitor_base = ida_hexrays.mop_visitor_t if ida_hexrays else object
@@ -165,7 +92,7 @@ class MopUsageVisitor(_mop_visitor_base):
 
             role = "dst" if is_target else "src"
             text = self.utils.safe_dstr(mop) if mop else ""
-            entry = OperandInfo(role=role, location=op, text=text, access_mode=access_mode)
+            entry = OperandInfo(role=role, attr=op, text=text, access_mode=access_mode)
 
             if is_target:
                 if role not in self.seen_writes:
