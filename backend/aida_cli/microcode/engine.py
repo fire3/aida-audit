@@ -1,29 +1,24 @@
 from collections import deque
 
 from .state import TaintState
-from .logger import EngineLogger
 from .analyzer import analyze_function
 from .common import MicroCodeUtils
 from .constants import (
     idc,
     ida_funcs,
     idautils,
-    ida_hexrays,
     BADADDR,
 )
 
 
 class RuleResolver:
-    """解析规则名称到地址并写回 ruleset，输出为更新后的规则集内容。"""
     def __init__(self, ruleset, logger):
         self.ruleset = ruleset
         self.logger = logger
 
     def resolve_rules(self):
         if not idc:
-            self.logger.warn("rules.resolve.unavailable")
             return
-        self.logger.info("rules.resolve.start")
         for rule in self._iter_rules():
             name = rule.get("name")
             if not name:
@@ -31,7 +26,6 @@ class RuleResolver:
             ea = self.resolve_rule_ea(name)
             if ea is not None:
                 rule["ea"] = ea
-                self.logger.debug("rules.resolve.hit", name=name, ea=hex(ea))
 
     def resolve_rule_ea(self, name):
         def try_name(value):
@@ -78,12 +72,10 @@ class CallChainPlanner:
         chain_functions = set()
         all_paths = []
 
-        self.logger.info("scan.global.bfs.fwd", sources=len(source_callers), sinks=len(sink_callers))
         fwd_nodes, fwd_paths = self._bfs_search(source_callers, sink_callers, "Forward")
         chain_functions.update(fwd_nodes)
         all_paths.extend(fwd_paths)
 
-        self.logger.info("scan.global.bfs.rev", sources=len(source_callers), sinks=len(sink_callers))
         rev_nodes, rev_paths = self._bfs_search(sink_callers, source_callers, "Reverse")
         chain_functions.update(rev_nodes)
         for path in rev_paths:
@@ -132,7 +124,6 @@ class CallChainPlanner:
                 found_nodes.update(path)
                 found_paths.append(path)
                 names = [ida_funcs.get_func_name(x) for x in path]
-                self.logger.debug(f"scan.global.path.{direction_name.lower()}", path=" -> ".join(names))
                 continue
 
             if len(path) >= max_depth:
@@ -176,11 +167,9 @@ class SummaryGenerator:
         func_ea = int(func_ea_str, 16)
         func_name = func_info.get("function")
 
-        self.logger.debug("summary.gen.start", function=func_name)
         is_source, tainted_out_args = self._inspect_taint_outputs(func_info, state)
 
         if is_source:
-            self.logger.info("rules.dynamic.add", function=func_name, ret=is_source, out_args=tainted_out_args)
             new_rule = {
                 "ea": func_ea,
                 "name": func_name,
@@ -189,13 +178,10 @@ class SummaryGenerator:
                 "ret": True,
             }
             self.ruleset.sources.append(new_rule)
-        else:
-            self.logger.debug("summary.gen.no_taint", function=func_name)
 
         if proxy_findings:
             proxy_args = self._collect_proxy_args(proxy_findings)
             if proxy_args:
-                self.logger.info("rules.dynamic.add_sink", function=func_name, args=list(proxy_args))
                 base_rule = proxy_findings[0].get("sink_rule", {})
                 new_rule = {
                     "ea": func_ea,
@@ -213,12 +199,10 @@ class SummaryGenerator:
         tainted_out_args = []
         for insn in func_info.get("insns", []):
             if insn.get("opcode") == "ret":
-                self.logger.debug("summary.gen.ret_insn", ea=insn.get("ea"), reads=insn.get("reads"))
                 for read in insn.get("reads", []):
                     key = self.utils.op_key(read.get("op"))
                     taint = state.get_taint(key)
                     if taint:
-                        self.logger.debug("summary.gen.ret_taint", key=key, labels=list(taint))
                         is_source = True
                         break
 
@@ -227,7 +211,6 @@ class SummaryGenerator:
                 key = f"lvar:{lvar_idx}"
                 taint = state.get_taint(key)
                 if taint:
-                    self.logger.debug("summary.gen.ret_var_taint", key=key, labels=list(taint))
                     is_source = True
                     break
 
@@ -237,7 +220,6 @@ class SummaryGenerator:
             key = f"addr:lvar:{lvar_idx}"
             taint = state.get_taint(key)
             if taint:
-                self.logger.debug("summary.gen.arg_taint", arg_idx=arg_pos, key=key, labels=list(taint))
                 tainted_out_args.append(arg_pos)
                 is_source = True
 
@@ -279,8 +261,6 @@ class InstructionTaintProcessor:
                 if self.utils.is_addr_key(r_key) and w_key:
                     target = self.utils.strip_addr_key(r_key)
                     state.add_alias(w_key, target)
-                    if self.logger._verbose:
-                        self.logger.debug("alias.add", ptr=w_key, target=target)
 
         read_labels, read_origins, read_keys = self._collect_reads(state, insn.get("reads", []))
 
@@ -290,8 +270,6 @@ class InstructionTaintProcessor:
                 if r_key and r_key in state.aliases:
                     target = state.aliases[r_key]
                     state.add_taint(target, read_labels, read_origins)
-                    if self.logger._verbose:
-                        self.logger.debug("alias.store", ptr=r_key, target=target, labels=list(read_labels))
 
         if read_labels:
             self._propagate_writes(state, insn, read_labels, read_origins, read_keys)
@@ -305,15 +283,6 @@ class InstructionTaintProcessor:
             state.add_taint(key, labels, origins)
             if key:
                 write_keys.append(key)
-        if write_keys:
-            self.logger.debug(
-                "taint.flow",
-                ea=insn.get("ea"),
-                reads=read_keys,
-                writes=write_keys,
-                labels=sorted(labels),
-                origins=sorted(origins),
-            )
 
     def _collect_reads(self, state, reads):
         labels = set()
@@ -337,15 +306,6 @@ class InstructionTaintProcessor:
         ret = call.get("ret")
 
         labels, origins = self._collect_arg_taint(state, args, range(len(args)))
-        if labels:
-            self.logger.debug(
-                "taint.call.in",
-                caller=func_info.get("function"),
-                callee=callee,
-                args=[idx for idx in range(len(args))],
-                labels=sorted(labels),
-                origins=sorted(origins),
-            )
 
         self._apply_sources(insn, callee, callee_ea, args, ret, state, func_info)
         self._apply_propagators(callee, callee_ea, args, ret, state, func_info)
@@ -406,25 +366,9 @@ class InstructionTaintProcessor:
                     continue
                 key = self.utils.op_key(args[idx])
                 state.add_taint(key, {label}, origins)
-                self.logger.debug(
-                    "taint.source",
-                    label=label,
-                    ea=insn.get("ea"),
-                    function=func_info.get("function"),
-                    target=f"arg[{idx}]",
-                    key=key,
-                )
             if rule.get("ret"):
                 key = self.utils.op_key(ret)
                 state.add_taint(key, {label}, origins)
-                self.logger.debug(
-                    "taint.source",
-                    label=label,
-                    ea=insn.get("ea"),
-                    function=func_info.get("function"),
-                    target="ret",
-                    key=key,
-                )
 
     def _apply_propagators(self, callee, callee_ea, args, ret, state, func_info):
         for rule in self.ruleset.propagators:
@@ -449,16 +393,6 @@ class InstructionTaintProcessor:
             if rule.get("to_ret"):
                 ret_key = self.utils.op_key(ret)
                 state.add_taint(ret_key, labels, origins)
-            self.logger.debug(
-                "taint.call.propagate",
-                caller=func_info.get("function"),
-                callee=callee,
-                from_args=from_args,
-                to_args=to_args,
-                to_keys=to_keys,
-                labels=sorted(labels),
-                ret_key=ret_key,
-            )
 
     def _apply_default_return_propagation(self, callee, args, ret, state, func_info):
         if not ret:
@@ -467,14 +401,6 @@ class InstructionTaintProcessor:
         if labels:
             key = self.utils.op_key(ret)
             state.add_taint(key, labels, origins)
-            self.logger.debug(
-                "taint.call.ret",
-                caller=func_info.get("function"),
-                callee=callee,
-                ret_key=key,
-                labels=sorted(labels),
-                origins=sorted(origins),
-            )
 
     def _apply_sinks(self, insn, callee, callee_ea, args, state, func_info):
         findings = []
@@ -492,8 +418,6 @@ class InstructionTaintProcessor:
                     continue
                 key = self.utils.op_key(args[idx])
                 t = state.get_taint(key)
-                if self.logger._verbose:
-                    self.logger.debug("sink.check", index=idx, key=key, taint=list(t))
                 if not t:
                     continue
 
@@ -513,7 +437,6 @@ class InstructionTaintProcessor:
                 tainted_args.append(idx)
                 labels.update(t)
                 origins.update(state.get_origins(key))
-                self.logger.debug("taint.sink.arg", callee=callee, index=idx, key=key)
             if tainted_args:
                 finding = {
                     "rule_id": self.ruleset.rule_id,
@@ -530,14 +453,6 @@ class InstructionTaintProcessor:
                     ],
                 }
                 findings.append(finding)
-                self.logger.info(
-                    "taint.sink.hit",
-                    callee=callee,
-                    args=tainted_args,
-                    function=func_info.get("function"),
-                    labels=sorted(labels),
-                    sources=sorted(origins),
-                )
         return findings
 
 
@@ -553,19 +468,7 @@ class FunctionScanner:
 
         findings = []
         insns = func_info.get("insns", [])
-        self.logger.info(
-            "scan.function.start", function=func_info.get("function"), insn_count=len(insns)
-        )
         for insn in insns:
-            if self.logger._verbose:
-                self.logger.debug(
-                    "scan.insn",
-                    ea=insn.get("ea"),
-                    text=insn.get("text"),
-                    opcode=insn.get("opcode"),
-                    writes=self.logger._format_value(insn.get("writes")),
-                    reads=self.logger._format_value(insn.get("reads")),
-                )
             self.processor.process(state, insn, func_info, findings)
         return findings, state
 
@@ -580,10 +483,9 @@ class FunctionScanner:
 
 
 class MicrocodeTaintEngine:
-    """微码污点分析入口，输出 findings 列表。"""
     def __init__(self, ruleset, logger=None, verbose=False):
         self.ruleset = ruleset
-        self.logger = EngineLogger(logger=logger, verbose=verbose)
+        self.logger = logger
         self.utils = MicroCodeUtils()
         self.rule_resolver = RuleResolver(ruleset, self.logger)
         self.call_chain_planner = CallChainPlanner(self.logger)
@@ -601,20 +503,15 @@ class MicrocodeTaintEngine:
 
         source_callers = self.call_chain_planner.collect_callers(self.ruleset.sources)
         sink_callers = self.call_chain_planner.collect_callers(self.ruleset.sinks)
-        self.logger.info("scan.global.callers", sources=len(source_callers), sinks=len(sink_callers))
 
         if not source_callers or not sink_callers:
-            self.logger.warn("scan.global.missing_callers")
             return []
 
         chain_functions, raw_chains = self.call_chain_planner.find_call_chain(
             source_callers, sink_callers
         )
         if not chain_functions:
-            self.logger.warn("scan.global.no_path")
             return []
-
-        self.logger.info("scan.global.chain", functions=len(chain_functions))
 
         formatted_chains = []
         for path in raw_chains:

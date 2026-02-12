@@ -58,7 +58,6 @@ from .microcode import (
     MopUsageVisitor,
     analyze_function,
     TaintState,
-    EngineLogger,
     MicrocodeTaintEngine,
 )
 

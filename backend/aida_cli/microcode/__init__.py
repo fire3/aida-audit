@@ -58,7 +58,6 @@ from .analyzer import (
 )
 
 from .state import TaintState
-from .logger import EngineLogger
 from .engine import MicrocodeTaintEngine
 
 __all__ = [
@@ -79,6 +78,5 @@ __all__ = [
     "MopUsageVisitor",
     "analyze_function",
     "TaintState",
-    "EngineLogger",
     "MicrocodeTaintEngine",
 ]
