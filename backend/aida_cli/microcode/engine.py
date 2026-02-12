@@ -1,4 +1,6 @@
 from collections import deque
+import os
+import sys
 
 from .state import TaintState
 from .analyzer import analyze_function
@@ -10,6 +12,8 @@ from .constants import (
     BADADDR,
 )
 from ..pathfinder import PathFinder, PathFinderConfig
+
+_DEBUG_MODE = os.environ.get("AIDA_DEBUG_TAINT", "") == "1"
 
 
 class RuleResolver:
@@ -100,7 +104,7 @@ class SummaryGenerator:
         for insn in func_info.insns:
             if insn.opcode == "ret":
                 for read in insn.reads:
-                    key = self.utils.op_key(read.op)
+                    key = self.utils.op_key(read.location)
                     taint = state.get_taint(key)
                     if taint:
                         is_source = True
@@ -152,12 +156,12 @@ class InstructionTaintProcessor:
             if writes:
                 for call in calls:
                     if call.ret is None:
-                        call.ret = writes[0].op
+                        call.ret = writes[0].location
 
         if self.utils.is_move_opcode(opcode) and len(writes) == 1:
-            w_key = self.utils.op_key(writes[0].op)
+            w_key = self.utils.op_key(writes[0].location)
             for r in reads:
-                r_key = self.utils.op_key(r.op)
+                r_key = self.utils.op_key(r.location)
                 if self.utils.is_addr_key(r_key) and w_key:
                     target = self.utils.strip_addr_key(r_key)
                     state.add_alias(w_key, target)
@@ -166,7 +170,7 @@ class InstructionTaintProcessor:
 
         if self.utils.is_store_opcode(opcode) and read_labels:
             for r in reads:
-                r_key = self.utils.op_key(r.op)
+                r_key = self.utils.op_key(r.location)
                 if r_key and r_key in state.aliases:
                     target = state.aliases[r_key]
                     state.add_taint(target, read_labels, read_origins)
@@ -179,7 +183,7 @@ class InstructionTaintProcessor:
     def _propagate_writes(self, state, insn, labels, origins, read_keys):
         write_keys = []
         for write in insn.writes:
-            key = self.utils.op_key(write.op)
+            key = self.utils.op_key(write.location)
             state.add_taint(key, labels, origins)
             if key:
                 write_keys.append(key)
@@ -189,7 +193,7 @@ class InstructionTaintProcessor:
         origins = set()
         keys = []
         for read in reads:
-            key = self.utils.op_key(read.op)
+            key = self.utils.op_key(read.location)
             if not key:
                 continue
             keys.append(key)
@@ -238,7 +242,12 @@ class InstructionTaintProcessor:
     def _resolve_callee(self, call):
         callee = call.callee_name or ""
         target = call.target
-        callee_ea = target.ea if target else None
+        callee_ea = None
+        if target is not None:
+            if hasattr(target, "ea"):
+                callee_ea = target.ea
+            elif isinstance(target, dict):
+                callee_ea = target.get("ea")
         if callee_ea is None and callee:
             callee_ea = self.rule_resolver.resolve_rule_ea(callee)
         if callee_ea is not None:
@@ -255,19 +264,30 @@ class InstructionTaintProcessor:
         return callee, callee_ea
 
     def _apply_sources(self, insn, callee, callee_ea, args, ret, state, func_info):
+        print(f"[TAINT_DEBUG_SOURCE] _apply_sources: callee={callee} callee_ea={callee_ea} args_count={len(args)}", file=sys.stderr)
         for rule in self.ruleset.sources:
+            print(f"[TAINT_DEBUG_SOURCE]   Checking rule: name={rule.get('name')} ea={rule.get('ea')} label={rule.get('label')}", file=sys.stderr)
             if not self._rule_matches(rule, callee, callee_ea):
+                print(f"[TAINT_DEBUG_SOURCE]   Rule does NOT match: {rule.get('name')}", file=sys.stderr)
                 continue
+            print(f"[TAINT_DEBUG_SOURCE]   Rule MATCHED: {rule.get('name')}", file=sys.stderr)
             label = rule.get("label") or callee
             origins = {(label, insn.ea, func_info.function)}
-            out_args = rule.get("args") or rule.get("out_args") or []
+            out_args = rule.get("out_args") or rule.get("args") or []
+            print(f"[TAINT_DEBUG_SOURCE]   out_args={out_args}", file=sys.stderr)
             for idx in out_args:
                 if idx < 0 or idx >= len(args):
                     continue
                 key = self.utils.op_key(args[idx])
+                print(f"[TAINT_DEBUG_SOURCE]   Adding taint: idx={idx} key={key} labels={{{label}}}", file=sys.stderr)
                 state.add_taint(key, {label}, origins)
             if rule.get("ret"):
                 key = self.utils.op_key(ret)
+                print(f"[TAINT_DEBUG_SOURCE]   Adding return taint: key={key}", file=sys.stderr)
+                state.add_taint(key, {label}, origins)
+            if rule.get("ret"):
+                key = self.utils.op_key(ret)
+                print(f"[TAINT_DEBUG_SOURCE]   Adding return taint: key={key}", file=sys.stderr)
                 state.add_taint(key, {label}, origins)
 
     def _apply_propagators(self, callee, callee_ea, args, ret, state, func_info):
@@ -313,11 +333,13 @@ class InstructionTaintProcessor:
             tainted_args = []
             labels = set()
             origins = set()
+            print(f"[TAINT_DEBUG_SINK] Checking sink: callee={callee} rule_name={rule.get('name')} arg_indexes={arg_indexes} args_count={len(args)}", file=sys.stderr)
             for idx in arg_indexes:
                 if idx < 0 or idx >= len(args):
                     continue
                 key = self.utils.op_key(args[idx])
                 t = state.get_taint(key)
+                print(f"[TAINT_DEBUG_SINK]   idx={idx} key={key} taint={t}", file=sys.stderr)
                 if not t:
                     continue
 
@@ -338,6 +360,7 @@ class InstructionTaintProcessor:
                 labels.update(t)
                 origins.update(state.get_origins(key))
             if tainted_args:
+                print(f"[TAINT_DEBUG_SINK]   FOUND TAINTED SINK: callee={callee} tainted_args={tainted_args} labels={labels}", file=sys.stderr)
                 finding = {
                     "rule_id": self.ruleset.rule_id,
                     "cwe": self.ruleset.cwe,
@@ -432,10 +455,15 @@ class MicrocodeTaintEngine:
 
         raw_chains = [p["nodes"] for p in path_result]
 
+        self.logger.log(f"[PATH_DEBUG] raw_chains count={len(raw_chains)}")
+        for i, chain in enumerate(raw_chains):
+            self.logger.log(f"[PATH_DEBUG]   chain[{i}] nodes: {[(n.get('ea'), n.get('name')) for n in chain]}")
+
         chain_functions = set()
         for path in raw_chains:
             for node in path:
                 ea = int(node["ea"], 16)
+                self.logger.log(f"[PATH_DEBUG] Adding to chain_functions: ea={hex(ea)} name={node.get('name')}")
                 chain_functions.add(ea)
 
         if not chain_functions:
@@ -445,12 +473,56 @@ class MicrocodeTaintEngine:
 
         findings = []
         for ea in sorted_chain:
+            self.logger.log(f"[TAINT_DEBUG] Processing ea={hex(ea)} name={ida_funcs.get_func_name(ea)}")
             func = ida_funcs.get_func(ea)
             if not func:
+                self.logger.log(f"[TAINT_DEBUG] Skipping - no function found at {hex(ea)}")
                 continue
+            
             func_info = analyze_function(func, maturity)
+            
+            print(f"[TAINT_DEBUG] func_info result: func={func_info.function if func_info else 'None'} ea={hex(ea)}", file=sys.stderr)
+            
+            # DEBUG: Print func_info for all functions
+            if func_info:
+                func_name = func_info.function
+                # Get all calls in this function
+                all_calls = []
+                for insn in func_info.insns:
+                    for c in insn.calls:
+                        if c.callee_name:
+                            all_calls.append(c.callee_name)
+                
+                print(f"[TAINT_DEBUG] Function details: name={func_name} args={len(func_info.args)} return_vars={len(func_info.return_vars)} insns={len(func_info.insns)} calls={all_calls}", file=sys.stderr)
+                
+                # Print info for all functions
+                print(f"[TAINT_DEBUG] === Function ea={hex(ea)} name={func_name} ===", file=sys.stderr)
+                print(f"[TAINT_DEBUG] args_count={len(func_info.args)} return_vars_count={len(func_info.return_vars)} insns_count={len(func_info.insns)}", file=sys.stderr)
+                for arg in func_info.args:
+                    print(f"[TAINT_DEBUG]   arg: lvar_idx={arg.lvar_idx} name={arg.name} width={arg.width}", file=sys.stderr)
+                print(f"[TAINT_DEBUG]   === INSTRUCTIONS ===", file=sys.stderr)
+                for i, insn in enumerate(func_info.insns):
+                    calls_str = ", ".join([f"{c.callee_name}({len(c.args)} args)" for c in insn.calls]) if insn.calls else ""
+                    reads_str = ", ".join([f"{r.role}:{r.text}" for r in insn.reads]) if insn.reads else ""
+                    writes_str = ", ".join([f"{w.role}:{w.text}" for w in insn.writes]) if insn.writes else ""
+                    print(f"[TAINT_DEBUG]   [{i:2d}] ea={insn.ea} opcode={insn.opcode:12s} calls=[{calls_str}] reads=[{reads_str}] writes=[{writes_str}]", file=sys.stderr)
+            
             if func_info:
                 f_findings, state = self.function_scanner.scan(func_info)
+                
+                # DEBUG: Print findings and taint state
+                print(f"[TAINT_DEBUG] After scan: f_findings_count={len(f_findings)}", file=sys.stderr)
+                for i, f in enumerate(f_findings):
+                    print(f"[TAINT_DEBUG]   finding[{i}]: {f}", file=sys.stderr)
+                
+                # Print all taint in state
+                all_entries = list(state.entries.keys())
+                if all_entries:
+                    print(f"[TAINT_DEBUG] Taint state entries: {all_entries}", file=sys.stderr)
+                    for key in all_entries:
+                        entry = state.entries.get(key)
+                        if entry and entry.labels:
+                            print(f"[TAINT_DEBUG]   key={key} labels={entry.labels}", file=sys.stderr)
 
                 real_findings = []
                 proxy_findings = []

@@ -9,6 +9,8 @@ import ida_idaapi
 
 from .rule_matcher import RuleMatcher
 
+import sys
+
 
 @dataclass
 class PathFinderConfig:
@@ -293,42 +295,31 @@ class PathFinder:
     def find_paths(self):
         """
         Find paths from source callers to sink callers using bidirectional search.
-
-        Returns:
-            list: List of path objects in JSON format. Each path object contains:
-                - nodes (list): List of function nodes from source to sink.
-                    Each node is a dict with:
-                        - name (str): Function name
-                        - ea (str): Function address in hex (e.g., "0x401000")
-                        - roles (list): Role tags for this node within the path
-                - source (dict): Source function information or None.
-                    Contains:
-                        - name (str): Source rule name
-                        - ea (str): Source address in hex
-                        - args (list): Source arguments if specified in rule
-                - sink (dict): Sink function information or None.
-                    Contains:
-                        - name (str): Sink rule name
-                        - ea (str): Sink address in hex
-                        - args (list): Sink arguments if specified in rule
-
-            Example return value:
-            [
-                {
-                    "nodes": [
-                        {"name": "main", "ea": "0x401000", "roles": ["source_caller"]},
-                        {"name": "process_input", "ea": "0x401100", "roles": ["intermediate"]},
-                        {"name": "write_file", "ea": "0x401200", "roles": ["sink_caller"]}
-                    ],
-                    "source": {"name": "get_user_input", "ea": "0x405000", "args": [0]},
-                    "sink": {"name": "fopen", "ea": "0x406000", "args": [0, 1]}
-                }
-            ]
         """
         start_time = time.time()
         self.nodes_visited = 0
         if not self.source_eas or not self.sink_eas:
             self._record_error("warning", "path_search", "No source or sink markers identified")
+            return PathSearchResult([], self.stats, self.errors)
+
+        self.logger.log(f"[PATH_DEBUG] source_eas: {[hex(ea) for ea in self.source_eas]}")
+        self.logger.log(f"[PATH_DEBUG] sink_eas: {[hex(ea) for ea in self.sink_eas]}")
+
+        source_callers = self._get_callers(self.source_eas)
+        sink_callers = self._get_callers(self.sink_eas)
+        
+        self.logger.log(f"[PATH_DEBUG] source_callers: {[hex(ea) for ea in source_callers]}")
+        self.logger.log(f"[PATH_DEBUG] sink_callers: {[hex(ea) for ea in sink_callers]}")
+        
+        self.stats.source_callers_found = len(source_callers)
+        self.stats.sink_callers_found = len(sink_callers)
+
+        if not source_callers:
+            self._record_error("warning", "caller_resolution", "No callers found for sources")
+        if not sink_callers:
+            self._record_error("warning", "caller_resolution", "No callers found for sinks")
+
+        if not source_callers or not sink_callers:
             return PathSearchResult([], self.stats, self.errors)
 
         source_callers = self._get_callers(self.source_eas)
@@ -349,6 +340,16 @@ class PathFinder:
 
         self.logger.log(f"Tracing paths from {len(source_callers)} source callers to {len(sink_callers)} sink callers")
 
+        # DEBUG: Check if there's overlap between source and sink callers
+        overlap = source_callers & sink_callers
+        if overlap:
+            self.logger.log(f"[PATH_DEBUG] OVERLAP DETECTED: source and sink callers overlap at {[hex(ea) for ea in overlap]}")
+            for ea in overlap:
+                self.logger.log(f"[PATH_DEBUG]   Function at {hex(ea)}: {ida_funcs.get_func_name(ea)}")
+                # Check direct calls from this function
+                callees = self._get_callees(ea)
+                self.logger.log(f"[PATH_DEBUG]   Callees: {[hex(c[0]) for c in callees]}")
+        
         strategies = set(self.config.strategies or [])
         fwd_results = []
         rev_results = []
@@ -356,9 +357,12 @@ class PathFinder:
 
         if "forward" in strategies:
             fwd_paths = self._bfs_search(source_callers, sink_callers)
+            self.logger.log(f"[PATH_DEBUG] Forward search found {len(fwd_paths)} paths")
             for path_nodes, has_indirect in fwd_paths:
+                self.logger.log(f"[PATH_DEBUG]   FWD path: {[hex(n) for n in path_nodes]} has_indirect={has_indirect}")
                 res = self._build_result(path_nodes, has_indirect, "forward")
                 if res:
+                    self.logger.log(f"[PATH_DEBUG]   FWD result nodes: {[(n['ea'], n['name']) for n in res.get('nodes', [])]}")
                     fwd_results.append(res)
 
         if "reverse" in strategies:

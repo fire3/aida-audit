@@ -6,35 +6,29 @@ from .constants import (
     ida_idaapi,
     BADADDR,
 )
-from .common import MicroCodeUtils
+from .common import MicroCodeUtils, OperandLocation, RegisterLocation, LocalVarLocation, StackLocation, GlobalLocation, ImmediateLocation, StringLocation, AddressLocation, LoadLocation, ExpressionLocation
 from dataclasses import dataclass, field
 from typing import Optional
-
-
-@dataclass
-class OpInfo:
-    """操作数信息"""
-    key: str = ""          # 标识符: reg:{name}, imm:{value}, addr:{ea}, lvar:{idx}
-    text: str = ""         # 原始文本表示
-    ea: Optional[int] = None  # 地址值 (仅用于某些类型)
+import sys
 
 
 @dataclass
 class OperandInfo:
     """指令操作数 (reads/writes 列表元素)"""
-    role: str = ""         # "src" (读取) 或 "dst" (写入)
-    op: OpInfo = field(default_factory=OpInfo)
+    role: str = ""                  # "src" (读取) 或 "dst" (写入)
+    location: Optional[OperandLocation] = None
+    text: str = ""
     access_mode: Optional[str] = None  # 可选: "addr" 表示地址访问
 
 
 @dataclass
 class CallInfo:
     """函数调用信息 (calls 列表元素)"""
-    kind: str = ""              # 操作码类型 (call/jmp)
-    callee_name: Optional[str] = None  # 被调用函数名
-    target: Optional[OpInfo] = None    # 调用目标操作数
-    args: list = field(default_factory=list)   # 参数操作数列表
-    ret: Optional[OpInfo] = None      # 返回值存储位置
+    kind: str = ""                      # 操作码类型 (call/jmp)
+    callee_name: Optional[str] = None   # 被调用函数名
+    target: Optional[OperandLocation] = None    # 调用目标
+    args: list = field(default_factory=list)    # OperandLocation 列表
+    ret: Optional[OperandLocation] = None       # 返回值存储位置
 
 
 @dataclass
@@ -116,21 +110,20 @@ class MopUsageVisitor(_mop_visitor_base):
             if t == ida_hexrays.mop_a:
                 access_mode = "addr"
 
-            op = self.utils.mop_entry(mop)
+            op = self.utils.mop_to_location(mop)
             if op is None:
                 return 0
 
             role = "dst" if is_target else "src"
-            key = (role, op.key, access_mode)
-            entry = OperandInfo(role=role, op=op, access_mode=access_mode)
+            entry = OperandInfo(role=role, location=op, access_mode=access_mode)
 
             if is_target:
-                if key not in self.seen_writes:
-                    self.seen_writes.add(key)
+                if role not in self.seen_writes:
+                    self.seen_writes.add(role)
                     self.writes.append(entry)
             else:
-                if key not in self.seen_reads:
-                    self.seen_reads.add(key)
+                if role not in self.seen_reads:
+                    self.seen_reads.add(role)
                     self.reads.append(entry)
         except Exception:
             pass
@@ -195,9 +188,9 @@ class MicrocodeInstructionAnalyzer:
 
         callee_mop, arg_list_mop, ret_mop = self.utils.select_call_operands(l, r, d)
 
-        callee = None
-        if not self.utils.is_none_mop(callee_mop):
-            callee = self.utils.mop_entry(callee_mop)
+        callee = self.utils.mop_to_location(callee_mop) if not self.utils.is_none_mop(callee_mop) else None
+        
+        print(f"[DEBUG_CALL] _record_call: opname={opname} callee_mop={callee_mop} callee={callee}", file=sys.stderr)
 
         args = []
         arg_sources = []
@@ -207,13 +200,24 @@ class MicrocodeInstructionAnalyzer:
             arg_sources.append(arg_list_mop)
         for src in arg_sources:
             for arg in self.utils.iter_call_args(src):
-                norm = self.utils.normalize_call_arg(arg)
-                if norm is not None:
-                    args.append(norm)
+                loc = self.utils.mop_to_location(arg)
+                if loc is not None:
+                    args.append(loc)
 
-        ret = self.utils.mop_entry(ret_mop) if not self.utils.is_none_mop(ret_mop) else None
+        ret = self.utils.mop_to_location(ret_mop) if not self.utils.is_none_mop(ret_mop) else None
 
-        callee, callee_name = self.utils.ensure_callee_ea(insn, callee)
+        callee_name = None
+        callee_ea = None
+        if callee:
+            if isinstance(callee, GlobalLocation):
+                callee_ea = callee.ea
+            elif isinstance(callee, ExpressionLocation):
+                callee_name = self.utils._get_func_name_from_helper(callee.expr)
+            if callee_ea and idc:
+                try:
+                    callee_name = idc.get_name(callee_ea)
+                except Exception:
+                    pass
 
         calls.append(
             CallInfo(
@@ -304,6 +308,14 @@ class MicrocodeAnalyzer(MicrocodeInstructionAnalyzer):
         super().__init__(mba)
 
 
+_ANALYZER_DEBUG = False
+
+
+def set_debug(enabled=True):
+    global _ANALYZER_DEBUG
+    _ANALYZER_DEBUG = enabled
+
+
 def analyze_function(pfn, maturity):
     """
     分析单个函数并返回其污点分析所需的信息。
@@ -318,12 +330,35 @@ def analyze_function(pfn, maturity):
             - insns: list[InsnInfo], 指令列表
         None: 如果分析失败
     """
+    global _ANALYZER_DEBUG
+
+    if _ANALYZER_DEBUG:
+        func_name = ida_funcs.get_func_name(pfn.start_ea) if ida_funcs else "unknown"
+        print(f"[DEBUG analyze_function] START func={func_name} ea={hex(pfn.start_ea)} maturity={maturity}", file=sys.stderr)
+
     hf = ida_hexrays.hexrays_failure_t()
     mbr = ida_hexrays.mba_ranges_t(pfn)
     mba = ida_hexrays.gen_microcode(mbr, hf, None, ida_hexrays.DECOMP_WARNINGS, maturity)
 
     if not mba:
+        if _ANALYZER_DEBUG:
+            func_name = ida_funcs.get_func_name(pfn.start_ea) if ida_funcs else "unknown"
+            print(f"[DEBUG analyze_function] FAIL: mba is None for func={func_name}", file=sys.stderr)
         return None
 
     analyzer = MicrocodeFunctionAnalyzer(mba)
-    return analyzer.analyze_function(pfn, maturity)
+    result = analyzer.analyze_function(pfn, maturity)
+
+    if _ANALYZER_DEBUG:
+        print(f"[DEBUG analyze_function] END func={result.function} ea={result.ea}", file=sys.stderr)
+        print(f"[DEBUG analyze_function] args_count={len(result.args)} return_vars_count={len(result.return_vars)} insns_count={len(result.insns)}", file=sys.stderr)
+        for arg in result.args:
+            print(f"[DEBUG analyze_function]   arg: lvar_idx={arg.lvar_idx} name={arg.name} width={arg.width}", file=sys.stderr)
+        print(f"[DEBUG analyze_function] --- insns ---", file=sys.stderr)
+        for i, insn in enumerate(result.insns):
+            print(f"[DEBUG analyze_function]   insn[{i}] ea={insn.ea} opcode={insn.opcode} text={insn.text}", file=sys.stderr)
+            print(f"[DEBUG analyze_function]     reads: {[(r.role, r.text) for r in insn.reads]}", file=sys.stderr)
+            print(f"[DEBUG analyze_function]     writes: {[(w.role, w.text) for w in insn.writes]}", file=sys.stderr)
+            print(f"[DEBUG analyze_function]     calls: {[(c.callee_name, [a.text for a in c.args]) for c in insn.calls]}", file=sys.stderr)
+
+    return result
