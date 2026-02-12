@@ -20,6 +20,11 @@ class OperandInfo:
     text: str = ""
     access_mode: Optional[str] = None  # 可选: "addr" 表示地址访问
 
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        loc = self.location.to_string(indent + 1) if self.location else "None"
+        return f"{prefix}OperandInfo(\n{prefix}  role={self.role!r},\n{prefix}  location={loc},\n{prefix}  text={self.text!r},\n{prefix}  access_mode={self.access_mode!r}\n{prefix})"
+
 
 @dataclass
 class CallInfo:
@@ -29,6 +34,13 @@ class CallInfo:
     target: Optional[OperandLocation] = None    # 调用目标
     args: list = field(default_factory=list)    # OperandLocation 列表
     ret: Optional[OperandLocation] = None       # 返回值存储位置
+
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        tgt = self.target.to_string(indent + 1) if self.target else "None"
+        args_str = ",\n".join(a.to_string(indent + 1) if a else "None" for a in self.args)
+        ret_str = self.ret.to_string(indent + 1) if self.ret else "None"
+        return f"{prefix}CallInfo(\n{prefix}  kind={self.kind!r},\n{prefix}  callee_name={self.callee_name!r},\n{prefix}  target={tgt},\n{prefix}  args=[\n{args_str}\n{prefix}  ],\n{prefix}  ret={ret_str}\n{prefix})"
 
 
 @dataclass
@@ -43,6 +55,13 @@ class InsnInfo:
     writes: list = field(default_factory=list)   # OperandInfo 列表
     calls: list = field(default_factory=list)    # CallInfo 列表
 
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        reads_str = ",\n".join(r.to_string(indent + 1) for r in self.reads) if self.reads else ""
+        writes_str = ",\n".join(w.to_string(indent + 1) for w in self.writes) if self.writes else ""
+        calls_str = ",\n".join(c.to_string(indent + 1) for c in self.calls) if self.calls else ""
+        return f"{prefix}InsnInfo(\n{prefix}  block_id={self.block_id},\n{prefix}  insn_idx={self.insn_idx},\n{prefix}  ea={self.ea!r},\n{prefix}  opcode={self.opcode!r},\n{prefix}  text={self.text!r},\n{prefix}  reads=[\n{reads_str}\n{prefix}  ],\n{prefix}  writes=[\n{writes_str}\n{prefix}  ],\n{prefix}  calls=[\n{calls_str}\n{prefix}  ]\n{prefix})"
+
 
 @dataclass
 class ArgInfo:
@@ -50,6 +69,10 @@ class ArgInfo:
     lvar_idx: int = 0
     name: str = ""
     width: int = 0
+
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        return f"{prefix}ArgInfo(lvar_idx={self.lvar_idx}, name={self.name!r}, width={self.width})"
 
 
 @dataclass
@@ -71,6 +94,12 @@ class FuncInfo:
     args: list = field(default_factory=list)     # ArgInfo 列表
     return_vars: list = field(default_factory=list)  # int 列表
     insns: list = field(default_factory=list)    # InsnInfo 列表
+
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        args_str = ",\n".join(a.to_string(indent + 1) for a in self.args) if self.args else ""
+        insns_str = ",\n".join(i.to_string(indent + 1) for i in self.insns) if self.insns else ""
+        return f"{prefix}FuncInfo(\n{prefix}  function={self.function!r},\n{prefix}  ea={self.ea!r},\n{prefix}  maturity={self.maturity},\n{prefix}  args=[\n{args_str}\n{prefix}  ],\n{prefix}  return_vars={self.return_vars},\n{prefix}  insns=[\n{insns_str}\n{prefix}  ]\n{prefix})"
 
 
 _mop_visitor_base = ida_hexrays.mop_visitor_t if ida_hexrays else object
@@ -211,6 +240,14 @@ class MicrocodeInstructionAnalyzer:
                 callee_ea = callee.ea
             elif isinstance(callee, ExpressionLocation):
                 callee_name = self.utils._get_func_name_from_helper(callee.expr)
+                if callee_name is None:
+                    callee_name = callee.expr
+            elif isinstance(callee, ImmediateLocation):
+                callee_ea = callee.value
+            elif isinstance(callee, RegisterLocation):
+                pass
+            elif isinstance(callee, LocalVarLocation):
+                pass
             if callee_ea and idc:
                 try:
                     callee_name = idc.get_name(callee_ea)
