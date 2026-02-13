@@ -24,95 +24,18 @@ from .constants import (
     ida_hexrays,
 )
 from ..pathfinder import PathFinder, PathFinderConfig
-
-
-@dataclass(frozen=True)
-class WorkItem:
-    block_id: int
-    insn_idx: int
-    insn: InsnInfo
-    reason: str = "initial"
-    priority: int = 0
-
-    def __lt__(self, other):
-        return self.priority > other.priority
-
-
-@dataclass
-class Block:
-    block_id: int
-    insns: List[InsnInfo] = field(default_factory=list)
-    successors: List[int] = field(default_factory=list)
-    predecessors: List[int] = field(default_factory=list)
-
-
-@dataclass
-class CFG:
-    blocks: Dict[int, Block] = field(default_factory=dict)
-    entry_block: int = 0
-    exit_blocks: List[int] = field(default_factory=list)
-
-    def get_block(self, block_id: int) -> Optional[Block]:
-        return self.blocks.get(block_id)
-
-    def add_block(self, block: Block):
-        self.blocks[block.block_id] = block
-
-
-@dataclass(frozen=True)
-class AliasChange:
-    from_attr: OperandAttr
-    to_attr: OperandAttr
-    reason: str = ""
-
-    def __lt__(self, other):
-        return (self.from_attr, self.to_attr, self.reason) < (
-            other.from_attr, other.to_attr, other.reason
-        )
-
-
-@dataclass
-class TaintPolicy:
-    propagate_through_moves: bool = True
-    propagate_through_arithmetic: bool = True
-    propagate_through_load: bool = True
-    propagate_through_store: bool = True
-    follow_aliases: bool = True
-    max_alias_chain_depth: int = 10
-    max_loop_iterations: int = 3
-    force_loop_convergence: bool = True
-    max_total_iterations: int = 1000
-    early_termination_threshold: float = 0.01
-
-
-@dataclass
-class Finding:
-    rule_id: str
-    cwe: str
-    title: str
-    severity: str
-    func_name: str
-    func_ea: str
-    sink: Dict
-    arg_indexes: List[int]
-    taint_labels: List[str]
-    sources: List[Dict]
-    type: str = "sink"
-
-    def to_dict(self) -> Dict:
-        return {
-            "rule_id": self.rule_id,
-            "cwe": self.cwe,
-            "title": self.title,
-            "severity": self.severity,
-            "func_name": self.func_name,
-            "func_ea": self.func_ea,
-            "sink": self.sink,
-            "arg_indexes": self.arg_indexes,
-            "taint_labels": self.taint_labels,
-            "sources": self.sources,
-            "type": self.type,
-        }
+from .interproc_datatypes import (
+    WorkItem,
+    Block,
+    CFG,
+    AliasChange,
+    TaintPolicy,
+    Finding,
+    CallEdge,
+    FunctionContext,
+    InterProcState,
+    CrossFuncRule,
+)
 
 
 class SimpleLogger:
@@ -835,6 +758,10 @@ __all__ = [
     "AliasChange",
     "TaintPolicy",
     "Finding",
+    "CallEdge",
+    "FunctionContext",
+    "InterProcState",
+    "CrossFuncRule",
     "FixedPointTaintEngine",
     "WorklistTaintEngine",
 ]

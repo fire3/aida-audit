@@ -260,13 +260,17 @@ class CallInfo:
     arg_order: list = field(default_factory=list)
     call_conv: Optional[str] = None
     ret_width: Optional[int] = None
+    call_site_ea: Optional[int] = None
+    caller_func_ea: Optional[int] = None
+    caller_arg_vars: list = field(default_factory=list)
 
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
         tgt = self.target.to_string(indent + 1) if self.target else "None"
         args_str = ",\n".join(a.to_string(indent + 1) if a else "None" for a in self.args)
         ret_str = self.ret.to_string(indent + 1) if self.ret else "None"
-        return f"{prefix}CallInfo(\n{prefix}  kind={self.kind!r},\n{prefix}  callee_name={self.callee_name!r},\n{prefix}  callee_ea={self.callee_ea!r},\n{prefix}  target={tgt},\n{prefix}  args=[\n{args_str}\n{prefix}  ],\n{prefix}  ret={ret_str},\n{prefix}  arg_order={self.arg_order!r},\n{prefix}  call_conv={self.call_conv!r},\n{prefix}  ret_width={self.ret_width!r}\n{prefix})"
+        caller_args_str = ",\n".join(str(a) for a in self.caller_arg_vars)
+        return f"{prefix}CallInfo(\n{prefix}  kind={self.kind!r},\n{prefix}  callee_name={self.callee_name!r},\n{prefix}  callee_ea={self.callee_ea!r},\n{prefix}  target={tgt},\n{prefix}  args=[\n{args_str}\n{prefix}  ],\n{prefix}  ret={ret_str},\n{prefix}  arg_order={self.arg_order!r},\n{prefix}  call_conv={self.call_conv!r},\n{prefix}  ret_width={self.ret_width!r},\n{prefix}  call_site_ea={self.call_site_ea!r},\n{prefix}  caller_func_ea={self.caller_func_ea!r},\n{prefix}  caller_arg_vars=[{caller_args_str}],\n{prefix})"
 
 
 @dataclass

@@ -67,6 +67,22 @@ from .fixed_point_engine import (
     AliasChange,
     TaintPolicy,
     Finding,
+    CallEdge,
+    FunctionContext,
+    InterProcState,
+    CrossFuncRule,
+)
+from .interproc_datatypes import (
+    WorkItem,
+    Block,
+    CFG,
+    AliasChange,
+    TaintPolicy,
+    Finding,
+    CallEdge,
+    FunctionContext,
+    InterProcState,
+    CrossFuncRule,
 )
 from .common import (
     BlockInfo,
@@ -100,4 +116,8 @@ __all__ = [
     "TaintPolicy",
     "Finding",
     "BlockInfo",
+    "CallEdge",
+    "FunctionContext",
+    "InterProcState",
+    "CrossFuncRule",
 ]
