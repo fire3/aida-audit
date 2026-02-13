@@ -9,6 +9,8 @@ from .common import (
     RegisterAttr,
     OperandAttr,
     GlobalAttr,
+    HelperFuncAttr,
+    ExpressionAttr,
     InsnInfo,
     CallInfo,
 )
@@ -50,6 +52,20 @@ class InstructionProcessor:
                 continue
             labels.update(self.state.get_taint(read.attr))
             origins.update(self.state.get_origins(read.attr))
+
+            if self.engine.interproc_state:
+                resolved = self.state._resolve(read.attr)
+                g_key = None
+                if isinstance(resolved, HelperFuncAttr):
+                    g_key = resolved.name
+                elif isinstance(resolved, GlobalAttr):
+                    g_key = hex(resolved.ea)
+                
+                if g_key and g_key in self.engine.interproc_state.global_taints:
+                    g_labels, g_origins = self.engine.interproc_state.global_taints[g_key]
+                    labels.update(g_labels)
+                    origins.update(g_origins)
+                    self.state.add_taint(read.attr, g_labels, g_origins, reason="global_pull")
 
         return labels, origins
 
@@ -302,6 +318,18 @@ class InstructionProcessor:
                 collected = False
                 for target_attr in self._expand_arg_attrs(attr):
                     t = self.state.get_taint(target_attr)
+                    current_origins = self.state.get_origins(target_attr)
+
+                    if not t and isinstance(target_attr, ExpressionAttr):
+                        for entry_attr, entry_val in self.state.entries.items():
+                            if not entry_val.labels:
+                                continue
+                            if isinstance(entry_attr, HelperFuncAttr):
+                                if entry_attr.name in target_attr.expr:
+                                    t = entry_val.labels
+                                    current_origins = entry_val.origins
+                                    break
+
                     if not t:
                         continue
                     collected = True
@@ -325,7 +353,7 @@ class InstructionProcessor:
                             except Exception:
                                 pass
                     labels.update(t)
-                    origins.update(self.state.get_origins(target_attr))
+                    origins.update(current_origins)
                 if collected:
                     tainted_args.append(idx)
 

@@ -132,6 +132,7 @@ class InterProcState:
     source_sink_paths: List[List[Dict[str, Any]]] = field(default_factory=list)
     source_sink_history: List[List[List[Dict[str, Any]]]] = field(default_factory=list)
     analyzing_funcs: Set[int] = field(default_factory=set)
+    global_taints: Dict[str, Tuple[Set[str], Set[TaintOrigin]]] = field(default_factory=dict)
 
 
 @dataclass

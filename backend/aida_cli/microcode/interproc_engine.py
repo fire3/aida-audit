@@ -9,6 +9,8 @@ from .common import (
     StoreAttr,
     RegisterAttr,
     OperandAttr,
+    GlobalAttr,
+    HelperFuncAttr,
     InsnInfo,
 )
 from .state import TaintState, TaintOrigin
@@ -140,10 +142,59 @@ class InterProcTaintEngine:
                 if new_labels or new_origins:
                     ctx.ret_taint = (prev_labels | ret_labels, prev_origins | ret_origins)
                     changed = True
+        
+        global_changed = False
+        for attr, entry in state.entries.items():
+            if not entry.labels:
+                continue
+            g_key = None
+            if isinstance(attr, HelperFuncAttr):
+                g_key = attr.name
+            elif isinstance(attr, GlobalAttr):
+                g_key = hex(attr.ea)
+            
+            if g_key:
+                labels = set(entry.labels)
+                origins = set(entry.origins)
+                prev = self.interproc_state.global_taints.get(g_key)
+                if prev is None:
+                    self.interproc_state.global_taints[g_key] = (labels, origins)
+                    global_changed = True
+                else:
+                    prev_labels, prev_origins = prev
+                    new_labels = labels - prev_labels
+                    new_origins = origins - prev_origins
+                    if new_labels or new_origins:
+                        self.interproc_state.global_taints[g_key] = (prev_labels | labels, prev_origins | origins)
+                        global_changed = True
+
+        for alias_ptr, alias_target in state.aliases.items():
+            g_key = None
+            if isinstance(alias_ptr, HelperFuncAttr):
+                g_key = alias_ptr.name
+            elif isinstance(alias_ptr, GlobalAttr):
+                g_key = hex(alias_ptr.ea)
+            
+            if g_key:
+                t_labels = state.get_taint(alias_target)
+                t_origins = state.get_origins(alias_target)
+                if t_labels:
+                    prev = self.interproc_state.global_taints.get(g_key)
+                    if prev is None:
+                        self.interproc_state.global_taints[g_key] = (set(t_labels), set(t_origins))
+                        global_changed = True
+                    else:
+                        prev_labels, prev_origins = prev
+                        new_labels = t_labels - prev_labels
+                        new_origins = t_origins - prev_origins
+                        if new_labels or new_origins:
+                            self.interproc_state.global_taints[g_key] = (prev_labels | t_labels, prev_origins | t_origins)
+                            global_changed = True
+
         if not ctx.analyzed:
             ctx.analyzed = True
             changed = True
-        return changed
+        return changed, global_changed
 
     def _build_call_graph(self, func_infos):
         for func_ea, func_info in func_infos.items():
@@ -327,8 +378,13 @@ class InterProcTaintEngine:
                     cross_rules=self.cross_rules,
                 )
                 findings.extend(f_findings)
-                changed_context = self._update_context_from_state(func_info, state)
+                changed_context, global_changed = self._update_context_from_state(func_info, state)
                 changed_callees = self._propagate_callsite_taints(func_info, state, func_infos)
+                
+                if global_changed:
+                    for f_ea in func_infos:
+                        worklist.append(f_ea)
+
                 if changed_context:
                     for caller in caller_map.get(func_ea, []):
                         if caller in func_infos:
