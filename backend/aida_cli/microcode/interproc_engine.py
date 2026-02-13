@@ -13,7 +13,7 @@ from .common import (
 )
 from .state import TaintState, TaintOrigin
 from .logger import SimpleLogger, _log_info
-from .fixed_point_engine import FixedPointTaintEngine
+from .proc_engine import ProcTaintEngine
 from .interproc_datatypes import (
     TaintPolicy,
     Finding,
@@ -37,7 +37,7 @@ class InterProcTaintEngine:
     ):
         self.ruleset = ruleset
         self.logger = logger or SimpleLogger(verbose=verbose)
-        self.engine = FixedPointTaintEngine(ruleset, self.logger, verbose, policy)
+        self.engine = ProcTaintEngine(ruleset, self.logger, verbose, policy)
         self.interproc_state = InterProcState()
         if cross_rules is None:
             cross_rules = getattr(ruleset, "cross_rules", [])

@@ -72,12 +72,8 @@ from .interproc_datatypes import (
     CrossFuncRule,
 )
 
-from .fixed_point_engine import (
-    FixedPointTaintEngine,
-)
-
-from .worklist_engine import (
-    WorklistTaintEngine,
+from .proc_engine import (
+    ProcTaintEngine,
 )
 
 from .interproc_engine import (
@@ -106,8 +102,7 @@ __all__ = [
     "MopUsageVisitor",
     "analyze_function",
     "TaintState",
-    "FixedPointTaintEngine",
-    "WorklistTaintEngine",
+    "ProcTaintEngine",
     "InterProcTaintEngine",
     "WorkItem",
     "Block",

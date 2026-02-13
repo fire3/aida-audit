@@ -44,7 +44,7 @@ from .instruction_processor import InstructionProcessor
 from .cfg_builder import CFGBuilder
 
 
-class FixedPointTaintEngine:
+class ProcTaintEngine:
     def __init__(
         self,
         ruleset,
@@ -357,5 +357,72 @@ class FixedPointTaintEngine:
     def scan_function(self, func_info):
         return self.analyze_function(func_info)
 
+    def scan_global(self, maturity):
+        for rule in self.ruleset.sources:
+            if "name" in rule:
+                ea = self.rule_matcher.resolve_name(rule["name"])
+                if ea != self.rule_matcher.badaddr:
+                    rule["ea"] = ea
+        for rule in self.ruleset.sinks:
+            if "name" in rule:
+                ea = self.rule_matcher.resolve_name(rule["name"])
+                if ea != self.rule_matcher.badaddr:
+                    rule["ea"] = ea
+        for rule in self.ruleset.propagators:
+            if "name" in rule:
+                ea = self.rule_matcher.resolve_name(rule["name"])
+                if ea != self.rule_matcher.badaddr:
+                    rule["ea"] = ea
 
-__all__ = ["FixedPointTaintEngine"]
+        self.pathfinder.ruleset = self.ruleset
+        self.pathfinder.identify_markers()
+        path_result = self.pathfinder.find_paths()
+
+        if not path_result:
+            return []
+
+        raw_chains = [p["nodes"] for p in path_result]
+
+        chain_functions = set()
+        for path in raw_chains:
+            for node in path:
+                ea = int(node["ea"], 16)
+                chain_functions.add(ea)
+
+        if not chain_functions:
+            return []
+
+        chain_functions = sorted(chain_functions, key=lambda x: x)
+
+        findings = []
+        for ea in chain_functions:
+            func = ida_funcs.get_func(ea)
+            if not func:
+                continue
+
+            func_info = analyze_function(func, maturity)
+            if func_info:
+                state, f_findings = self.analyze_function(func_info)
+
+                real_findings = []
+                for f in f_findings:
+                    if hasattr(f, "type") and f.type == "sink_proxy":
+                        continue
+                    else:
+                        labels = f.taint_labels if hasattr(f, "taint_labels") else []
+                        has_real = any(not str(label).startswith("SYM:ARG:") for label in labels)
+                        if has_real or not labels:
+                            real_findings.append(f)
+
+                findings.extend(real_findings)
+
+        for finding in findings:
+            if hasattr(finding, "call_chains"):
+                finding.call_chains = raw_chains
+            else:
+                finding.call_chains = raw_chains
+
+        return findings
+
+
+__all__ = ["ProcTaintEngine"]
