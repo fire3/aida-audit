@@ -37,6 +37,8 @@ class InstructionProcessor:
 
         read_taint = self._collect_read_taint(insn)
 
+        self._handle_pointer_arithmetic(insn, read_taint)
+
         self._propagate_to_writes(insn, read_taint)
 
         self._handle_store(insn, read_taint)
@@ -54,6 +56,16 @@ class InstructionProcessor:
                 continue
             labels.update(self.state.get_taint(read.attr))
             origins.update(self.state.get_origins(read.attr))
+
+            # Offset-Aware Load Handling
+            if isinstance(read.attr, LoadAttr):
+                ptr_labels = self.state.get_taint(read.attr.ptr)
+                for label in ptr_labels:
+                    if label.startswith("PTR:0:"):
+                        # Dereference pointer pointing exactly to taint
+                        real_label = label[6:]
+                        labels.add(real_label)
+                        origins.update(self.state.get_origins(read.attr.ptr))
 
             if self.engine.interproc_state:
                 resolved = self.state._resolve(read.attr)
@@ -108,6 +120,60 @@ class InstructionProcessor:
                         "operation": "propagate",
                         "function": self.engine.func_info.function,
                     })
+
+    def _handle_pointer_arithmetic(self, insn, read_taint):
+        labels, origins = read_taint
+        if not labels:
+            return
+            
+        ptr_labels = [l for l in labels if l.startswith("PTR:")]
+        if not ptr_labels:
+            return
+
+        opcode = self.utils.get_opcode_name(insn.opcode)
+        category = self.utils.get_opcode_category(opcode)
+        
+        if category != "arith":
+            return
+
+        is_add = "add" in opcode.lower()
+        is_sub = "sub" in opcode.lower()
+        if not (is_add or is_sub):
+            return
+
+        offset_val = 0
+        found_imm = False
+        for read in insn.reads:
+            if isinstance(read.attr, ImmediateAttr) and read.attr.value is not None:
+                offset_val = read.attr.value
+                found_imm = True
+                break
+        
+        if not found_imm:
+            return
+            
+        modifier = -offset_val if is_add else offset_val
+        
+        to_remove = set()
+        new_labels = set()
+        
+        for label in ptr_labels:
+            try:
+                parts = label.split(":", 2)
+                if len(parts) != 3: continue
+                diff = int(parts[1])
+                orig_label = parts[2]
+                
+                new_diff = diff + modifier
+                new_label = f"PTR:{new_diff}:{orig_label}"
+                new_labels.add(new_label)
+                to_remove.add(label)
+            except:
+                pass
+                
+        if new_labels:
+            labels.difference_update(to_remove)
+            labels.update(new_labels)
 
     def _handle_store(self, insn, read_taint):
         labels, origins = read_taint

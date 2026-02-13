@@ -249,7 +249,7 @@ class InterProcTaintEngine:
                     for caller_idx, attr in enumerate(args):
                         if attr is None:
                             continue
-                        labels, origins = self._collect_call_arg_taint(state, attr)
+                        labels, origins = self._collect_call_arg_taint(state, attr, func_info)
                         if not labels:
                             continue
                         callee_idx = mapping.get(caller_idx, caller_idx) if mapping else caller_idx
@@ -270,7 +270,7 @@ class InterProcTaintEngine:
                                 changed_funcs.add(callee_ea)
         return changed_funcs
 
-    def _collect_call_arg_taint(self, state, attr):
+    def _collect_call_arg_taint(self, state, attr, func_info=None):
         labels = set(state.get_taint(attr))
         origins = set(state.get_origins(attr))
 
@@ -280,6 +280,43 @@ class InterProcTaintEngine:
             if resolved_labels:
                 labels.update(resolved_labels)
                 origins.update(state.get_origins(resolved))
+
+        # Offset-Aware Pointer Analysis: Check for stack pointer passing
+        base_offset = None
+        if isinstance(attr, StackAttr):
+            base_offset = attr.offset
+        elif isinstance(attr, AddressAttr) and isinstance(attr.inner, StackAttr):
+            base_offset = attr.inner.offset
+        
+        # Look up LocalVarAttr in func_info
+        if base_offset is None and func_info and func_info.lvars:
+            lvar_idx = None
+            if isinstance(attr, LocalVarAttr):
+                lvar_idx = attr.lvar_idx
+            elif isinstance(attr, AddressAttr) and isinstance(attr.inner, LocalVarAttr):
+                lvar_idx = attr.inner.lvar_idx
+            
+            if lvar_idx is not None and lvar_idx in func_info.lvars:
+                base_offset = func_info.lvars[lvar_idx].stkoff
+
+        if base_offset is not None:
+            for entry_attr, entry_val in state.entries.items():
+                if not entry_val.labels:
+                    continue
+                target_offset = None
+                if isinstance(entry_attr, StackAttr):
+                    target_offset = entry_attr.offset
+                elif isinstance(entry_attr, LocalVarAttr) and func_info and func_info.lvars:
+                     if entry_attr.lvar_idx in func_info.lvars:
+                         target_offset = func_info.lvars[entry_attr.lvar_idx].stkoff
+                
+                if target_offset is not None:
+                    diff = target_offset - base_offset
+                    for label in entry_val.labels:
+                        if not label.startswith("PTR:"):
+                            rel_label = f"PTR:{diff}:{label}"
+                            labels.add(rel_label)
+                            origins.update(entry_val.origins)
 
         if labels:
             return labels, origins

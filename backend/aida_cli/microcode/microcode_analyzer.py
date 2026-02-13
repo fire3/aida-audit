@@ -29,6 +29,7 @@ from .common import (
     CallInfo,
     InsnInfo,
     ArgInfo,
+    LvarInfo,
     BlockInfo,
     FuncInfo,
 )
@@ -853,6 +854,7 @@ class MicrocodeFunctionAnalyzer:
     def analyze_function(self, pfn, maturity):
         func_name = ida_funcs.get_func_name(pfn.start_ea)
         func_args, return_vars = self._collect_signature_vars()
+        lvars = self._collect_lvars()
 
         cfg_builder = MicrocodeCFGBuilder(self.mba)
         cfg_blocks = cfg_builder.build()
@@ -888,11 +890,35 @@ class MicrocodeFunctionAnalyzer:
             maturity=maturity,
             args=func_args,
             return_vars=return_vars,
+            lvars=lvars,
             insns=insns,
             cfg_blocks=cfg_blocks,
             entry_block=entry_block,
             exit_blocks=exit_blocks,
         )
+
+    def _collect_lvars(self):
+        lvars = {}
+        if self.mba.vars:
+            try:
+                for i, v in enumerate(self.mba.vars):
+                    stkoff = None
+                    try:
+                        if v.is_stk_var():
+                            stkoff = v.get_stkoff()
+                    except Exception:
+                        pass
+                    
+                    lvars[i] = LvarInfo(
+                        lvar_idx=i,
+                        name=v.name,
+                        width=v.width,
+                        stkoff=stkoff,
+                        is_arg=v.is_arg_var
+                    )
+            except Exception:
+                pass
+        return lvars
 
     def _collect_signature_vars(self):
         func_args = []

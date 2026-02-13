@@ -423,6 +423,20 @@ class ArgInfo:
 
 
 @dataclass
+class LvarInfo:
+    """局部变量详细信息"""
+    lvar_idx: int = 0
+    name: str = ""
+    width: int = 0
+    stkoff: Optional[int] = None
+    is_arg: bool = False
+
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        return f"{prefix}LvarInfo(lvar_idx={self.lvar_idx}, name={self.name!r}, width={self.width}, stkoff={self.stkoff}, is_arg={self.is_arg})"
+
+
+@dataclass
 class BlockInfo:
     """基本块信息"""
     block_id: int = 0
@@ -452,6 +466,7 @@ class FuncInfo:
     maturity: int = 0
     args: list = field(default_factory=list)
     return_vars: list = field(default_factory=list)
+    lvars: Dict[int, LvarInfo] = field(default_factory=dict)
     insns: list = field(default_factory=list)
     cfg_blocks: Dict[int, BlockInfo] = field(default_factory=dict)
     entry_block: int = 0
@@ -460,6 +475,7 @@ class FuncInfo:
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
         args_str = ",\n".join(a.to_string(indent + 1) for a in self.args) if self.args else ""
+        lvars_str = ",\n".join(f"{k}: {v.to_string(indent + 1)}" for k, v in self.lvars.items()) if self.lvars else ""
         insns_str = ",\n".join(i.to_string(indent + 1) for i in self.insns) if self.insns else ""
         cfg_str = ",\n".join(b.to_string(indent + 1) for b in self.cfg_blocks.values()) if self.cfg_blocks else ""
         return (
@@ -469,6 +485,7 @@ class FuncInfo:
             f"{prefix}  maturity={self.maturity},\n"
             f"{prefix}  args=[\n{args_str}\n{prefix}  ],\n"
             f"{prefix}  return_vars={self.return_vars},\n"
+            f"{prefix}  lvars={{\n{lvars_str}\n{prefix}  }},\n"
             f"{prefix}  insns=[\n{insns_str}\n{prefix}  ],\n"
             f"{prefix}  cfg_blocks={{\n{cfg_str}\n{prefix}  }},\n"
             f"{prefix}  entry_block={self.entry_block},\n"
