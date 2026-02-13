@@ -214,6 +214,14 @@ class InterProcTaintEngine:
     def _collect_call_arg_taint(self, state, attr):
         labels = set(state.get_taint(attr))
         origins = set(state.get_origins(attr))
+
+        resolved = state._resolve(attr)
+        if resolved != attr:
+            resolved_labels = state.get_taint(resolved)
+            if resolved_labels:
+                labels.update(resolved_labels)
+                origins.update(state.get_origins(resolved))
+
         if labels:
             return labels, origins
         if isinstance(attr, AddressAttr):

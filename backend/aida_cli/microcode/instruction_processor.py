@@ -8,6 +8,7 @@ from .common import (
     StoreAttr,
     RegisterAttr,
     OperandAttr,
+    GlobalAttr,
     InsnInfo,
     CallInfo,
 )
@@ -88,6 +89,23 @@ class InstructionProcessor:
                 self.state.add_taint(target, labels, origins, reason="store")
                 origin_labels = [o.label for o in origins] if origins else []
                 _log_info(self.logger, f"[TAINT][store] {sorted(labels)} -> {target} (origins: {sorted(origin_labels)})")
+
+        if not labels:
+            return
+
+        for write in insn.writes:
+            if write.attr is None:
+                continue
+            if isinstance(write.attr, StoreAttr):
+                ptr = write.attr.ptr
+                value = write.attr.value
+                if ptr is None or value is None:
+                    continue
+
+                if isinstance(ptr, GlobalAttr):
+                    self.state.add_taint(ptr, labels, origins, reason="store_global")
+                    origin_labels = [o.label for o in origins] if origins else []
+                    _log_info(self.logger, f"[TAINT][store_global] {sorted(labels)} -> {ptr} (origins: {sorted(origin_labels)})")
 
     def _handle_call(self, insn, findings):
         for call in insn.calls:
