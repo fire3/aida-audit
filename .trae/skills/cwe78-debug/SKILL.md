@@ -19,7 +19,7 @@ This skill provides context, workflows, and tools for debugging CWE-78 (OS Comma
 -  **Check Rules**: Ensure the Source/Sink/Propagator function is defined in `taint_rules.py`.
 - **Export C**: Export  decompiled  C for better analysis. For Example
 ```
-    aida-cli export --export-c tests_cpg/CWE78/arm64/CWE78_OS_Command_Injection__char_connect_socket_execlp_32-bad -o tmp
+    cd backend;python -m aida-cli.cli export --export-c test_case_binary_path_name -o tmp
 ```
     The decompiled C code will be saved in the `tmp` directory.
 - The User may give a failed case name, You should use '--filter <case_name>' to run the specific case.
