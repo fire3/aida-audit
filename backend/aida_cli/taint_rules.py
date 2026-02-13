@@ -1,10 +1,12 @@
 import re
 from typing import Dict, List, Optional, Any
 
+from .microcode import CrossFuncRule
+
 
 class RuleSet:
     """Rule container with compiled name/regex matchers."""
-    def __init__(self, rule_id, cwe, title, severity, sources, sinks, propagators):
+    def __init__(self, rule_id, cwe, title, severity, sources, sinks, propagators, cross_rules=None):
         self.rule_id = rule_id
         self.cwe = cwe
         self.title = title
@@ -12,6 +14,7 @@ class RuleSet:
         self.sources = self._compile_rules(sources)
         self.sinks = self._compile_rules(sinks)
         self.propagators = self._compile_rules(propagators)
+        self.cross_rules = self._compile_cross_rules(cross_rules)
 
     def _compile_rules(self, rules):
         compiled = []
@@ -21,6 +24,27 @@ class RuleSet:
             if pattern:
                 entry["regex"] = re.compile(pattern, re.IGNORECASE)
             compiled.append(entry)
+        return compiled
+
+    def _compile_cross_rules(self, rules):
+        compiled = []
+        for rule in rules or []:
+            if isinstance(rule, CrossFuncRule):
+                compiled.append(rule)
+                continue
+            if isinstance(rule, dict):
+                compiled.append(
+                    CrossFuncRule(
+                        name=rule.get("name") or "cross_rule",
+                        caller_pattern=rule.get("caller_pattern"),
+                        callee_pattern=rule.get("callee_pattern"),
+                        caller_ea=rule.get("caller_ea"),
+                        callee_ea=rule.get("callee_ea"),
+                        arg_flows=rule.get("arg_flows") or [],
+                        ret_flow=rule.get("ret_flow"),
+                        ret_to_args=rule.get("ret_to_args") or [],
+                    )
+                )
         return compiled
 
 
@@ -77,6 +101,7 @@ def default_cwe78_rules():
         {"name": "getenv", "from_ret": True, "to_ret": True},
         {"name": "getline", "from_ret": True, "to_ret": True},
     ]
+    cross_rules = []
     return RuleSet(
         rule_id="cwe-78",
         cwe="CWE-78",
@@ -85,4 +110,5 @@ def default_cwe78_rules():
         sources=sources,
         sinks=sinks,
         propagators=propagators,
+        cross_rules=cross_rules,
     )

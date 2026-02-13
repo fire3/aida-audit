@@ -8,8 +8,10 @@ from .analyzer import analyze_function
 from .utils import MicroCodeUtils
 from .common import (
     LocalVarAttr,
+    StackAttr,
     AddressAttr,
     LoadAttr,
+    StoreAttr,
     RegisterAttr,
     OperandAttr,
     InsnInfo,
@@ -216,6 +218,15 @@ class InstructionProcessor:
         if not labels or not self.utils.is_store_opcode(insn.opcode):
             return
 
+        for write in insn.writes:
+            if write.attr is None:
+                continue
+            if isinstance(write.attr, StoreAttr):
+                for target_attr in self._expand_arg_attrs(write.attr.ptr):
+                    if self.state.add_taint(target_attr, labels, origins, reason="store_ptr"):
+                        origin_labels = [o.label for o in origins] if origins else []
+                        self.logger.info(f"[TAINT][store_ptr] {sorted(labels)} -> {target_attr} (origins: {sorted(origin_labels)})")
+
         for read in insn.reads:
             if read.attr is None:
                 continue
@@ -228,6 +239,10 @@ class InstructionProcessor:
 
     def _handle_call(self, insn: InsnInfo, findings: List[Finding]):
         for call in insn.calls:
+            if not call.args:
+                inferred_args = self._infer_call_args_from_reads(insn)
+                if inferred_args:
+                    call.args = inferred_args
             self._apply_sources(call, insn)
             self._apply_propagators(call)
             self._apply_default_return_propagation(call)
@@ -243,8 +258,9 @@ class InstructionProcessor:
         for arg in args:
             if arg is None:
                 continue
-            labels.update(self.state.get_taint(arg))
-            origins.update(self.state.get_origins(arg))
+            for attr in self._expand_arg_attrs(arg):
+                labels.update(self.state.get_taint(attr))
+                origins.update(self.state.get_origins(attr))
         return labels, origins
 
     def _rule_matches(self, rule, callee, callee_ea=None):
@@ -277,8 +293,9 @@ class InstructionProcessor:
                     continue
                 attr = args[idx]
                 self.logger.log(f"[TRACE] Source rule '{rule.get('name')}': trying to add label={label} to arg[{idx}], attr={attr}")
-                if attr and self.state.add_taint(attr, {label}, origins, reason="source"):
-                    self.logger.log(f"[TAINT][source][{rule.get('name')}] label={label} -> arg[{idx}]")
+                for target_attr in self._expand_arg_attrs(attr):
+                    if self.state.add_taint(target_attr, {label}, origins, reason="source"):
+                        self.logger.log(f"[TAINT][source][{rule.get('name')}] label={label} -> arg[{idx}]")
 
             if rule.get("ret") and call.ret:
                 if self.state.add_taint(call.ret, {label}, origins, reason="source_ret"):
@@ -320,8 +337,8 @@ class InstructionProcessor:
                 if idx < 0 or idx >= len(args):
                     continue
                 attr = args[idx]
-                if attr:
-                    if self.state.add_taint(attr, collected_labels, collected_origins, reason="propagator"):
+                for target_attr in self._expand_arg_attrs(attr):
+                    if self.state.add_taint(target_attr, collected_labels, collected_origins, reason="propagator"):
                         origin_labels = [o.label for o in collected_origins] if collected_origins else []
                         self.logger.info(f"[TAINT][propagator][{rule.get('name') or rule.get('pattern')}] {sorted(collected_labels)} -> arg[{idx}] (origins: {sorted(origin_labels)})")
 
@@ -345,6 +362,11 @@ class InstructionProcessor:
         if not interproc_state:
             return
         callee, callee_ea = self._resolve_callee(call)
+        if callee_ea is None and callee:
+            for ea, ctx in interproc_state.func_contexts.items():
+                if ctx.func_name == callee:
+                    callee_ea = ea
+                    break
         if callee_ea is None:
             return
         ctx = interproc_state.func_contexts.get(callee_ea)
@@ -363,9 +385,10 @@ class InstructionProcessor:
                 if caller_idx < 0 or caller_idx >= len(args):
                     continue
                 attr = args[caller_idx]
-                if attr and self.state.add_taint(attr, set(labels), set(origins), reason="interproc_out_arg"):
-                    origin_labels = [o.label for o in origins] if origins else []
-                    self.logger.info(f"[TAINT][interproc][out_arg] {sorted(labels)} -> arg[{caller_idx}] (origins: {sorted(origin_labels)})")
+                for target_attr in self._expand_arg_attrs(attr):
+                    if self.state.add_taint(target_attr, set(labels), set(origins), reason="interproc_out_arg"):
+                        origin_labels = [o.label for o in origins] if origins else []
+                        self.logger.info(f"[TAINT][interproc][out_arg] {sorted(labels)} -> arg[{caller_idx}] (origins: {sorted(origin_labels)})")
             if ctx.ret_taint and call.ret:
                 labels, origins = ctx.ret_taint
                 if labels and self.state.add_taint(call.ret, set(labels), set(origins), reason="interproc_ret"):
@@ -377,9 +400,12 @@ class InstructionProcessor:
                     if idx < 0 or idx >= len(args):
                         continue
                     attr = args[idx]
-                    if attr and labels and self.state.add_taint(attr, set(labels), set(origins), reason="interproc_ret_to_arg"):
-                        origin_labels = [o.label for o in origins] if origins else []
-                        self.logger.info(f"[TAINT][interproc][ret_to_arg] {sorted(labels)} -> arg[{idx}] (origins: {sorted(origin_labels)})")
+                    if not labels:
+                        continue
+                    for target_attr in self._expand_arg_attrs(attr):
+                        if self.state.add_taint(target_attr, set(labels), set(origins), reason="interproc_ret_to_arg"):
+                            origin_labels = [o.label for o in origins] if origins else []
+                            self.logger.info(f"[TAINT][interproc][ret_to_arg] {sorted(labels)} -> arg[{idx}] (origins: {sorted(origin_labels)})")
 
     def _apply_sinks(self, call: CallInfo, insn: InsnInfo, findings: List[Finding]):
         callee, callee_ea = self._resolve_callee(call)
@@ -403,34 +429,35 @@ class InstructionProcessor:
                 attr = args[idx]
                 if attr is None:
                     continue
-
-                t = self.state.get_taint(attr)
-                if not t:
-                    continue
-
-                for label in t:
-                    if label.startswith("SYM:ARG:"):
-                        try:
-                            findings.append(
-                                Finding(
-                                    rule_id=self.engine.ruleset.rule_id,
-                                    cwe=self.engine.ruleset.cwe,
-                                    title=self.engine.ruleset.title,
-                                    severity=self.engine.ruleset.severity,
-                                    func_name=self.engine.func_info.function,
-                                    func_ea=self.engine.func_info.ea,
-                                    sink={"name": callee, "ea": insn.ea},
-                                    arg_indexes=[int(label.split(":")[2])],
-                                    taint_labels=[label],
-                                    sources=[],
+                collected = False
+                for target_attr in self._expand_arg_attrs(attr):
+                    t = self.state.get_taint(target_attr)
+                    if not t:
+                        continue
+                    collected = True
+                    for label in t:
+                        if label.startswith("SYM:ARG:"):
+                            try:
+                                findings.append(
+                                    Finding(
+                                        rule_id=self.engine.ruleset.rule_id,
+                                        cwe=self.engine.ruleset.cwe,
+                                        title=self.engine.ruleset.title,
+                                        severity=self.engine.ruleset.severity,
+                                        func_name=self.engine.func_info.function,
+                                        func_ea=self.engine.func_info.ea,
+                                        sink={"name": callee, "ea": insn.ea},
+                                        arg_indexes=[int(label.split(":")[2])],
+                                        taint_labels=[label],
+                                        sources=[],
+                                    )
                                 )
-                            )
-                        except Exception:
-                            pass
-
-                tainted_args.append(idx)
-                labels.update(t)
-                origins.update(self.state.get_origins(attr))
+                            except Exception:
+                                pass
+                    labels.update(t)
+                    origins.update(self.state.get_origins(target_attr))
+                if collected:
+                    tainted_args.append(idx)
 
             if tainted_args:
                 self.logger.log(f"[SINK] Matched: {callee} args={tainted_args}")
@@ -448,6 +475,45 @@ class InstructionProcessor:
                         sources=[{"label": o.label, "ea": o.ea, "function": o.function} for o in sorted(origins)],
                     )
                 )
+
+    def _expand_arg_attrs(self, attr: Optional[OperandAttr]) -> List[OperandAttr]:
+        if attr is None:
+            return []
+        attrs = []
+        queue = [attr]
+        seen = set()
+        while queue:
+            current = queue.pop(0)
+            if current is None or current in seen:
+                continue
+            seen.add(current)
+            attrs.append(current)
+            if isinstance(current, AddressAttr):
+                queue.append(current.inner)
+                if current.base is not None:
+                    queue.append(current.base)
+                if current.offset is not None:
+                    queue.append(current.offset)
+            elif isinstance(current, LoadAttr):
+                queue.append(current.ptr)
+            elif isinstance(current, StoreAttr):
+                queue.append(current.ptr)
+                queue.append(current.value)
+        return attrs
+
+    def _infer_call_args_from_reads(self, insn: InsnInfo) -> List[OperandAttr]:
+        args = []
+        seen = set()
+        for read in insn.reads:
+            attr = read.attr
+            if attr is None:
+                continue
+            if isinstance(attr, (LocalVarAttr, StackAttr, AddressAttr, LoadAttr, StoreAttr, RegisterAttr)):
+                if attr in seen:
+                    continue
+                seen.add(attr)
+                args.append(attr)
+        return args
 
 
 class CFGBuilder:
@@ -607,17 +673,59 @@ class FixedPointTaintEngine:
     def _seed_context_taints(self):
         if not self.current_context:
             return
+        if self.func_info.args:
+            for idx, payload in self.current_context.arg_taints.items():
+                labels, origins = payload
+                if not labels:
+                    continue
+                if idx < 0 or idx >= len(self.func_info.args):
+                    continue
+                lvar_idx = self.func_info.args[idx].lvar_idx
+                attr = LocalVarAttr(lvar_idx=lvar_idx)
+                source_label = f"ARG:{self.func_info.function}:{idx}"
+                merged_labels = set(labels)
+                merged_labels.add(source_label)
+                new_origins = set(origins)
+                new_origins.add(TaintOrigin(label=source_label, ea=self.func_info.ea, function=self.func_info.function))
+                if self.state.add_taint(attr, merged_labels, new_origins, reason="interproc_arg_source"):
+                    origin_labels = [o.label for o in origins] if origins else []
+                    self.logger.info(f"[TAINT][interproc][arg] {sorted(labels)} -> arg[{idx}] (origins: {sorted(origin_labels)})")
+            return
+        inferred_args = self._infer_entry_args()
+        if not inferred_args:
+            return
         for idx, payload in self.current_context.arg_taints.items():
             labels, origins = payload
             if not labels:
                 continue
-            if idx < 0 or idx >= len(self.func_info.args):
+            if idx < 0 or idx >= len(inferred_args):
                 continue
-            lvar_idx = self.func_info.args[idx].lvar_idx
-            attr = LocalVarAttr(lvar_idx=lvar_idx)
-            if self.state.add_taint(attr, set(labels), set(origins), reason="interproc_arg"):
+            attr = inferred_args[idx]
+            source_label = f"ARG:{self.func_info.function}:{idx}"
+            merged_labels = set(labels)
+            merged_labels.add(source_label)
+            new_origins = set(origins)
+            new_origins.add(TaintOrigin(label=source_label, ea=self.func_info.ea, function=self.func_info.function))
+            if self.state.add_taint(attr, merged_labels, new_origins, reason="interproc_arg_infer_source"):
                 origin_labels = [o.label for o in origins] if origins else []
                 self.logger.info(f"[TAINT][interproc][arg] {sorted(labels)} -> arg[{idx}] (origins: {sorted(origin_labels)})")
+
+    def _infer_entry_args(self) -> List[OperandAttr]:
+        entry_block = self.func_info.entry_block
+        seen = set()
+        ordered = []
+        for insn in self.func_info.insns:
+            if insn.block_id != entry_block:
+                continue
+            for read in insn.reads:
+                attr = read.attr
+                if isinstance(attr, AddressAttr) and isinstance(attr.inner, LocalVarAttr):
+                    attr = attr.inner
+                if isinstance(attr, (LocalVarAttr, StackAttr, RegisterAttr)):
+                    if attr not in seen:
+                        seen.add(attr)
+                        ordered.append(attr)
+        return ordered
 
     def _get_func_ea_int(self, value) -> int:
         if isinstance(value, int):
@@ -641,6 +749,22 @@ class FixedPointTaintEngine:
 
         if callee_ea is None and callee:
             callee_ea = self.rule_matcher.resolve_name(callee)
+            if callee_ea == self.rule_matcher.badaddr:
+                callee_ea = None
+
+        if callee_ea is None and callee:
+            stripped = callee.lstrip("$")
+            if stripped and stripped != callee:
+                callee_ea = self.rule_matcher.resolve_name(stripped)
+                if callee_ea == self.rule_matcher.badaddr:
+                    callee_ea = None
+
+        if callee_ea is None and callee:
+            normalized = self.rule_matcher.normalize_name(callee)
+            if normalized and normalized != callee:
+                callee_ea = self.rule_matcher.resolve_name(normalized)
+                if callee_ea == self.rule_matcher.badaddr:
+                    callee_ea = None
 
         if callee_ea is not None:
             ida_name = None
@@ -873,6 +997,8 @@ class InterProcTaintEngine:
         self.logger = logger or SimpleLogger(verbose=verbose)
         self.engine = FixedPointTaintEngine(ruleset, self.logger, verbose, policy)
         self.interproc_state = InterProcState()
+        if cross_rules is None:
+            cross_rules = getattr(ruleset, "cross_rules", [])
         self.cross_rules = list(cross_rules or [])
         self.pathfinder = PathFinder(ruleset, self.logger, PathFinderConfig(max_depth=10))
 
@@ -902,6 +1028,30 @@ class InterProcTaintEngine:
             ctx = FunctionContext(func_ea=func_ea, func_name=func_info.function, arg_count=len(func_info.args))
             self.interproc_state.func_contexts[func_ea] = ctx
         return self.interproc_state.func_contexts[func_ea]
+
+    def _resolve_callee_ea_by_name(self, callee_name: str, func_infos: Dict[int, FuncInfo]) -> Optional[int]:
+        if not callee_name:
+            return None
+        candidates = [callee_name]
+        stripped = callee_name.lstrip("$")
+        if stripped and stripped not in candidates:
+            candidates.append(stripped)
+        normalizer = getattr(self.engine, "rule_matcher", None)
+        if normalizer:
+            normalized = normalizer.normalize_name(callee_name)
+            if normalized and normalized not in candidates:
+                candidates.append(normalized)
+            normalized_stripped = normalizer.normalize_name(stripped)
+            if normalized_stripped and normalized_stripped not in candidates:
+                candidates.append(normalized_stripped)
+        for ea, info in func_infos.items():
+            if info.function in candidates:
+                return ea
+            if normalizer:
+                info_norm = normalizer.normalize_name(info.function)
+                if info_norm and info_norm in candidates:
+                    return ea
+        return None
 
     def _seed_root_args(self, func_info: FuncInfo):
         ctx = self._ensure_context(func_info)
@@ -959,11 +1109,12 @@ class InterProcTaintEngine:
             for insn in func_info.insns:
                 for call in insn.calls:
                     callee_name, callee_ea = self.engine._resolve_callee(call)
-                    if callee_ea is None:
+                    if callee_ea is None or callee_ea not in func_infos:
+                        callee_ea = self._resolve_callee_ea_by_name(callee_name, func_infos)
+                    if callee_ea is None or callee_ea not in func_infos:
                         continue
-                    if callee_ea not in func_infos:
-                        continue
-                    caller_arg_count = len(call.args or [])
+                    call_args = call.args or self._infer_call_args_from_reads(insn)
+                    caller_arg_count = len(call_args)
                     callee_arg_count = len(func_infos[callee_ea].args)
                     arg_mapping = {i: i for i in range(min(caller_arg_count, callee_arg_count))}
                     edge = CallEdge(
@@ -987,20 +1138,23 @@ class InterProcTaintEngine:
             for call in insn.calls:
                 callee_name, callee_ea = self.engine._resolve_callee(call)
                 if callee_ea is None or callee_ea not in func_infos:
+                    callee_ea = self._resolve_callee_ea_by_name(callee_name, func_infos)
+                if callee_ea is None or callee_ea not in func_infos:
                     continue
                 callee_ctx = self._ensure_context(func_infos[callee_ea])
                 mappings = self.engine._collect_cross_mappings(caller_name, callee_name, caller_ea, callee_ea)
-                args = call.args or []
+                args = call.args or self._infer_call_args_from_reads(insn)
                 for mapping, _ in mappings:
                     for caller_idx, attr in enumerate(args):
                         if attr is None:
                             continue
-                        labels = set(state.get_taint(attr))
-                        origins = set(state.get_origins(attr))
+                        labels, origins = self._collect_call_arg_taint(state, attr)
                         if not labels:
                             continue
                         callee_idx = mapping.get(caller_idx, caller_idx) if mapping else caller_idx
-                        if callee_idx < 0 or callee_idx >= len(func_infos[callee_ea].args):
+                        if callee_idx < 0:
+                            continue
+                        if func_infos[callee_ea].args and callee_idx >= len(func_infos[callee_ea].args):
                             continue
                         prev = callee_ctx.arg_taints.get(callee_idx)
                         if prev is None:
@@ -1014,6 +1168,57 @@ class InterProcTaintEngine:
                                 callee_ctx.arg_taints[callee_idx] = (prev_labels | labels, prev_origins | origins)
                                 changed_funcs.add(callee_ea)
         return changed_funcs
+
+    def _collect_call_arg_taint(self, state: TaintState, attr: OperandAttr) -> Tuple[Set[str], Set[TaintOrigin]]:
+        labels = set(state.get_taint(attr))
+        origins = set(state.get_origins(attr))
+        if labels:
+            return labels, origins
+        if isinstance(attr, AddressAttr):
+            inner = attr.inner
+            while isinstance(inner, AddressAttr):
+                inner = inner.inner
+            labels.update(state.get_taint(inner))
+            origins.update(state.get_origins(inner))
+            if attr.base is not None:
+                labels.update(state.get_taint(attr.base))
+                origins.update(state.get_origins(attr.base))
+            if attr.offset is not None:
+                labels.update(state.get_taint(attr.offset))
+                origins.update(state.get_origins(attr.offset))
+        if isinstance(attr, LoadAttr):
+            ptr = attr.ptr
+            while isinstance(ptr, LoadAttr):
+                ptr = ptr.ptr
+            labels.update(state.get_taint(ptr))
+            origins.update(state.get_origins(ptr))
+            if isinstance(ptr, AddressAttr):
+                inner = ptr.inner
+                while isinstance(inner, AddressAttr):
+                    inner = inner.inner
+                labels.update(state.get_taint(inner))
+                origins.update(state.get_origins(inner))
+        if isinstance(attr, StoreAttr):
+            if attr.value is not None:
+                labels.update(state.get_taint(attr.value))
+                origins.update(state.get_origins(attr.value))
+            labels.update(state.get_taint(attr.ptr))
+            origins.update(state.get_origins(attr.ptr))
+        return labels, origins
+
+    def _infer_call_args_from_reads(self, insn: InsnInfo) -> List[OperandAttr]:
+        args = []
+        seen = set()
+        for read in insn.reads:
+            attr = read.attr
+            if attr is None:
+                continue
+            if isinstance(attr, (LocalVarAttr, StackAttr, AddressAttr, LoadAttr, StoreAttr, RegisterAttr)):
+                if attr in seen:
+                    continue
+                seen.add(attr)
+                args.append(attr)
+        return args
 
     def scan_global(self, maturity):
         self._resolve_rule_eas()

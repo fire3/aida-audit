@@ -36,6 +36,7 @@ def _load_rules(path):
         sources=payload.get("sources", []),
         sinks=payload.get("sinks", []),
         propagators=payload.get("propagators", []),
+        cross_rules=payload.get("cross_func_rules", []),
     )
 
 
@@ -218,7 +219,12 @@ def main():
         logger.log("Hex-Rays decompiler not available", level="ERROR")
         sys.exit(1)
 
-    engine = InterProcTaintEngine(ruleset, logger=logger, verbose=args.verbose)
+    engine = InterProcTaintEngine(
+        ruleset,
+        logger=logger,
+        verbose=args.verbose,
+        cross_rules=ruleset.cross_rules,
+    )
     findings = []
     for target in _iter_targets(args.target):
         scan_path = target
