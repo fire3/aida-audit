@@ -712,7 +712,7 @@ class MicrocodeInstructionAnalyzer:
             entry.mem_size = attr.mem_size
 
 
-class CFGBuilder:
+class MicrocodeCFGBuilder:
     JUMP_OPCODES = frozenset({"goto", "jmp"})
     CONDITIONAL_JUMP_OPCODES = frozenset({
         "jz",
@@ -847,7 +847,7 @@ class MicrocodeFunctionAnalyzer:
         func_name = ida_funcs.get_func_name(pfn.start_ea)
         func_args, return_vars = self._collect_signature_vars()
 
-        cfg_builder = CFGBuilder(self.mba)
+        cfg_builder = MicrocodeCFGBuilder(self.mba)
         cfg_blocks = cfg_builder.build()
         self.block_insns = cfg_builder.block_insns
 
@@ -943,8 +943,8 @@ class MicrocodeFunctionAnalyzer:
     def _populate_jump_info(self, insn_entry: InsnInfo, insn, block_id: int, cfg_blocks: dict):
         opcode_name = self.utils.get_effective_opcode_name(insn.opcode, insn)
         category = self.utils.get_opcode_category(opcode_name)
-        is_unconditional = opcode_name in CFGBuilder.JUMP_OPCODES or category == "jump"
-        is_conditional = opcode_name in CFGBuilder.CONDITIONAL_JUMP_OPCODES or (opcode_name.startswith("j") and opcode_name not in CFGBuilder.JUMP_OPCODES)
+        is_unconditional = opcode_name in MicrocodeCFGBuilder.JUMP_OPCODES or category == "jump"
+        is_conditional = opcode_name in MicrocodeCFGBuilder.CONDITIONAL_JUMP_OPCODES or (opcode_name.startswith("j") and opcode_name not in MicrocodeCFGBuilder.JUMP_OPCODES)
 
         if is_unconditional:
             targets = self._extract_jump_targets(insn)

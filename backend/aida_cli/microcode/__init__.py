@@ -51,28 +51,14 @@ try:
 except ImportError:
     ida_xref = None
 
-from .analyzer import (
+from .microcode_analyzer import (
     MicrocodeAnalyzer,
     MopUsageVisitor,
     analyze_function,
 )
 
 from .state import TaintState
-from .fixed_point_engine import (
-    FixedPointTaintEngine,
-    WorklistTaintEngine,
-    InterProcTaintEngine,
-    WorkItem,
-    Block,
-    CFG,
-    AliasChange,
-    TaintPolicy,
-    Finding,
-    CallEdge,
-    FunctionContext,
-    InterProcState,
-    CrossFuncRule,
-)
+
 from .interproc_datatypes import (
     WorkItem,
     Block,
@@ -85,6 +71,19 @@ from .interproc_datatypes import (
     InterProcState,
     CrossFuncRule,
 )
+
+from .fixed_point_engine import (
+    FixedPointTaintEngine,
+)
+
+from .worklist_engine import (
+    WorklistTaintEngine,
+)
+
+from .interproc_engine import (
+    InterProcTaintEngine,
+)
+
 from .common import (
     BlockInfo,
 )
@@ -107,7 +106,6 @@ __all__ = [
     "MopUsageVisitor",
     "analyze_function",
     "TaintState",
-    "MicrocodeTaintEngine",
     "FixedPointTaintEngine",
     "WorklistTaintEngine",
     "InterProcTaintEngine",
