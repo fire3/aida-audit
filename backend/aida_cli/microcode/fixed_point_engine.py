@@ -231,6 +231,7 @@ class InstructionProcessor:
             self._apply_sources(call, insn)
             self._apply_propagators(call)
             self._apply_default_return_propagation(call)
+            self._apply_interproc(call)
             self._apply_sinks(call, insn, findings)
 
     def _resolve_callee(self, call: CallInfo):
@@ -360,6 +361,47 @@ class InstructionProcessor:
             if self.state.add_taint(call.ret, labels, origins, reason="default_return"):
                 origin_labels = [o.label for o in origins] if origins else []
                 self.logger.info(f"[TAINT][default_return] {sorted(labels)} -> ret (origins: {sorted(origin_labels)})")
+
+    def _apply_interproc(self, call: CallInfo):
+        interproc_state = self.engine.interproc_state
+        if not interproc_state:
+            return
+        callee, callee_ea = self._resolve_callee(call)
+        if callee_ea is None:
+            return
+        ctx = interproc_state.func_contexts.get(callee_ea)
+        if ctx is None or not ctx.analyzed:
+            return
+        args = call.args or []
+        caller_ea = self.engine._get_func_ea_int(self.engine.func_info.ea)
+        caller_name = self.engine.func_info.function
+        mappings = self.engine._collect_cross_mappings(caller_name, callee, caller_ea, callee_ea)
+        for mapping, rule in mappings:
+            for callee_idx, payload in ctx.out_arg_taints.items():
+                labels, origins = payload
+                if not labels:
+                    continue
+                caller_idx = mapping.get(callee_idx, callee_idx) if mapping else callee_idx
+                if caller_idx < 0 or caller_idx >= len(args):
+                    continue
+                attr = args[caller_idx]
+                if attr and self.state.add_taint(attr, set(labels), set(origins), reason="interproc_out_arg"):
+                    origin_labels = [o.label for o in origins] if origins else []
+                    self.logger.info(f"[TAINT][interproc][out_arg] {sorted(labels)} -> arg[{caller_idx}] (origins: {sorted(origin_labels)})")
+            if ctx.ret_taint and call.ret:
+                labels, origins = ctx.ret_taint
+                if labels and self.state.add_taint(call.ret, set(labels), set(origins), reason="interproc_ret"):
+                    origin_labels = [o.label for o in origins] if origins else []
+                    self.logger.info(f"[TAINT][interproc][ret] {sorted(labels)} -> ret (origins: {sorted(origin_labels)})")
+            if ctx.ret_taint and rule and rule.ret_to_args:
+                labels, origins = ctx.ret_taint
+                for idx in rule.ret_to_args:
+                    if idx < 0 or idx >= len(args):
+                        continue
+                    attr = args[idx]
+                    if attr and labels and self.state.add_taint(attr, set(labels), set(origins), reason="interproc_ret_to_arg"):
+                        origin_labels = [o.label for o in origins] if origins else []
+                        self.logger.info(f"[TAINT][interproc][ret_to_arg] {sorted(labels)} -> arg[{idx}] (origins: {sorted(origin_labels)})")
 
     def _apply_sinks(self, call: CallInfo, insn: InsnInfo, findings: List[Finding]):
         callee, callee_ea = self._resolve_callee(call)
@@ -533,17 +575,30 @@ class FixedPointTaintEngine:
         self.worklist: Deque[WorkItem] = deque()
         self.state = TaintState()
         self.visited_items: Set[Tuple[int, int]] = set()
+        self.interproc_state: Optional[InterProcState] = None
+        self.current_context: Optional[FunctionContext] = None
+        self.cross_rules: List[CrossFuncRule] = []
 
-    def analyze_function(self, func_info: FuncInfo) -> Tuple[TaintState, List[Finding]]:
+    def analyze_function(
+        self,
+        func_info: FuncInfo,
+        func_context: Optional[FunctionContext] = None,
+        interproc_state: Optional[InterProcState] = None,
+        cross_rules: Optional[List[CrossFuncRule]] = None,
+    ) -> Tuple[TaintState, List[Finding]]:
         self.func_info = func_info
         self.state = TaintState()
         self.worklist = deque()
         self.visited_items = set()
+        self.current_context = func_context
+        self.interproc_state = interproc_state
+        self.cross_rules = list(cross_rules or [])
 
         self.logger.log(f"[ENGINE] Analyzing {func_info.function}")
 
         self._initialize_worklist()
         self._initialize_with_sources()
+        self._seed_context_taints()
 
         findings = self._run_fixed_point_iteration()
 
@@ -570,6 +625,51 @@ class FixedPointTaintEngine:
             if "ret" not in rule and not rule.get("args") and not rule.get("out_args"):
                 continue
             self.logger.log(f"[SOURCE] Initializing: {rule.get('name')}")
+
+    def _seed_context_taints(self):
+        if not self.current_context:
+            return
+        for idx, payload in self.current_context.arg_taints.items():
+            labels, origins = payload
+            if not labels:
+                continue
+            if idx < 0 or idx >= len(self.func_info.args):
+                continue
+            lvar_idx = self.func_info.args[idx].lvar_idx
+            attr = LocalVarAttr(lvar_idx=lvar_idx)
+            if self.state.add_taint(attr, set(labels), set(origins), reason="interproc_arg"):
+                origin_labels = [o.label for o in origins] if origins else []
+                self.logger.info(f"[TAINT][interproc][arg] {sorted(labels)} -> arg[{idx}] (origins: {sorted(origin_labels)})")
+
+    def _get_func_ea_int(self, value) -> int:
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            try:
+                if value.startswith("0x"):
+                    return int(value, 16)
+                return int(value)
+            except Exception:
+                return 0
+        return 0
+
+    def _collect_cross_mappings(
+        self, caller_name: str, callee_name: str, caller_ea: int, callee_ea: int
+    ) -> List[Tuple[Optional[Dict[int, int]], Optional[CrossFuncRule]]]:
+        mappings = []
+        for rule in self.cross_rules:
+            try:
+                if rule.matches(caller_name, callee_name, caller_ea, callee_ea):
+                    if rule.arg_flows:
+                        mapping = {callee_idx: caller_idx for caller_idx, callee_idx in rule.arg_flows}
+                    else:
+                        mapping = None
+                    mappings.append((mapping, rule))
+            except Exception:
+                continue
+        if not mappings:
+            mappings.append((None, None))
+        return mappings
 
     def _run_fixed_point_iteration(self) -> List[Finding]:
         findings = []
@@ -764,6 +864,243 @@ class WorklistTaintEngine:
         return findings
 
 
+class InterProcTaintEngine:
+    def __init__(self, ruleset, logger=None, verbose=False, policy: TaintPolicy = None, cross_rules: Optional[List[CrossFuncRule]] = None):
+        self.ruleset = ruleset
+        self.logger = logger or SimpleLogger(verbose=verbose)
+        self.engine = FixedPointTaintEngine(ruleset, self.logger, verbose, policy)
+        self.interproc_state = InterProcState()
+        self.cross_rules = list(cross_rules or [])
+        self.pathfinder = PathFinder(ruleset, self.logger, PathFinderConfig(max_depth=10))
+
+    def _resolve_rule_eas(self):
+        for rule in self.engine.ruleset.sources:
+            if "name" in rule:
+                ea = self.engine.rule_matcher.resolve_name(rule["name"])
+                if ea != self.engine.rule_matcher.badaddr:
+                    rule["ea"] = ea
+        for rule in self.engine.ruleset.sinks:
+            if "name" in rule:
+                ea = self.engine.rule_matcher.resolve_name(rule["name"])
+                if ea != self.engine.rule_matcher.badaddr:
+                    rule["ea"] = ea
+        for rule in self.engine.ruleset.propagators:
+            if "name" in rule:
+                ea = self.engine.rule_matcher.resolve_name(rule["name"])
+                if ea != self.engine.rule_matcher.badaddr:
+                    rule["ea"] = ea
+
+    def _get_func_ea_int(self, value) -> int:
+        return self.engine._get_func_ea_int(value)
+
+    def _resolve_callee(self, call: CallInfo):
+        callee = call.callee_name or ""
+        target = call.target
+        callee_ea = None
+        if target is not None and hasattr(target, "ea"):
+            callee_ea = target.ea
+        if callee_ea is None and callee:
+            callee_ea = self.engine.rule_matcher.resolve_name(callee)
+        if callee_ea is not None:
+            ida_name = None
+            if ida_funcs:
+                ida_name = ida_funcs.get_func_name(callee_ea)
+            if not ida_name and idc:
+                try:
+                    ida_name = idc.get_name(callee_ea)
+                except Exception:
+                    pass
+            if ida_name:
+                callee = ida_name
+        return callee, callee_ea
+
+    def _ensure_context(self, func_info: FuncInfo) -> FunctionContext:
+        func_ea = self._get_func_ea_int(func_info.ea)
+        if func_ea not in self.interproc_state.func_contexts:
+            ctx = FunctionContext(func_ea=func_ea, func_name=func_info.function, arg_count=len(func_info.args))
+            self.interproc_state.func_contexts[func_ea] = ctx
+        return self.interproc_state.func_contexts[func_ea]
+
+    def _seed_root_args(self, func_info: FuncInfo):
+        ctx = self._ensure_context(func_info)
+        if ctx.arg_taints:
+            return
+        for idx, arg in enumerate(func_info.args):
+            label = f"SYM:ARG:{idx}"
+            origins = {TaintOrigin(label=label, ea=func_info.ea, function=func_info.function)}
+            ctx.arg_taints[idx] = ({label}, origins)
+
+    def _update_context_from_state(self, func_info: FuncInfo, state: TaintState) -> bool:
+        ctx = self._ensure_context(func_info)
+        changed = False
+        for idx, arg in enumerate(func_info.args):
+            attr = LocalVarAttr(lvar_idx=arg.lvar_idx)
+            labels = set(state.get_taint(attr))
+            origins = set(state.get_origins(attr))
+            if labels:
+                prev = ctx.out_arg_taints.get(idx)
+                if prev is None:
+                    ctx.out_arg_taints[idx] = (labels, origins)
+                    changed = True
+                else:
+                    prev_labels, prev_origins = prev
+                    new_labels = labels - prev_labels
+                    new_origins = origins - prev_origins
+                    if new_labels or new_origins:
+                        ctx.out_arg_taints[idx] = (prev_labels | labels, prev_origins | origins)
+                        changed = True
+        ret_labels = set()
+        ret_origins = set()
+        for lvar_idx in func_info.return_vars:
+            attr = LocalVarAttr(lvar_idx=lvar_idx)
+            ret_labels.update(state.get_taint(attr))
+            ret_origins.update(state.get_origins(attr))
+        if ret_labels:
+            if ctx.ret_taint is None:
+                ctx.ret_taint = (ret_labels, ret_origins)
+                changed = True
+            else:
+                prev_labels, prev_origins = ctx.ret_taint
+                new_labels = ret_labels - prev_labels
+                new_origins = ret_origins - prev_origins
+                if new_labels or new_origins:
+                    ctx.ret_taint = (prev_labels | ret_labels, prev_origins | ret_origins)
+                    changed = True
+        if not ctx.analyzed:
+            ctx.analyzed = True
+            changed = True
+        return changed
+
+    def _build_call_graph(self, func_infos: Dict[int, FuncInfo]):
+        for func_ea, func_info in func_infos.items():
+            edges = []
+            for insn in func_info.insns:
+                for call in insn.calls:
+                    callee_name, callee_ea = self._resolve_callee(call)
+                    if callee_ea is None:
+                        continue
+                    if callee_ea not in func_infos:
+                        continue
+                    caller_arg_count = len(call.args or [])
+                    callee_arg_count = len(func_infos[callee_ea].args)
+                    arg_mapping = {i: i for i in range(min(caller_arg_count, callee_arg_count))}
+                    edge = CallEdge(
+                        caller_ea=func_ea,
+                        callee_ea=callee_ea,
+                        call_site_ea=call.call_site_ea or 0,
+                        caller_arg_count=caller_arg_count,
+                        callee_arg_count=callee_arg_count,
+                        arg_mapping=arg_mapping,
+                        ret_mapping=0 if call.ret else None,
+                        call_insn_text=insn.text,
+                    )
+                    edges.append(edge)
+            self.interproc_state.call_graph[func_ea] = edges
+
+    def _propagate_callsite_taints(self, func_info: FuncInfo, state: TaintState, func_infos: Dict[int, FuncInfo]) -> Set[int]:
+        changed_funcs = set()
+        caller_ea = self._get_func_ea_int(func_info.ea)
+        caller_name = func_info.function
+        for insn in func_info.insns:
+            for call in insn.calls:
+                callee_name, callee_ea = self._resolve_callee(call)
+                if callee_ea is None or callee_ea not in func_infos:
+                    continue
+                callee_ctx = self._ensure_context(func_infos[callee_ea])
+                mappings = self.engine._collect_cross_mappings(caller_name, callee_name, caller_ea, callee_ea)
+                args = call.args or []
+                for mapping, _ in mappings:
+                    for caller_idx, attr in enumerate(args):
+                        if attr is None:
+                            continue
+                        labels = set(state.get_taint(attr))
+                        origins = set(state.get_origins(attr))
+                        if not labels:
+                            continue
+                        callee_idx = mapping.get(caller_idx, caller_idx) if mapping else caller_idx
+                        if callee_idx < 0 or callee_idx >= len(func_infos[callee_ea].args):
+                            continue
+                        prev = callee_ctx.arg_taints.get(callee_idx)
+                        if prev is None:
+                            callee_ctx.arg_taints[callee_idx] = (labels, origins)
+                            changed_funcs.add(callee_ea)
+                        else:
+                            prev_labels, prev_origins = prev
+                            new_labels = labels - prev_labels
+                            new_origins = origins - prev_origins
+                            if new_labels or new_origins:
+                                callee_ctx.arg_taints[callee_idx] = (prev_labels | labels, prev_origins | origins)
+                                changed_funcs.add(callee_ea)
+        return changed_funcs
+
+    def scan_global(self, maturity):
+        self._resolve_rule_eas()
+        self.pathfinder.ruleset = self.ruleset
+        self.pathfinder.identify_markers()
+        path_result = self.pathfinder.find_paths()
+        if not path_result:
+            return []
+        raw_chains = [p["nodes"] for p in path_result]
+        self.interproc_state.source_sink_paths = raw_chains
+        chain_functions = set()
+        for path in raw_chains:
+            for node in path:
+                ea = int(node["ea"], 16)
+                chain_functions.add(ea)
+        if not chain_functions:
+            return []
+        chain_functions = sorted(chain_functions)
+        func_infos: Dict[int, FuncInfo] = {}
+        for ea in chain_functions:
+            func = ida_funcs.get_func(ea)
+            if not func:
+                continue
+            func_info = analyze_function(func, maturity)
+            if func_info:
+                func_ea = self._get_func_ea_int(func_info.ea)
+                func_infos[func_ea] = func_info
+        if not func_infos:
+            return []
+        self._build_call_graph(func_infos)
+        caller_map: Dict[int, Set[int]] = defaultdict(set)
+        for caller_ea, edges in self.interproc_state.call_graph.items():
+            for edge in edges:
+                caller_map[edge.callee_ea].add(caller_ea)
+        for func_ea, func_info in func_infos.items():
+            if caller_map.get(func_ea) is None:
+                self._seed_root_args(func_info)
+        worklist = deque(func_infos.keys())
+        findings: List[Finding] = []
+        while worklist:
+            func_ea = worklist.popleft()
+            func_info = func_infos.get(func_ea)
+            if not func_info:
+                continue
+            ctx = self._ensure_context(func_info)
+            state, f_findings = self.engine.analyze_function(
+                func_info,
+                func_context=ctx,
+                interproc_state=self.interproc_state,
+                cross_rules=self.cross_rules,
+            )
+            findings.extend(f_findings)
+            changed_context = self._update_context_from_state(func_info, state)
+            changed_callees = self._propagate_callsite_taints(func_info, state, func_infos)
+            if changed_context:
+                for caller in caller_map.get(func_ea, []):
+                    if caller in func_infos:
+                        worklist.append(caller)
+            for callee in changed_callees:
+                if callee in func_infos:
+                    worklist.append(callee)
+        for finding in findings:
+            if hasattr(finding, "call_chains"):
+                finding.call_chains = raw_chains
+            else:
+                finding.call_chains = raw_chains
+        return findings
+
+
 __all__ = [
     "WorkItem",
     "Block",
@@ -777,4 +1114,5 @@ __all__ = [
     "CrossFuncRule",
     "FixedPointTaintEngine",
     "WorklistTaintEngine",
+    "InterProcTaintEngine",
 ]

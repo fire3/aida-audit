@@ -61,6 +61,7 @@ from .state import TaintState
 from .fixed_point_engine import (
     FixedPointTaintEngine,
     WorklistTaintEngine,
+    InterProcTaintEngine,
     WorkItem,
     Block,
     CFG,
@@ -109,6 +110,7 @@ __all__ = [
     "MicrocodeTaintEngine",
     "FixedPointTaintEngine",
     "WorklistTaintEngine",
+    "InterProcTaintEngine",
     "WorkItem",
     "Block",
     "CFG",

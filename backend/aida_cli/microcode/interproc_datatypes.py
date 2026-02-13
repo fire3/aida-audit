@@ -6,6 +6,7 @@ from .common import (
     OperandAttr,
     InsnInfo,
 )
+from .state import TaintOrigin
 
 
 @dataclass(frozen=True, order=True)
@@ -116,9 +117,9 @@ class FunctionContext:
     func_ea: int
     func_name: str
     arg_count: int = 0
-    arg_taints: Dict[int, Tuple[Set[str], Set[str]]] = field(default_factory=dict)
-    ret_taint: Optional[Tuple[Set[str], Set[str]]] = None
-    out_arg_taints: Dict[int, Tuple[Set[str], Set[str]]] = field(default_factory=dict)
+    arg_taints: Dict[int, Tuple[Set[str], Set[TaintOrigin]]] = field(default_factory=dict)
+    ret_taint: Optional[Tuple[Set[str], Set[TaintOrigin]]] = None
+    out_arg_taints: Dict[int, Tuple[Set[str], Set[TaintOrigin]]] = field(default_factory=dict)
     analyzed: bool = False
 
 

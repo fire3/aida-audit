@@ -7,7 +7,7 @@ import tempfile
 
 from . import ida_utils
 from . import microcode as taint_mod
-from .microcode import analyze_function, WorklistTaintEngine
+from .microcode import analyze_function, InterProcTaintEngine
 from .taint_rules import RuleSet, default_cwe78_rules
 
 try:
@@ -218,7 +218,7 @@ def main():
         logger.log("Hex-Rays decompiler not available", level="ERROR")
         sys.exit(1)
 
-    engine = WorklistTaintEngine(ruleset, logger=logger, verbose=args.verbose)
+    engine = InterProcTaintEngine(ruleset, logger=logger, verbose=args.verbose)
     findings = []
     for target in _iter_targets(args.target):
         scan_path = target
