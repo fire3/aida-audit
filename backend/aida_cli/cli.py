@@ -20,7 +20,6 @@ def _print_main_help():
     print("  install - Generate MCP client config")
     print("  workspace - Initialize a local workspace")
     print("  scan    - Run IDA Microcode taint scan")
-    print("  taint   - Run IDA Intra-function taint scan")
 
 def _build_opencode_stdio_config(project, python_cmd, server_name):
     command = python_cmd
@@ -214,174 +213,6 @@ def _copy_skills(skills_root, target_root):
         copied.append(name)
     return copied
 
-def _joern_scripts_root():
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "joern")
-
-def _list_cwe_scripts():
-    root = _joern_scripts_root()
-    if not os.path.isdir(root):
-        return {}
-    scripts = {}
-    for name in os.listdir(root):
-        if not name.lower().endswith(".sc"):
-            continue
-        key = os.path.splitext(name)[0].lower()
-        scripts[key] = os.path.join(root, name)
-    return scripts
-
-def _format_cwe_help(scripts):
-    if not scripts:
-        return "Available CWE scripts:\n  (none)"
-    lines = ["Available CWE scripts:"]
-    for name in sorted(scripts.keys()):
-        lines.append(f"  {name}")
-    return "\n".join(lines)
-
-def _resolve_joern_home(joern_home):
-    if joern_home:
-        return os.path.abspath(joern_home)
-    env_home = os.environ.get("JOERN_HOME")
-    if env_home:
-        return os.path.abspath(env_home)
-    return None
-
-def _get_joern_bin(joern_home):
-    if joern_home:
-        candidates = [
-            os.path.join(joern_home, "joern"),
-            os.path.join(joern_home, "joern.bat"),
-            os.path.join(joern_home, "bin", "joern"),
-            os.path.join(joern_home, "bin", "joern.bat"),
-        ]
-        for cand in candidates:
-            if os.path.exists(cand):
-                return cand
-    for name in ("joern", "joern.bat"):
-        path = shutil.which(name)
-        if path:
-            return path
-    return None
-
-def _normalize_cwe_token(token):
-    if token is None:
-        return None
-    value = token.strip().lower()
-    if not value:
-        return None
-    if value == "all":
-        return "all"
-    value = value.replace("-", "_")
-    if value.startswith("cwe_"):
-        return value
-    if value.startswith("cwe") and value[3:].isdigit():
-        return f"cwe_{value[3:]}"
-    if value.isdigit():
-        return f"cwe_{value}"
-    return value
-
-def _parse_cwe_list(values):
-    if not values:
-        return ["all"]
-    tokens = []
-    for raw in values:
-        tokens.extend([t for t in re.split(r"[,\s]+", raw) if t])
-    normalized = []
-    for token in tokens:
-        value = _normalize_cwe_token(token)
-        if not value:
-            continue
-        if value == "all":
-            return ["all"]
-        if value not in normalized:
-            normalized.append(value)
-    return normalized or ["all"]
-
-def _collect_cpg_paths(target):
-    if not target:
-        target = os.getcwd()
-    target = os.path.abspath(target)
-    if os.path.isfile(target):
-        return [target]
-    if not os.path.isdir(target):
-        print(f"Error: cpg path not found: {target}", file=sys.stderr)
-        sys.exit(1)
-    matches = glob.glob(os.path.join(target, "**", "*.cpg.bin"), recursive=True)
-    return sorted({os.path.abspath(p) for p in matches})
-
-def _make_cpg_tag(path):
-    base = os.path.splitext(os.path.splitext(os.path.basename(path))[0])[0]
-    digest = hashlib.sha256(path.encode("utf-8")).hexdigest()[:8]
-    return f"{base}.{digest}"
-
-def audit_main():
-    scripts = _list_cwe_scripts()
-    parser = argparse.ArgumentParser(
-        description="Run Joern CWE audit scripts",
-        epilog=_format_cwe_help(scripts),
-        formatter_class=argparse.RawTextHelpFormatter,
-    )
-    parser.add_argument("cpg", nargs="?", help="Path to CPG file (.cpg.bin) or directory")
-    parser.add_argument("--joern-home", help="Joern installation directory (optional, defaults to JOERN_HOME)")
-    parser.add_argument("--cwe", action="append", help="CWE id(s), comma or space separated, or 'all'")
-    parser.add_argument("-o", "--output", default=".", help="Report output directory")
-    args = parser.parse_args()
-
-    if not scripts:
-        print("Error: no CWE scripts found", file=sys.stderr)
-        sys.exit(1)
-
-    cpg_paths = _collect_cpg_paths(args.cpg)
-    if not cpg_paths:
-        print("Error: no *.cpg.bin files found", file=sys.stderr)
-        sys.exit(1)
-
-    joern_home = _resolve_joern_home(args.joern_home)
-    joern_bin = _get_joern_bin(joern_home)
-    if not joern_bin:
-        print("Error: joern-cli not found. Use --joern-home or set JOERN_HOME", file=sys.stderr)
-        sys.exit(1)
-
-    output_dir = os.path.abspath(args.output)
-    os.makedirs(output_dir, exist_ok=True)
-
-    selected = _parse_cwe_list(args.cwe)
-    if selected == ["all"]:
-        selected = sorted(scripts.keys())
-
-    missing = [name for name in selected if name not in scripts]
-    if missing:
-        print("Error: unknown CWE script(s): " + ", ".join(missing), file=sys.stderr)
-        print(_format_cwe_help(scripts), file=sys.stderr)
-        sys.exit(1)
-
-    for cpg_path in cpg_paths:
-        if not os.path.exists(cpg_path):
-            print(f"Error: cpg file not found: {cpg_path}", file=sys.stderr)
-            sys.exit(1)
-        cpg_tag = _make_cpg_tag(cpg_path)
-        with tempfile.TemporaryDirectory(prefix="joern_audit_") as temp_dir:
-            for name in selected:
-                script_path = scripts[name]
-                report_path = os.path.join(output_dir, f"{cpg_tag}.{name}.json")
-                safe_cpg = cpg_path.replace("\\", "/")
-                safe_report = report_path.replace("\\", "/")
-                cmd = f"\"{joern_bin}\" --script \"{script_path}\" --param \"cpgFile={safe_cpg}\" --param \"outputFile={safe_report}\""
-                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=temp_dir)
-                if result.returncode != 0:
-                    if result.stdout:
-                        print(result.stdout, file=sys.stderr)
-                    if result.stderr:
-                        print(result.stderr, file=sys.stderr)
-                    sys.exit(result.returncode)
-                if not os.path.exists(report_path):
-                    if result.stdout:
-                        print(result.stdout, file=sys.stderr)
-                    if result.stderr:
-                        print(result.stderr, file=sys.stderr)
-                    print(f"Error: report not generated: {report_path}", file=sys.stderr)
-                    sys.exit(1)
-                print(f"{name}: {report_path}")
-
 def workspace_main():
     parser = argparse.ArgumentParser(description="Initialize a local MCP workspace")
     parser.add_argument("--init", required=True, default=".", help="Workspace directory to initialize")
@@ -438,8 +269,6 @@ def main():
         config_main()
     elif command == "workspace":
         workspace_main()
-    elif command == "audit":
-        audit_main()
     elif command == "scan":
         scan_cmd.main()
     elif command == "taint":
