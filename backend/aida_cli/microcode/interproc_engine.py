@@ -171,7 +171,7 @@ class InterProcTaintEngine:
         for alias_ptr, alias_target in state.aliases.items():
             g_key = None
             if isinstance(alias_ptr, HelperFuncAttr):
-                g_key = alias_ptr.name
+                g_key = alias_ptr.get_global_key()
             elif isinstance(alias_ptr, GlobalAttr):
                 g_key = hex(alias_ptr.ea)
             

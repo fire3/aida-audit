@@ -207,6 +207,17 @@ class HelperFuncAttr(OperandAttr):
     def attr_type(self) -> str:
         return AttrType.HELPER_FUNC
 
+    @staticmethod
+    def normalize_name(name: str) -> str:
+        """标准化全局变量名称，去除SSA后缀（如 .8{2} -> _CWE78_badData）"""
+        import re
+        normalized = re.sub(r'\.8\{\d+\}$', '', name)
+        return normalized.lstrip('_')
+
+    def get_global_key(self) -> str:
+        """获取用于 global_taints 的标准化的键"""
+        return self.normalize_name(self.name)
+
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
         return f"{prefix}HelperFuncAttr(name={self.name!r}, ea={self.ea})"

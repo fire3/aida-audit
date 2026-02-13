@@ -59,7 +59,7 @@ class InstructionProcessor:
                 resolved = self.state._resolve(read.attr)
                 g_key = None
                 if isinstance(resolved, HelperFuncAttr):
-                    g_key = resolved.name
+                    g_key = resolved.get_global_key()
                 elif isinstance(resolved, GlobalAttr):
                     g_key = hex(resolved.ea)
                 
@@ -68,6 +68,14 @@ class InstructionProcessor:
                     labels.update(g_labels)
                     origins.update(g_origins)
                     self.state.add_taint(read.attr, g_labels, g_origins, reason="global_pull")
+
+                if isinstance(read.attr, HelperFuncAttr):
+                    g_key = read.attr.get_global_key()
+                    if g_key in self.engine.interproc_state.global_taints:
+                        g_labels, g_origins = self.engine.interproc_state.global_taints[g_key]
+                        labels.update(g_labels)
+                        origins.update(g_origins)
+                        self.state.add_taint(read.attr, g_labels, g_origins, reason="global_pull")
 
         return labels, origins
 
@@ -347,7 +355,8 @@ class InstructionProcessor:
         inter_path = []
         interproc_state = self.engine.interproc_state
         for func_ea, ctx in interproc_state.func_contexts.items():
-            if label in str(ctx.arg_taints) or label in str(ctx.ret_taint):
+            ctx_str = str(ctx.arg_taints) + str(ctx.ret_taint)
+            if label in ctx_str:
                 inter_path.append({
                     "function": ctx.func_name,
                     "function_ea": hex(func_ea) if isinstance(func_ea, int) else func_ea,
@@ -504,32 +513,6 @@ class InstructionProcessor:
                 seen.add(attr)
                 args.append(attr)
         return args
-
-    def _get_propagation_trace(self, label):
-        return self.propagation_trace.get(label, [])
-
-    def _get_interproc_path(self, label):
-        if not self.engine.interproc_state:
-            return []
-        inter_path = []
-        interproc_state = self.engine.interproc_state
-        for func_ea, ctx in interproc_state.func_contexts.items():
-            ctx_str = str(ctx.arg_taints) + str(ctx.ret_taint)
-            if label in ctx_str:
-                inter_path.append({
-                    "function": ctx.func_name,
-                    "function_ea": hex(func_ea) if isinstance(func_ea, int) else func_ea,
-                    "type": "context_arg" if label in str(ctx.arg_taints) else "context_ret",
-                })
-        return inter_path
-
-    def _build_propagation_steps(self, label):
-        steps = []
-        traces = self._get_propagation_trace(label)
-        for trace in traces:
-            step = f"{trace.get('function', '?')}::{trace.get('operation', '?')}: {trace.get('from_attr', '?')} -> {trace.get('to_attr', '?')} at {trace.get('insn_ea', '?')}"
-            steps.append(step)
-        return steps
 
 
 __all__ = ["InstructionProcessor"]
