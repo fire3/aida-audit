@@ -19,6 +19,8 @@ float global_float = 3.14f;
 double global_double = 2.718;
 void *global_ptr = NULL;
 int global_array[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+char buffer1[64] = {0};
+char buffer2[64] = {0};
 
 /* Structure for testing */
 struct TestStruct {
@@ -322,7 +324,106 @@ int test_loops(int n) {
 }
 
 /* ============================================
- * Test Case 8: Function Calls
+ * Test Case 31: Standard Library Function Calls
+ * ============================================ */
+#include <stdlib.h>
+#include <math.h>
+#include <ctype.h>
+#include <time.h>
+
+int test_library_calls(char *str_num, void *mem1, void *mem2, size_t n) {
+    int result = 0;
+    int arr[10] = {5, 2, 8, 1, 9, 3, 7, 4, 6, 0};
+    int arr_copy[10];
+
+    /* Memory functions */
+    memcpy(arr_copy, arr, sizeof(arr));
+    result += arr_copy[0];
+
+    memset(mem1, 0xAA, n);
+    result += ((unsigned char *)mem1)[0];
+
+    int cmp = memcmp(mem1, mem2, n);
+    result += (cmp == 0) ? 1 : -1;
+
+    /* String conversion functions */
+    int i_val = atoi(str_num);
+    result += i_val;
+
+    long l_val = atol(str_num);
+    result += (int)(l_val % 100);
+
+    double d_val = atof(str_num);
+    result += (int)(d_val * 10) % 1000;
+
+    /* Math functions */
+    double sqrt_result = sqrt(16.0);
+    result += (int)sqrt_result;
+
+    double pow_result = pow(2.0, 3.0);
+    result += (int)pow_result;
+
+    result += (int)sin(0.0);
+    result += (int)cos(0.0);
+    result += (int)floor(3.7);
+    result += (int)ceil(3.2);
+    result += (int)fabs(-5.5);
+
+    /* Character classification */
+    result += isdigit('5') ? 1 : 0;
+    result += isalpha('A') ? 1 : 0;
+    result += isalnum('1') ? 1 : 0;
+    result += toupper('a') == 'A' ? 1 : 0;
+    result += tolower('B') == 'b' ? 1 : 0;
+
+    /* Random number generation */
+    srand(42);
+    int rand_val = rand();
+    result += rand_val % 100;
+
+    /* Dynamic memory allocation */
+    int *dyn_arr = malloc(5 * sizeof(int));
+    if (dyn_arr) {
+        for (int i = 0; i < 5; i++) {
+            dyn_arr[i] = i * 2;
+        }
+        result += dyn_arr[4];
+        free(dyn_arr);
+    }
+
+    /* Absolute value */
+    result += abs(-10);
+    result += labs(-100L);
+    result += llabs(-1000000LL);
+
+    /* Div operation */
+    div_t d = div(27, 5);
+    result += d.quot;
+    result += d.rem;
+
+    return result;
+}
+
+/* ============================================
+ * Test Case 32: Printf-style Function Calls
+ * ============================================ */
+int test_printf_calls(int val, double dval) {
+    int result = 0;
+    char buffer[100];
+
+    /* sprintf */
+    int len = sprintf(buffer, "%d", val);
+    result += len;
+
+    /* snprintf */
+    len = snprintf(buffer, sizeof(buffer), "Value: %d, Float: %.2f", val, dval);
+    result += len;
+
+    return result;
+}
+
+/* ============================================
+ * Test Case 8: Function Calls (Updated)
  * ============================================ */
 int test_function_calls(int a, int b) {
     int result;
@@ -344,6 +445,10 @@ int test_function_calls(int a, int b) {
     func_ptr_t fp = callback_func;
     result = fp(a);
     
+    /* Library function calls */
+    result += test_library_calls("42", buffer1, buffer2, 32);
+    result += test_printf_calls(a, 3.14);
+
     return result;
 }
 
@@ -991,6 +1096,8 @@ int main(void) {
     result = test_helper_calls(a, b);
     char local_buf[100];
     result = test_memory_operations(local_buf, 10);
+    result = test_library_calls("123", buffer1, buffer2, 64);
+    result = test_printf_calls(a, 3.14);
     
     printf("All tests completed. Result: %d\n", result);
     
