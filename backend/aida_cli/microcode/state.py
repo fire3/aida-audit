@@ -110,12 +110,17 @@ class TaintState:
             while isinstance(current, LoadAttr) and current not in visited:
                 visited.add(current)
                 current = current.ptr
-            if current in self.aliases:
-                return self.aliases[current]
+            alias_visited = set()
+            while current in self.aliases and current not in alias_visited:
+                alias_visited.add(current)
+                current = self.aliases[current]
             return current
-        if attr in self.aliases:
-            return self.aliases[attr]
-        return attr
+        current = attr
+        alias_visited = set()
+        while current in self.aliases and current not in alias_visited:
+            alias_visited.add(current)
+            current = self.aliases[current]
+        return current
 
     def add_alias(self, ptr: OperandAttr, target: OperandAttr) -> bool:
         """添加指针别名 ptr -> target，返回是否新增别名"""

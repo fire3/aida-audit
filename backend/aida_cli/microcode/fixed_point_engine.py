@@ -13,6 +13,8 @@ from .common import (
     LoadAttr,
     StoreAttr,
     RegisterAttr,
+    ImmediateAttr,
+    StringAttr,
     OperandAttr,
     InsnInfo,
     CallInfo,
@@ -74,6 +76,13 @@ class SimpleLogger:
 from ..rule_matcher import RuleMatcher
 
 
+def _log_info(logger, message):
+    if hasattr(logger, "info"):
+        logger.info(message)
+    else:
+        logger.log(message)
+
+
 class AliasAnalyzer:
     def __init__(self, state: TaintState, utils: MicroCodeUtils, logger: SimpleLogger):
         self.state = state
@@ -99,7 +108,7 @@ class AliasAnalyzer:
 
     def _handle_move(self, insn: InsnInfo) -> List[AliasChange]:
         changes = []
-        if len(insn.reads) != 1 or len(insn.writes) != 1:
+        if not insn.reads or not insn.writes:
             return changes
 
         src = insn.reads[0].attr
@@ -108,10 +117,15 @@ class AliasAnalyzer:
         if src is None or dst is None:
             return changes
 
-        if isinstance(src, AddressAttr):
-            if self.state.add_alias(dst, src.inner):
-                changes.append(AliasChange(dst, src.inner, "mov_address"))
-                self.logger.log(f"[ALIAS] {dst} -> {src.inner}")
+        address_src = None
+        for read in insn.reads:
+            if isinstance(read.attr, AddressAttr):
+                address_src = read.attr
+                break
+        if address_src is not None:
+            if self.state.add_alias(dst, address_src.inner):
+                changes.append(AliasChange(dst, address_src.inner, "mov_address"))
+                self.logger.log(f"[ALIAS] {dst} -> {address_src.inner}")
 
         if isinstance(dst, LoadAttr):
             if self.state.add_alias(dst, src):
@@ -151,6 +165,30 @@ class AliasAnalyzer:
 
     def _handle_load(self, insn: InsnInfo) -> List[AliasChange]:
         changes = []
+        if not insn.reads or not insn.writes:
+            return changes
+
+        read_attr = None
+        for read in insn.reads:
+            if isinstance(read.attr, LoadAttr):
+                read_attr = read.attr
+                break
+        write_attr = insn.writes[0].attr
+        if read_attr is None or write_attr is None:
+            return changes
+
+        if isinstance(read_attr, LoadAttr):
+            ptr = read_attr.ptr
+            while isinstance(ptr, LoadAttr):
+                ptr = ptr.ptr
+            target = None
+            if isinstance(ptr, AddressAttr):
+                target = ptr.inner
+            elif ptr in self.state.aliases:
+                target = self.state.aliases[ptr]
+            if target is not None and self.state.add_alias(write_attr, target):
+                changes.append(AliasChange(write_attr, target, "load"))
+                self.logger.log(f"[ALIAS] {write_attr} -> {target}")
         return changes
 
     def _is_store(self, insn: InsnInfo) -> bool:
@@ -158,6 +196,31 @@ class AliasAnalyzer:
 
     def _handle_store(self, insn: InsnInfo) -> List[AliasChange]:
         changes = []
+        if len(insn.writes) != 1:
+            return changes
+        write_attr = insn.writes[0].attr
+        if not isinstance(write_attr, StoreAttr):
+            return changes
+        ptr = write_attr.ptr
+        value = write_attr.value
+        if ptr is None or value is None:
+            return changes
+        target = value.inner if isinstance(value, AddressAttr) else value
+        if isinstance(target, (ImmediateAttr, StringAttr)):
+            return changes
+        ptr_candidates = [ptr]
+        if isinstance(ptr, AddressAttr):
+            ptr_candidates.append(ptr.inner)
+        for candidate in ptr_candidates:
+            if candidate is None:
+                continue
+            if self.state.add_alias(candidate, target):
+                changes.append(AliasChange(candidate, target, "store"))
+                self.logger.log(f"[ALIAS] {candidate} -> {target}")
+            resolved = self.state.aliases.get(candidate)
+            if resolved is not None and self.state.add_alias(resolved, target):
+                changes.append(AliasChange(resolved, target, "store"))
+                self.logger.log(f"[ALIAS] {resolved} -> {target}")
         return changes
 
 
@@ -175,6 +238,8 @@ class InstructionProcessor:
 
     def process(self, insn: InsnInfo, block_id: int) -> List[Finding]:
         findings = []
+
+        AliasAnalyzer(self.state, self.utils, self.logger).analyze(insn)
 
         read_taint = self._collect_read_taint(insn)
 
@@ -225,7 +290,7 @@ class InstructionProcessor:
                 for target_attr in self._expand_arg_attrs(write.attr.ptr):
                     if self.state.add_taint(target_attr, labels, origins, reason="store_ptr"):
                         origin_labels = [o.label for o in origins] if origins else []
-                        self.logger.info(f"[TAINT][store_ptr] {sorted(labels)} -> {target_attr} (origins: {sorted(origin_labels)})")
+                        _log_info(self.logger, f"[TAINT][store_ptr] {sorted(labels)} -> {target_attr} (origins: {sorted(origin_labels)})")
 
         for read in insn.reads:
             if read.attr is None:
@@ -235,7 +300,7 @@ class InstructionProcessor:
                 target = self.state.aliases[resolved]
                 self.state.add_taint(target, labels, origins, reason="store")
                 origin_labels = [o.label for o in origins] if origins else []
-                self.logger.info(f"[TAINT][store] {sorted(labels)} -> {target} (origins: {sorted(origin_labels)})")
+                _log_info(self.logger, f"[TAINT][store] {sorted(labels)} -> {target} (origins: {sorted(origin_labels)})")
 
     def _handle_call(self, insn: InsnInfo, findings: List[Finding]):
         for call in insn.calls:
@@ -340,12 +405,12 @@ class InstructionProcessor:
                 for target_attr in self._expand_arg_attrs(attr):
                     if self.state.add_taint(target_attr, collected_labels, collected_origins, reason="propagator"):
                         origin_labels = [o.label for o in collected_origins] if collected_origins else []
-                        self.logger.info(f"[TAINT][propagator][{rule.get('name') or rule.get('pattern')}] {sorted(collected_labels)} -> arg[{idx}] (origins: {sorted(origin_labels)})")
+                        _log_info(self.logger, f"[TAINT][propagator][{rule.get('name') or rule.get('pattern')}] {sorted(collected_labels)} -> arg[{idx}] (origins: {sorted(origin_labels)})")
 
             if rule.get("to_ret") and call.ret:
                 if self.state.add_taint(call.ret, collected_labels, collected_origins, reason="propagator_ret"):
                     origin_labels = [o.label for o in collected_origins] if collected_origins else []
-                    self.logger.info(f"[TAINT][propagator][{rule.get('name') or rule.get('pattern')}] {sorted(collected_labels)} -> ret (origins: {sorted(origin_labels)})")
+                    _log_info(self.logger, f"[TAINT][propagator][{rule.get('name') or rule.get('pattern')}] {sorted(collected_labels)} -> ret (origins: {sorted(origin_labels)})")
 
     def _apply_default_return_propagation(self, call: CallInfo):
         if not call.ret:
@@ -355,7 +420,7 @@ class InstructionProcessor:
         if labels:
             if self.state.add_taint(call.ret, labels, origins, reason="default_return"):
                 origin_labels = [o.label for o in origins] if origins else []
-                self.logger.info(f"[TAINT][default_return] {sorted(labels)} -> ret (origins: {sorted(origin_labels)})")
+                _log_info(self.logger, f"[TAINT][default_return] {sorted(labels)} -> ret (origins: {sorted(origin_labels)})")
 
     def _apply_interproc(self, call: CallInfo):
         interproc_state = self.engine.interproc_state
@@ -388,12 +453,12 @@ class InstructionProcessor:
                 for target_attr in self._expand_arg_attrs(attr):
                     if self.state.add_taint(target_attr, set(labels), set(origins), reason="interproc_out_arg"):
                         origin_labels = [o.label for o in origins] if origins else []
-                        self.logger.info(f"[TAINT][interproc][out_arg] {sorted(labels)} -> arg[{caller_idx}] (origins: {sorted(origin_labels)})")
+                        _log_info(self.logger, f"[TAINT][interproc][out_arg] {sorted(labels)} -> arg[{caller_idx}] (origins: {sorted(origin_labels)})")
             if ctx.ret_taint and call.ret:
                 labels, origins = ctx.ret_taint
                 if labels and self.state.add_taint(call.ret, set(labels), set(origins), reason="interproc_ret"):
                     origin_labels = [o.label for o in origins] if origins else []
-                    self.logger.info(f"[TAINT][interproc][ret] {sorted(labels)} -> ret (origins: {sorted(origin_labels)})")
+                    _log_info(self.logger, f"[TAINT][interproc][ret] {sorted(labels)} -> ret (origins: {sorted(origin_labels)})")
             if ctx.ret_taint and rule and rule.ret_to_args:
                 labels, origins = ctx.ret_taint
                 for idx in rule.ret_to_args:
@@ -405,7 +470,7 @@ class InstructionProcessor:
                     for target_attr in self._expand_arg_attrs(attr):
                         if self.state.add_taint(target_attr, set(labels), set(origins), reason="interproc_ret_to_arg"):
                             origin_labels = [o.label for o in origins] if origins else []
-                            self.logger.info(f"[TAINT][interproc][ret_to_arg] {sorted(labels)} -> arg[{idx}] (origins: {sorted(origin_labels)})")
+                            _log_info(self.logger, f"[TAINT][interproc][ret_to_arg] {sorted(labels)} -> arg[{idx}] (origins: {sorted(origin_labels)})")
 
     def _apply_sinks(self, call: CallInfo, insn: InsnInfo, findings: List[Finding]):
         callee, callee_ea = self._resolve_callee(call)
@@ -708,7 +773,7 @@ class FixedPointTaintEngine:
             new_origins.add(TaintOrigin(label=source_label, ea=self.func_info.ea, function=self.func_info.function))
             if self.state.add_taint(attr, merged_labels, new_origins, reason="interproc_arg_infer_source"):
                 origin_labels = [o.label for o in origins] if origins else []
-                self.logger.info(f"[TAINT][interproc][arg] {sorted(labels)} -> arg[{idx}] (origins: {sorted(origin_labels)})")
+                _log_info(self.logger, f"[TAINT][interproc][arg] {sorted(labels)} -> arg[{idx}] (origins: {sorted(origin_labels)})")
 
     def _infer_entry_args(self) -> List[OperandAttr]:
         entry_block = self.func_info.entry_block
