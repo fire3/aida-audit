@@ -218,6 +218,22 @@ class HelperFuncAttr(OperandAttr):
         """获取用于 global_taints 的标准化的键"""
         return self.normalize_name(self.name)
 
+    def get_ea_from_ida(self):
+        """使用 IDA API 获取全局变量地址"""
+        from .constants import idc, ida_ida
+        if not idc or not hasattr(idc, 'get_name_ea'):
+            return None
+        
+        try:
+            from .constants import BADADDR
+            lookup_name = self.name.lstrip('$')
+            ea = idc.get_name_ea(BADADDR, lookup_name)
+            if ea not in (None, BADADDR):
+                return ea
+        except Exception:
+            pass
+        return None
+
     def to_string(self, indent: int = 0) -> str:
         prefix = "  " * indent
         return f"{prefix}HelperFuncAttr(name={self.name!r}, ea={self.ea})"

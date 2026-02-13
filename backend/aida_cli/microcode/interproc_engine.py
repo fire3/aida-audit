@@ -149,7 +149,11 @@ class InterProcTaintEngine:
                 continue
             g_key = None
             if isinstance(attr, HelperFuncAttr):
-                g_key = attr.name
+                ea = attr.get_ea_from_ida()
+                if ea:
+                    g_key = hex(ea)
+                else:
+                    g_key = attr.get_global_key()
             elif isinstance(attr, GlobalAttr):
                 g_key = hex(attr.ea)
             
@@ -171,7 +175,11 @@ class InterProcTaintEngine:
         for alias_ptr, alias_target in state.aliases.items():
             g_key = None
             if isinstance(alias_ptr, HelperFuncAttr):
-                g_key = alias_ptr.get_global_key()
+                ea = alias_ptr.get_ea_from_ida()
+                if ea:
+                    g_key = hex(ea)
+                else:
+                    g_key = alias_ptr.get_global_key()
             elif isinstance(alias_ptr, GlobalAttr):
                 g_key = hex(alias_ptr.ea)
             

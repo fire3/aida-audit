@@ -59,7 +59,11 @@ class InstructionProcessor:
                 resolved = self.state._resolve(read.attr)
                 g_key = None
                 if isinstance(resolved, HelperFuncAttr):
-                    g_key = resolved.get_global_key()
+                    ea = resolved.get_ea_from_ida()
+                    if ea:
+                        g_key = hex(ea)
+                    else:
+                        g_key = resolved.get_global_key()
                 elif isinstance(resolved, GlobalAttr):
                     g_key = hex(resolved.ea)
                 
@@ -70,7 +74,11 @@ class InstructionProcessor:
                     self.state.add_taint(read.attr, g_labels, g_origins, reason="global_pull")
 
                 if isinstance(read.attr, HelperFuncAttr):
-                    g_key = read.attr.get_global_key()
+                    ea = read.attr.get_ea_from_ida()
+                    if ea:
+                        g_key = hex(ea)
+                    else:
+                        g_key = read.attr.get_global_key()
                     if g_key in self.engine.interproc_state.global_taints:
                         g_labels, g_origins = self.engine.interproc_state.global_taints[g_key]
                         labels.update(g_labels)
