@@ -214,6 +214,11 @@ def main():
     print(f"Found {len(test_files)} test files.")
     print(f"Output directory: {args.output_dir}")
     print(f"Parallel jobs: {args.jobs}")
+    if args.filter:
+        for f in test_files:
+            case_name = os.path.basename(f)
+            print(f"  Logs: {args.output_dir}/{case_name}/scan.stdout.log")
+            print(f"  Logs: {args.output_dir}/{case_name}/scan.stderr.log")
     print("-" * 60)
     
     results = {
