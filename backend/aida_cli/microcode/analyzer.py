@@ -137,8 +137,10 @@ class MicrocodeInstructionAnalyzer:
         self.mba = mba
         self.utils = utils or MicroCodeUtils()
 
-    def analyze_instruction(self, insn):
-        reads, writes, calls = self._analyze_minsn(insn)
+    def analyze_instruction(self, insn, caller_func_ea=None, caller_arg_vars=None):
+        reads, writes, calls = self._analyze_minsn(
+            insn, caller_func_ea=caller_func_ea, caller_arg_vars=caller_arg_vars
+        )
         opname = self.utils.get_effective_opcode_name(insn.opcode, insn)
         return InsnInfo(
             opcode=opname,
@@ -156,13 +158,18 @@ class MicrocodeInstructionAnalyzer:
             calls=calls,
         )
 
-    def _analyze_minsn(self, insn):
+    def _analyze_minsn(self, insn, caller_func_ea=None, caller_arg_vars=None):
         reads = []
         writes = []
         calls = []
 
         if self.utils.is_call_opcode(insn.opcode):
-            self._record_call(insn, calls)
+            self._record_call(
+                insn,
+                calls,
+                caller_func_ea=caller_func_ea,
+                caller_arg_vars=caller_arg_vars,
+            )
 
         visitor = MopUsageVisitor(self, reads, writes, calls)
         if hasattr(insn, "for_all_ops"):
@@ -194,7 +201,7 @@ class MicrocodeInstructionAnalyzer:
         calls = self._dedupe_calls(calls)
         return reads, writes, calls
 
-    def _record_call(self, insn, calls):
+    def _record_call(self, insn, calls, caller_func_ea=None, caller_arg_vars=None):
         opname = self.utils.get_effective_opcode_name(insn.opcode, insn)
         l = getattr(insn, "l", None)
         r = getattr(insn, "r", None)
@@ -270,6 +277,9 @@ class MicrocodeInstructionAnalyzer:
                 arg_order=list(range(len(args))),
                 call_conv=self._get_call_conv(insn, callee_ea, callee_name),
                 ret_width=self._get_ret_width(ret_mop, insn, callee_ea, callee_name),
+                call_site_ea=getattr(insn, "ea", None),
+                caller_func_ea=caller_func_ea,
+                caller_arg_vars=list(caller_arg_vars or []),
             )
         )
 
@@ -853,7 +863,13 @@ class MicrocodeFunctionAnalyzer:
             insns_in_block = self.block_insns[block_id]
             for idx_in_block, (insn_idx, insn) in enumerate(insns_in_block):
                 try:
-                    insn_entry = self._build_insn_entry(block_id, insn_idx, insn)
+                    insn_entry = self._build_insn_entry(
+                        block_id,
+                        insn_idx,
+                        insn,
+                        caller_func_ea=pfn.start_ea,
+                        caller_arg_vars=func_args,
+                    )
                     self._populate_jump_info(insn_entry, insn, block_id, cfg_blocks)
                     insns.append(insn_entry)
                 except Exception:
@@ -900,9 +916,11 @@ class MicrocodeFunctionAnalyzer:
                 curr = curr.next
                 insn_idx += 1
 
-    def _build_insn_entry(self, block_id, insn_idx, insn):
+    def _build_insn_entry(self, block_id, insn_idx, insn, caller_func_ea=None, caller_arg_vars=None):
         ea_str = hex(insn.ea)
-        cpg_info = self.instruction_analyzer.analyze_instruction(insn)
+        cpg_info = self.instruction_analyzer.analyze_instruction(
+            insn, caller_func_ea=caller_func_ea, caller_arg_vars=caller_arg_vars
+        )
         return InsnInfo(
             block_id=block_id,
             insn_idx=insn_idx,
