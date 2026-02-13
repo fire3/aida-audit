@@ -12,6 +12,8 @@ from .common import (
     StoreAttr,
     BlockAttr,
     HelperFuncAttr,
+    FloatImmediateAttr,
+    CastAttr,
     ExpressionAttr,
     AttrType,
 )
@@ -291,6 +293,9 @@ class MicroCodeUtils:
                 return ImmediateAttr(value=value, raw=value, text=self.safe_dstr(mop))
             fvalue = self._parse_float_from_text(self.safe_dstr(mop))
             if fvalue is not None:
+                text = self.safe_dstr(mop)
+                if text and ("double" in text.lower() or "float" in text.lower()):
+                    return FloatImmediateAttr(value=fvalue, text=text)
                 return ImmediateAttr(fvalue=fvalue, text=self.safe_dstr(mop))
             return ExpressionAttr(expr=self.safe_dstr(mop))
 
@@ -304,7 +309,18 @@ class MicroCodeUtils:
                 return ImmediateAttr(value=value, raw=value, text=text)
             fvalue = self._parse_float_from_text(text)
             if fvalue is not None:
+                if text and ("double" in text.lower() or "float" in text.lower() or "#(" in text):
+                    return FloatImmediateAttr(value=fvalue, text=text)
                 return ImmediateAttr(fvalue=fvalue, text=text)
+            
+            if text and ("xdu" in text or "xds" in text or "xdu" in text):
+                cast_match = re.match(r'(\w+)\s+(xdu|xds)\.(\d+)\((.+)\)', text)
+                if cast_match:
+                    cast_type = cast_match.group(2)
+                    size = int(cast_match.group(3))
+                    inner_text = cast_match.group(4)
+                    return CastAttr(cast_type=cast_type, size=size, src=None)
+            
             return ExpressionAttr(expr=text)
 
         if t == ida_hexrays.mop_str:
@@ -378,6 +394,20 @@ class MicroCodeUtils:
                             mem_size = None
                         return LoadAttr(ptr=addr_key, mem_size=mem_size)
 
+        text = self.safe_dstr(mop)
+        if text:
+            if "xdu" in text:
+                cast_match = re.match(r'(\w+)\s+(xdu)\.(\d+)\((.+)\)', text)
+                if cast_match:
+                    cast_type = cast_match.group(2)
+                    size = int(cast_match.group(3))
+                    return CastAttr(cast_type=cast_type, size=size, src=None)
+            if "xds" in text:
+                cast_match = re.match(r'(xds)\.(\d+)\((.+)\)', text)
+                if cast_match:
+                    cast_type = cast_match.group(1)
+                    size = int(cast_match.group(2))
+                    return CastAttr(cast_type=cast_type, size=size, src=None)
         return ExpressionAttr(expr=self.safe_dstr(mop))
 
     def _to_int(self, x) -> Optional[int]:

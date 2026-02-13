@@ -22,6 +22,8 @@ from .common import (
     StoreAttr,
     BlockAttr,
     HelperFuncAttr,
+    FloatImmediateAttr,
+    CastAttr,
     ExpressionAttr,
     OperandInfo,
     CallInfo,

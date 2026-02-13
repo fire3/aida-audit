@@ -25,6 +25,8 @@ class AttrType:
     BLOCK = "block"
     EXPRESSION = "expression"
     HELPER_FUNC = "helper_func"
+    FLOAT_IMMEDIATE = "float_immediate"
+    CAST = "cast"
 
 
 class OperandAttr(ABC):
@@ -211,6 +213,38 @@ class HelperFuncAttr(OperandAttr):
 
 
 @dataclass(frozen=True, eq=True)
+class FloatImmediateAttr(OperandAttr):
+    """浮点数立即数属性"""
+    value: float
+    text: str = ""
+
+    @property
+    def attr_type(self) -> str:
+        return AttrType.FLOAT_IMMEDIATE
+
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        return f"{prefix}FloatImmediateAttr(value={self.value}, text={self.text!r})"
+
+
+@dataclass(frozen=True, eq=True)
+class CastAttr(OperandAttr):
+    """类型转换属性 (xdu/xds 等类型转换)"""
+    cast_type: str
+    size: int
+    src: Optional[OperandAttr] = None
+
+    @property
+    def attr_type(self) -> str:
+        return AttrType.CAST
+
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        src_dump = self.src.to_string(indent + 1) if self.src else "None"
+        return f"{prefix}CastAttr(cast_type={self.cast_type!r}, size={self.size}, src={src_dump})"
+
+
+@dataclass(frozen=True, eq=True)
 class ExpressionAttr(OperandAttr):
     """复杂表达式属性 (不可分解)"""
     expr: str
@@ -236,6 +270,8 @@ OperandAttrList = Union[
     StoreAttr,
     BlockAttr,
     HelperFuncAttr,
+    FloatImmediateAttr,
+    CastAttr,
     ExpressionAttr,
 ]
 
@@ -428,6 +464,8 @@ __all__ = [
     "StoreAttr",
     "BlockAttr",
     "HelperFuncAttr",
+    "FloatImmediateAttr",
+    "CastAttr",
     "ExpressionAttr",
     "OperandAttrList",
     "OperandInfo",
