@@ -20,6 +20,8 @@ from .common import (
     AddressAttr,
     LoadAttr,
     StoreAttr,
+    BlockAttr,
+    HelperFuncAttr,
     ExpressionAttr,
     OperandInfo,
     CallInfo,
@@ -232,6 +234,9 @@ class MicrocodeInstructionAnalyzer:
         callee_ea = None
         if callee:
             if isinstance(callee, GlobalAttr):
+                callee_ea = callee.ea
+            elif isinstance(callee, HelperFuncAttr):
+                callee_name = callee.name
                 callee_ea = callee.ea
             elif isinstance(callee, ExpressionAttr):
                 callee_name = self.utils._get_func_name_from_helper(callee.expr)
@@ -812,7 +817,7 @@ class MicrocodeCFGBuilder:
             if mop is None:
                 continue
             target = self.utils.mop_to_attr(mop)
-            if target is not None and hasattr(target, "block_id"):
+            if target is not None and isinstance(target, BlockAttr):
                 targets.append(target.block_id)
         if targets:
             return targets
@@ -985,7 +990,7 @@ class MicrocodeFunctionAnalyzer:
             if mop is None:
                 continue
             target = self.utils.mop_to_attr(mop)
-            if target is not None and hasattr(target, "block_id"):
+            if target is not None and isinstance(target, BlockAttr):
                 targets.append(target.block_id)
         return targets
 

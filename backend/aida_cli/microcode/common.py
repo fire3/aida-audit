@@ -24,6 +24,7 @@ class AttrType:
     STORE = "store"
     BLOCK = "block"
     EXPRESSION = "expression"
+    HELPER_FUNC = "helper_func"
 
 
 class OperandAttr(ABC):
@@ -195,6 +196,21 @@ class BlockAttr(OperandAttr):
 
 
 @dataclass(frozen=True, eq=True)
+class HelperFuncAttr(OperandAttr):
+    """Helper 函数引用属性 (如 $sub_1020, $__gmon_start__)"""
+    name: str
+    ea: Optional[int] = None
+
+    @property
+    def attr_type(self) -> str:
+        return AttrType.HELPER_FUNC
+
+    def to_string(self, indent: int = 0) -> str:
+        prefix = "  " * indent
+        return f"{prefix}HelperFuncAttr(name={self.name!r}, ea={self.ea})"
+
+
+@dataclass(frozen=True, eq=True)
 class ExpressionAttr(OperandAttr):
     """复杂表达式属性 (不可分解)"""
     expr: str
@@ -219,6 +235,7 @@ OperandAttrList = Union[
     LoadAttr,
     StoreAttr,
     BlockAttr,
+    HelperFuncAttr,
     ExpressionAttr,
 ]
 
@@ -410,6 +427,7 @@ __all__ = [
     "LoadAttr",
     "StoreAttr",
     "BlockAttr",
+    "HelperFuncAttr",
     "ExpressionAttr",
     "OperandAttrList",
     "OperandInfo",

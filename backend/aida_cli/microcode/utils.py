@@ -11,6 +11,7 @@ from .common import (
     LoadAttr,
     StoreAttr,
     BlockAttr,
+    HelperFuncAttr,
     ExpressionAttr,
     AttrType,
 )
@@ -251,14 +252,24 @@ class MicroCodeUtils:
         if t == ida_hexrays.mop_v:
             g = getattr(mop, "g", None)
             ea = self._to_int(getattr(g, "ea", None)) if g is not None else None
+            text = self.safe_dstr(mop)
             if ea is not None:
                 return GlobalAttr(ea=ea)
+            if text and text.startswith("$"):
+                return HelperFuncAttr(name=text)
             return ExpressionAttr(expr=self.safe_dstr(mop))
 
         if t == ida_hexrays.mop_a:
             a = getattr(mop, "a", None)
             inner = self.mop_to_attr(a)
             if inner:
+                text = self.safe_dstr(mop)
+                offset = None
+                if text and text.startswith("&"):
+                    addr_part = text[1:]
+                    if addr_part.endswith(".8") or addr_part.endswith(".4") or addr_part.endswith(".2") or addr_part.endswith(".1"):
+                        addr_part = addr_part.rsplit(".", 1)[0]
+                    return AddressAttr(inner=inner, base=inner, offset=offset)
                 return AddressAttr(inner=inner, base=inner, offset=None)
             return ExpressionAttr(expr=self.safe_dstr(mop))
 
@@ -304,10 +315,15 @@ class MicroCodeUtils:
             
         if t == ida_hexrays.mop_h:
             helper = getattr(mop, "helper", None)
+            text = self.safe_dstr(mop)
             if helper:
                 func_name = self._get_func_name_from_helper(helper)
                 if func_name:
-                    return ExpressionAttr(expr=func_name)
+                    return HelperFuncAttr(name=func_name)
+            if text and text.startswith("$"):
+                clean_name = text.lstrip("$")
+                if clean_name:
+                    return HelperFuncAttr(name=clean_name)
             return ExpressionAttr(expr=self.safe_dstr(mop))
 
         if t == getattr(ida_hexrays, "mop_b", None):
@@ -323,6 +339,14 @@ class MicroCodeUtils:
                 block_id = self._to_int(getattr(mop, "block_id", None))
             if block_id is not None:
                 return BlockAttr(block_id=block_id)
+            text = self.safe_dstr(mop)
+            if text and text.startswith("@"):
+                try:
+                    block_id = int(text[1:])
+                    if block_id is not None:
+                        return BlockAttr(block_id=block_id)
+                except ValueError:
+                    pass
             return ExpressionAttr(expr=self.safe_dstr(mop))
 
         if t == ida_hexrays.mop_d:
