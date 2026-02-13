@@ -120,6 +120,12 @@ class SimpleLogger:
         import logging
         self._logger = logging.getLogger("FixedPointTaintEngine")
         self._verbose = verbose
+        if not self._logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('[%(asctime)s] %(message)s', datefmt='%H:%M:%S')
+            handler.setFormatter(formatter)
+            self._logger.addHandler(handler)
+            self._logger.setLevel(logging.DEBUG)
 
     def log(self, message):
         if self._verbose:
@@ -275,8 +281,10 @@ class InstructionProcessor:
         for write in insn.writes:
             if write.attr is None:
                 continue
-            if self.state.add_taint(write.attr, labels, origins):
-                self.logger.log(f"[TAINT] Propagate {sorted(labels)} -> {write.attr}")
+            origin_labels = [o.label for o in origins] if origins else []
+            self.logger.log(f"[TRACE] {insn.ea}: {insn.text!r}  # labels={sorted(labels)} -> {write.attr}")
+            if self.state.add_taint(write.attr, labels, origins, reason="propagate"):
+                self.logger.log(f"[TAINT] {write.attr}: labels={sorted(labels)}")
 
     def _handle_store(
         self, insn: InsnInfo, read_taint: Tuple[Set[str], Set[TaintOrigin]]
@@ -291,8 +299,9 @@ class InstructionProcessor:
             resolved = self.state._resolve(read.attr)
             if resolved in self.state.aliases:
                 target = self.state.aliases[resolved]
-                self.state.add_taint(target, labels, origins)
-                self.logger.log(f"[TAINT] Store {sorted(labels)} -> {target}")
+                self.state.add_taint(target, labels, origins, reason="store")
+                origin_labels = [o.label for o in origins] if origins else []
+                self.logger.info(f"[TAINT][store] {sorted(labels)} -> {target} (origins: {sorted(origin_labels)})")
 
     def _handle_call(self, insn: InsnInfo, findings: List[Finding]):
         for call in insn.calls:
@@ -356,7 +365,7 @@ class InstructionProcessor:
                 continue
 
             label = rule.get("label") or callee
-            origins = {(label, insn.ea, self.engine.func_info.function)}
+            origins = {TaintOrigin(label=label, ea=insn.ea, function=self.engine.func_info.function)}
             out_args = rule.get("out_args") or rule.get("args") or []
 
             self.logger.log(f"[SOURCE] Matched: {rule.get('name')} -> label={label}")
@@ -365,11 +374,13 @@ class InstructionProcessor:
                 if idx < 0 or idx >= len(args):
                     continue
                 attr = args[idx]
-                if attr and self.state.add_taint(attr, {label}, origins):
-                    self.logger.log(f"[SOURCE] Taint added to arg[{idx}]")
+                self.logger.log(f"[TRACE] Source rule '{rule.get('name')}': trying to add label={label} to arg[{idx}], attr={attr}")
+                if attr and self.state.add_taint(attr, {label}, origins, reason="source"):
+                    self.logger.log(f"[TAINT][source][{rule.get('name')}] label={label} -> arg[{idx}]")
 
             if rule.get("ret") and call.ret:
-                self.state.add_taint(call.ret, {label}, origins)
+                if self.state.add_taint(call.ret, {label}, origins, reason="source_ret"):
+                    self.logger.log(f"[TAINT][source][{rule.get('name')}] label={label} -> ret")
 
     def _apply_propagators(self, call: CallInfo):
         callee, callee_ea = self._resolve_callee(call)
@@ -395,10 +406,14 @@ class InstructionProcessor:
                     continue
                 attr = args[idx]
                 if attr:
-                    self.state.add_taint(attr, labels, origins)
+                    if self.state.add_taint(attr, labels, origins, reason="propagator"):
+                        origin_labels = [o.label for o in origins] if origins else []
+                        self.logger.info(f"[TAINT][propagator][{rule.get('name')}] {sorted(labels)} -> arg[{idx}] (origins: {sorted(origin_labels)})")
 
             if rule.get("to_ret") and call.ret:
-                self.state.add_taint(call.ret, labels, origins)
+                if self.state.add_taint(call.ret, labels, origins, reason="propagator_ret"):
+                    origin_labels = [o.label for o in origins] if origins else []
+                    self.logger.info(f"[TAINT][propagator][{rule.get('name')}] {sorted(labels)} -> ret (origins: {sorted(origin_labels)})")
 
     def _apply_default_return_propagation(self, call: CallInfo):
         if not call.ret:
@@ -406,7 +421,9 @@ class InstructionProcessor:
         args = call.args or []
         labels, origins = self._collect_arg_taint(args)
         if labels:
-            self.state.add_taint(call.ret, labels, origins)
+            if self.state.add_taint(call.ret, labels, origins, reason="default_return"):
+                origin_labels = [o.label for o in origins] if origins else []
+                self.logger.info(f"[TAINT][default_return] {sorted(labels)} -> ret (origins: {sorted(origin_labels)})")
 
     def _apply_sinks(self, call: CallInfo, insn: InsnInfo, findings: List[Finding]):
         callee, callee_ea = self._resolve_callee(call)
@@ -472,7 +489,7 @@ class InstructionProcessor:
                         sink={"name": callee, "ea": insn.ea},
                         arg_indexes=tainted_args,
                         taint_labels=sorted(labels),
-                        sources=[{"label": o[0], "ea": o[1], "function": o[2]} for o in sorted(origins)],
+                        sources=[{"label": o.label, "ea": o.ea, "function": o.function} for o in sorted(origins)],
                     )
                 )
 

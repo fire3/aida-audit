@@ -44,6 +44,7 @@ class TaintEntry:
     """单个位置的污点状态"""
     labels: Set[str] = field(default_factory=set)
     origins: Set[TaintOrigin] = field(default_factory=set)
+    _last_reason: str = field(default="", init=False, repr=False)
 
     def is_empty(self) -> bool:
         return not self.labels
@@ -128,7 +129,7 @@ class TaintState:
             return True
         return False
 
-    def add_taint(self, attr: Optional[OperandAttr], labels: Set[str], origins: Set[TaintOrigin]) -> bool:
+    def add_taint(self, attr: Optional[OperandAttr], labels: Set[str], origins: Set[TaintOrigin], reason: str = "") -> bool:
         """添加污点，返回是否有变化"""
         if attr is None:
             return False
@@ -142,6 +143,8 @@ class TaintState:
         changed = bool(entry.labels - labels or entry.origins - origins)
         entry.labels.update(labels)
         entry.origins.update(origins)
+        if changed:
+            entry._last_reason = reason
         return changed
 
     def add_taint_to(self, attr: OperandAttr, labels: Set[str], origins: Set[TaintOrigin]) -> bool:
@@ -195,7 +198,8 @@ class TaintState:
         lines.append(f"TaintState(entries={len(self.entries)}, aliases={len(self.aliases)})")
         for attr, entry in self.entries.items():
             if entry.labels:
-                lines.append(f"  {attr}: labels={sorted(entry.labels)}, origins={len(entry.origins)}")
+                reason = f" (reason: {entry._last_reason})" if entry._last_reason else ""
+                lines.append(f"  {attr}: labels={sorted(entry.labels)}, origins={len(entry.origins)}{reason}")
         for ptr, target in self.aliases.items():
             lines.append(f"  alias: {ptr} -> {target}")
         return "\n".join(lines) if lines else "TaintState()"
