@@ -235,6 +235,16 @@ class MicroCodeUtils:
             reg_id = self._to_int(getattr(mop, "r", None))
             return RegisterAttr(reg_id=reg_id) if reg_id is not None else ExpressionAttr(expr=self.safe_dstr(mop))
 
+        if t == ida_hexrays.mop_f:
+            text = self.safe_dstr(mop)
+            if text:
+                fvalue = self._parse_float_from_text(text)
+                if fvalue is not None:
+                    if "double" in text.lower() or "float" in text.lower() or "#(" in text:
+                        return FloatImmediateAttr(value=fvalue, text=text)
+                    return ImmediateAttr(fvalue=fvalue, text=text)
+            return ExpressionAttr(expr=self.safe_dstr(mop))
+
         if t == ida_hexrays.mop_l:
             lv = getattr(mop, "l", None)
             idx = self._to_int(getattr(lv, "idx", None)) if lv is not None else None
@@ -408,6 +418,11 @@ class MicroCodeUtils:
                     cast_type = cast_match.group(1)
                     size = int(cast_match.group(2))
                     return CastAttr(cast_type=cast_type, size=size, src=None)
+            fvalue = self._parse_float_from_text(text)
+            if fvalue is not None:
+                if "double" in text.lower() or "float" in text.lower() or "#(" in text:
+                    return FloatImmediateAttr(value=fvalue, text=text)
+                return ImmediateAttr(fvalue=fvalue, text=text)
         return ExpressionAttr(expr=self.safe_dstr(mop))
 
     def _to_int(self, x) -> Optional[int]:
