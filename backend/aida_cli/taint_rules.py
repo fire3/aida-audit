@@ -1,4 +1,5 @@
 import re
+from typing import Dict, List, Optional, Any
 
 
 class RuleSet:
@@ -66,14 +67,15 @@ def default_cwe78_rules():
         {"name": "snprintf", "from_args": [2], "to_args": [0]},
         {"name": "memcpy", "from_args": [1], "to_args": [0]},
         {"name": "memmove", "from_args": [1], "to_args": [0]},
-        {"name": "strdup", "from_args": [0], "to_args": None, "ret": True},
-        # _chk variants
+        {"name": "strdup", "from_args": [0], "to_ret": True},
         {"pattern": r"^_*strncat_chk$", "from_args": [1], "to_args": [0]},
         {"pattern": r"^_*strcat_chk$", "from_args": [1], "to_args": [0]},
         {"pattern": r"^_*strncpy_chk$", "from_args": [1], "to_args": [0]},
         {"pattern": r"^_*strcpy_chk$", "from_args": [1], "to_args": [0]},
         {"pattern": r"^_*memcpy_chk$", "from_args": [1], "to_args": [0]},
         {"pattern": r"^_*memmove_chk$", "from_args": [1], "to_args": [0]},
+        {"name": "getenv", "from_ret": True, "to_ret": True},
+        {"name": "getline", "from_ret": True, "to_ret": True},
     ]
     return RuleSet(
         rule_id="cwe-78",

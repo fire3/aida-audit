@@ -313,14 +313,27 @@ class InstructionProcessor:
             if not self._rule_matches(rule, callee, callee_ea):
                 continue
 
+            collected_labels = set()
+            collected_origins = set()
+
+            from_ret = rule.get("from_ret")
             from_args = rule.get("from_args")
-            if from_args is None:
-                from_args = list(range(len(args)))
 
-            valid_args = [args[i] for i in from_args if i < len(args)]
-            labels, origins = self._collect_arg_taint(valid_args)
+            if from_ret and call.ret:
+                ret_labels = self.state.get_taint(call.ret)
+                ret_origins = self.state.get_origins(call.ret)
+                if ret_labels:
+                    collected_labels.update(ret_labels)
+                    collected_origins.update(ret_origins)
 
-            if not labels:
+            if from_args:
+                valid_args = [args[i] for i in from_args if i < len(args)]
+                arg_labels, arg_origins = self._collect_arg_taint(valid_args)
+                if arg_labels:
+                    collected_labels.update(arg_labels)
+                    collected_origins.update(arg_origins)
+
+            if not collected_labels:
                 continue
 
             to_args = rule.get("to_args") or []
@@ -329,14 +342,14 @@ class InstructionProcessor:
                     continue
                 attr = args[idx]
                 if attr:
-                    if self.state.add_taint(attr, labels, origins, reason="propagator"):
-                        origin_labels = [o.label for o in origins] if origins else []
-                        self.logger.info(f"[TAINT][propagator][{rule.get('name')}] {sorted(labels)} -> arg[{idx}] (origins: {sorted(origin_labels)})")
+                    if self.state.add_taint(attr, collected_labels, collected_origins, reason="propagator"):
+                        origin_labels = [o.label for o in collected_origins] if collected_origins else []
+                        self.logger.info(f"[TAINT][propagator][{rule.get('name') or rule.get('pattern')}] {sorted(collected_labels)} -> arg[{idx}] (origins: {sorted(origin_labels)})")
 
             if rule.get("to_ret") and call.ret:
-                if self.state.add_taint(call.ret, labels, origins, reason="propagator_ret"):
-                    origin_labels = [o.label for o in origins] if origins else []
-                    self.logger.info(f"[TAINT][propagator][{rule.get('name')}] {sorted(labels)} -> ret (origins: {sorted(origin_labels)})")
+                if self.state.add_taint(call.ret, collected_labels, collected_origins, reason="propagator_ret"):
+                    origin_labels = [o.label for o in collected_origins] if collected_origins else []
+                    self.logger.info(f"[TAINT][propagator][{rule.get('name') or rule.get('pattern')}] {sorted(collected_labels)} -> ret (origins: {sorted(origin_labels)})")
 
     def _apply_default_return_propagation(self, call: CallInfo):
         if not call.ret:
