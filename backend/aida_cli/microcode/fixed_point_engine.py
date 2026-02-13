@@ -235,29 +235,7 @@ class InstructionProcessor:
             self._apply_sinks(call, insn, findings)
 
     def _resolve_callee(self, call: CallInfo):
-        callee = call.callee_name or ""
-        target = call.target
-        callee_ea = None
-
-        if target is not None and hasattr(target, "ea"):
-            callee_ea = target.ea
-
-        if callee_ea is None and callee:
-            callee_ea = self.engine.rule_matcher.resolve_name(callee)
-
-        if callee_ea is not None:
-            ida_name = None
-            if ida_funcs:
-                ida_name = ida_funcs.get_func_name(callee_ea)
-            if not ida_name and idc:
-                try:
-                    ida_name = idc.get_name(callee_ea)
-                except Exception:
-                    pass
-            if ida_name:
-                callee = ida_name
-
-        return callee, callee_ea
+        return self.engine._resolve_callee(call)
 
     def _collect_arg_taint(self, args: List[OperandAttr]) -> Tuple[Set[str], Set[TaintOrigin]]:
         labels = set()
@@ -653,6 +631,31 @@ class FixedPointTaintEngine:
                 return 0
         return 0
 
+    def _resolve_callee(self, call: CallInfo):
+        callee = call.callee_name or ""
+        target = call.target
+        callee_ea = None
+
+        if target is not None and hasattr(target, "ea"):
+            callee_ea = target.ea
+
+        if callee_ea is None and callee:
+            callee_ea = self.rule_matcher.resolve_name(callee)
+
+        if callee_ea is not None:
+            ida_name = None
+            if ida_funcs:
+                ida_name = ida_funcs.get_func_name(callee_ea)
+            if not ida_name and idc:
+                try:
+                    ida_name = idc.get_name(callee_ea)
+                except Exception:
+                    pass
+            if ida_name:
+                callee = ida_name
+
+        return callee, callee_ea
+
     def _collect_cross_mappings(
         self, caller_name: str, callee_name: str, caller_ea: int, callee_ea: int
     ) -> List[Tuple[Optional[Dict[int, int]], Optional[CrossFuncRule]]]:
@@ -893,27 +896,6 @@ class InterProcTaintEngine:
     def _get_func_ea_int(self, value) -> int:
         return self.engine._get_func_ea_int(value)
 
-    def _resolve_callee(self, call: CallInfo):
-        callee = call.callee_name or ""
-        target = call.target
-        callee_ea = None
-        if target is not None and hasattr(target, "ea"):
-            callee_ea = target.ea
-        if callee_ea is None and callee:
-            callee_ea = self.engine.rule_matcher.resolve_name(callee)
-        if callee_ea is not None:
-            ida_name = None
-            if ida_funcs:
-                ida_name = ida_funcs.get_func_name(callee_ea)
-            if not ida_name and idc:
-                try:
-                    ida_name = idc.get_name(callee_ea)
-                except Exception:
-                    pass
-            if ida_name:
-                callee = ida_name
-        return callee, callee_ea
-
     def _ensure_context(self, func_info: FuncInfo) -> FunctionContext:
         func_ea = self._get_func_ea_int(func_info.ea)
         if func_ea not in self.interproc_state.func_contexts:
@@ -976,7 +958,7 @@ class InterProcTaintEngine:
             edges = []
             for insn in func_info.insns:
                 for call in insn.calls:
-                    callee_name, callee_ea = self._resolve_callee(call)
+                    callee_name, callee_ea = self.engine._resolve_callee(call)
                     if callee_ea is None:
                         continue
                     if callee_ea not in func_infos:
@@ -1003,7 +985,7 @@ class InterProcTaintEngine:
         caller_name = func_info.function
         for insn in func_info.insns:
             for call in insn.calls:
-                callee_name, callee_ea = self._resolve_callee(call)
+                callee_name, callee_ea = self.engine._resolve_callee(call)
                 if callee_ea is None or callee_ea not in func_infos:
                     continue
                 callee_ctx = self._ensure_context(func_infos[callee_ea])
@@ -1042,6 +1024,7 @@ class InterProcTaintEngine:
             return []
         raw_chains = [p["nodes"] for p in path_result]
         self.interproc_state.source_sink_paths = raw_chains
+        self.interproc_state.source_sink_history.append(raw_chains)
         chain_functions = set()
         for path in raw_chains:
             for node in path:
@@ -1073,26 +1056,32 @@ class InterProcTaintEngine:
         findings: List[Finding] = []
         while worklist:
             func_ea = worklist.popleft()
+            if func_ea in self.interproc_state.analyzing_funcs:
+                continue
             func_info = func_infos.get(func_ea)
             if not func_info:
                 continue
-            ctx = self._ensure_context(func_info)
-            state, f_findings = self.engine.analyze_function(
-                func_info,
-                func_context=ctx,
-                interproc_state=self.interproc_state,
-                cross_rules=self.cross_rules,
-            )
-            findings.extend(f_findings)
-            changed_context = self._update_context_from_state(func_info, state)
-            changed_callees = self._propagate_callsite_taints(func_info, state, func_infos)
-            if changed_context:
-                for caller in caller_map.get(func_ea, []):
-                    if caller in func_infos:
-                        worklist.append(caller)
-            for callee in changed_callees:
-                if callee in func_infos:
-                    worklist.append(callee)
+            self.interproc_state.analyzing_funcs.add(func_ea)
+            try:
+                ctx = self._ensure_context(func_info)
+                state, f_findings = self.engine.analyze_function(
+                    func_info,
+                    func_context=ctx,
+                    interproc_state=self.interproc_state,
+                    cross_rules=self.cross_rules,
+                )
+                findings.extend(f_findings)
+                changed_context = self._update_context_from_state(func_info, state)
+                changed_callees = self._propagate_callsite_taints(func_info, state, func_infos)
+                if changed_context:
+                    for caller in caller_map.get(func_ea, []):
+                        if caller in func_infos:
+                            worklist.append(caller)
+                for callee in changed_callees:
+                    if callee in func_infos:
+                        worklist.append(callee)
+            finally:
+                self.interproc_state.analyzing_funcs.discard(func_ea)
         for finding in findings:
             if hasattr(finding, "call_chains"):
                 finding.call_chains = raw_chains

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional, Set, Dict, List, FrozenSet, Tuple, Deque
+from typing import Optional, Set, Dict, List, FrozenSet, Tuple, Deque, Any
 from collections import deque
 
 from .common import (
@@ -129,7 +129,9 @@ class InterProcState:
     func_contexts: Dict[int, FunctionContext] = field(default_factory=dict)
     analyzed_functions: Set[int] = field(default_factory=set)
     pending_calls: Deque[CallEdge] = field(default_factory=lambda: deque())
-    source_sink_paths: List[List[int]] = field(default_factory=list)
+    source_sink_paths: List[List[Dict[str, Any]]] = field(default_factory=list)
+    source_sink_history: List[List[List[Dict[str, Any]]]] = field(default_factory=list)
+    analyzing_funcs: Set[int] = field(default_factory=set)
 
 
 @dataclass
