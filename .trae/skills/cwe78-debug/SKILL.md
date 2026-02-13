@@ -15,20 +15,17 @@ This skill provides context, workflows, and tools for debugging CWE-78 (OS Comma
 ## 2. Debugging Techniques
 -   **Regression Test**: [regression_test_cwe78.py](scripts/regression_test_cwe78.py)
     -   Run specific case: `... --filter <case_name>`
-    -   Run a small number of cases: `... --limit <case_number>`
+    -   Run a small number of cases in the regression test: `... --limit <case_number>`
 -  **Check Rules**: Ensure the Source/Sink/Propagator function is defined in `taint_rules.py`.
 - **Export C**: Export  decompiled  C for better analysis. For Example
 ```
     aida-cli export --export-c tests_cpg/CWE78/arm64/CWE78_OS_Command_Injection__char_connect_socket_execlp_32-bad -o tmp
 ```
     The decompiled C code will be saved in the `tmp` directory.
+- The User may give a failed case name, You should use '--filter <case_name>' to run the specific case.
 
 ## 3. Taint Path Find Mechanism
-
--   **Code Reference**: [taint_cmd.py](backend/aida_cli/scan_cmd.py)
-    -   **Sources**: Entry points (e.g., `recv`, `getenv`).
-    -   **Sinks**: Dangerous functions (e.g., `system`, `execl`).
-    -   **Propagators**: Functions that transfer taint (e.g., `strcpy`, `memcpy`).
+-   **Code Reference**: [fixed_point_engine.py](backend/aida_cli/microcode/fixed_point_engine.py)
 
 ## 4. Environment
 -   **Interpreter**: `/home/fire3/opt/miniconda3/bin/python`
