@@ -58,7 +58,6 @@ from .analyzer import (
 )
 
 from .state import TaintState
-from .engine import MicrocodeTaintEngine
 from .fixed_point_engine import (
     FixedPointTaintEngine,
     WorklistTaintEngine,

@@ -140,50 +140,7 @@ class SimpleLogger:
         self._logger.error(message)
 
 
-class RuleResolver:
-    def __init__(self, ruleset, logger):
-        self.ruleset = ruleset
-        self.logger = logger
-
-    def resolve_rules(self):
-        if not idc:
-            return
-        for rule in self._iter_rules():
-            name = rule.get("name")
-            if not name:
-                continue
-            ea = self.resolve_rule_ea(name)
-            if ea is not None:
-                rule["ea"] = ea
-
-    def resolve_rule_ea(self, name):
-        def try_name(value):
-            if idc:
-                try:
-                    return idc.get_name_ea_simple(value)
-                except Exception:
-                    pass
-            return BADADDR
-
-        for candidate in (
-            name,
-            "_" + name,
-            "__imp_" + name,
-            "__imp__" + name,
-            "." + name,
-        ):
-            ea = try_name(candidate)
-            if ea != BADADDR:
-                return ea
-        return None
-
-    def _iter_rules(self):
-        for rule in self.ruleset.sources:
-            yield rule
-        for rule in self.ruleset.sinks:
-            yield rule
-        for rule in self.ruleset.propagators:
-            yield rule
+from ..rule_matcher import RuleMatcher
 
 
 class AliasAnalyzer:
@@ -353,7 +310,7 @@ class InstructionProcessor:
             callee_ea = target.ea
 
         if callee_ea is None and callee:
-            callee_ea = self.engine.rule_resolver.resolve_rule_ea(callee)
+            callee_ea = self.engine.rule_matcher.resolve_name(callee)
 
         if callee_ea is not None:
             ida_name = None
@@ -614,7 +571,7 @@ class FixedPointTaintEngine:
         self.ruleset = ruleset
         self.logger = logger or SimpleLogger(verbose=verbose)
         self.utils = MicroCodeUtils()
-        self.rule_resolver = RuleResolver(ruleset, self.logger)
+        self.rule_matcher = RuleMatcher(self.logger)
         self.pathfinder_config = PathFinderConfig(max_depth=10)
         self.pathfinder = PathFinder(ruleset, self.logger, self.pathfinder_config)
         self.policy = policy or TaintPolicy()
@@ -786,7 +743,21 @@ class WorklistTaintEngine:
         return self.engine.analyze_function(func_info)
 
     def scan_global(self, maturity):
-        self.engine.rule_resolver.resolve_rules()
+        for rule in self.engine.ruleset.sources:
+            if "name" in rule:
+                ea = self.engine.rule_matcher.resolve_name(rule["name"])
+                if ea != self.engine.rule_matcher.badaddr:
+                    rule["ea"] = ea
+        for rule in self.engine.ruleset.sinks:
+            if "name" in rule:
+                ea = self.engine.rule_matcher.resolve_name(rule["name"])
+                if ea != self.engine.rule_matcher.badaddr:
+                    rule["ea"] = ea
+        for rule in self.engine.ruleset.propagators:
+            if "name" in rule:
+                ea = self.engine.rule_matcher.resolve_name(rule["name"])
+                if ea != self.engine.rule_matcher.badaddr:
+                    rule["ea"] = ea
 
         self.engine.pathfinder.ruleset = self.ruleset
         self.engine.pathfinder.identify_markers()
