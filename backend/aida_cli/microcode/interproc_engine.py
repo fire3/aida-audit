@@ -395,11 +395,41 @@ class InterProcTaintEngine:
             finally:
                 self.interproc_state.analyzing_funcs.discard(func_ea)
         for finding in findings:
-            if hasattr(finding, "call_chains"):
-                finding.call_chains = raw_chains
-            else:
-                finding.call_chains = raw_chains
-        return findings
+            finding.call_chains = raw_chains
+            if not finding.inter_proc_path:
+                finding.inter_proc_path = self._build_interproc_path(finding, raw_chains, func_infos)
+
+        unique_findings = self._deduplicate_findings(findings)
+        return unique_findings
+
+    def _deduplicate_findings(self, findings):
+        seen = set()
+        unique = []
+        for f in findings:
+            key = (f.rule_id, f.func_ea, f.sink.get("ea"), tuple(sorted(f.arg_indexes)))
+            if key not in seen:
+                seen.add(key)
+                unique.append(f)
+        return unique
+
+    def _build_interproc_path(self, finding, raw_chains, func_infos):
+        inter_path = []
+        finding_labels = set(finding.taint_labels)
+        for chain in raw_chains:
+            chain_functions = []
+            for node in chain:
+                ea = int(node["ea"], 16)
+                func_info = func_infos.get(ea)
+                if func_info:
+                    chain_functions.append({
+                        "function": func_info.function,
+                        "function_ea": hex(ea),
+                    })
+            inter_path.append({
+                "chain": chain_functions,
+                "type": "call_chain",
+            })
+        return inter_path
 
 
 __all__ = ["InterProcTaintEngine"]

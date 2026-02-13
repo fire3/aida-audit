@@ -1,4 +1,5 @@
 from typing import List, Optional, Set, Tuple
+from collections import defaultdict
 
 from .common import (
     LocalVarAttr,
@@ -27,6 +28,7 @@ class InstructionProcessor:
         self.state = state
         self.logger = logger
         self.utils = MicroCodeUtils()
+        self.propagation_trace = defaultdict(list)
 
     def process(self, insn, block_id):
         findings = []
@@ -81,6 +83,15 @@ class InstructionProcessor:
             self.logger.log(f"[TRACE] {insn.ea}: {insn.text!r}  # labels={sorted(labels)} -> {write.attr}")
             if self.state.add_taint(write.attr, labels, origins, reason="propagate"):
                 self.logger.log(f"[TAINT] {write.attr}: labels={sorted(labels)}")
+                for label in labels:
+                    self.propagation_trace[label].append({
+                        "insn_ea": insn.ea,
+                        "insn_text": insn.text,
+                        "from_attr": str(list(r.attr for r in insn.reads if r.attr)),
+                        "to_attr": str(write.attr),
+                        "operation": "propagate",
+                        "function": self.engine.func_info.function,
+                    })
 
     def _handle_store(self, insn, read_taint):
         labels, origins = read_taint
@@ -182,10 +193,26 @@ class InstructionProcessor:
                 for target_attr in self._expand_arg_attrs(attr):
                     if self.state.add_taint(target_attr, {label}, origins, reason="source"):
                         self.logger.log(f"[TAINT][source][{rule.get('name')}] label={label} -> arg[{idx}]")
+                        self.propagation_trace[label].append({
+                            "insn_ea": insn.ea,
+                            "insn_text": insn.text,
+                            "from_attr": f"source:{rule.get('name')}",
+                            "to_attr": str(target_attr),
+                            "operation": "source",
+                            "function": self.engine.func_info.function,
+                        })
 
             if rule.get("ret") and call.ret:
                 if self.state.add_taint(call.ret, {label}, origins, reason="source_ret"):
                     self.logger.log(f"[TAINT][source][{rule.get('name')}] label={label} -> ret")
+                    self.propagation_trace[label].append({
+                        "insn_ea": insn.ea,
+                        "insn_text": insn.text,
+                        "from_attr": f"source:{rule.get('name')}",
+                        "to_attr": str(call.ret),
+                        "operation": "source_ret",
+                        "function": self.engine.func_info.function,
+                    })
 
     def _apply_propagators(self, call):
         callee, callee_ea = self._resolve_callee(call)
@@ -227,11 +254,29 @@ class InstructionProcessor:
                     if self.state.add_taint(target_attr, collected_labels, collected_origins, reason="propagator"):
                         origin_labels = [o.label for o in collected_origins] if collected_origins else []
                         _log_info(self.logger, f"[TAINT][propagator][{rule.get('name') or rule.get('pattern')}] {sorted(collected_labels)} -> arg[{idx}] (origins: {sorted(origin_labels)})")
+                        for label in collected_labels:
+                            self.propagation_trace[label].append({
+                                "insn_ea": call.call_site_ea or 0,
+                                "insn_text": f"call {callee}",
+                                "from_attr": f"propagator:{rule.get('name') or rule.get('pattern')}",
+                                "to_attr": str(target_attr),
+                                "operation": "propagator",
+                                "function": self.engine.func_info.function,
+                            })
 
             if rule.get("to_ret") and call.ret:
                 if self.state.add_taint(call.ret, collected_labels, collected_origins, reason="propagator_ret"):
                     origin_labels = [o.label for o in collected_origins] if collected_origins else []
                     _log_info(self.logger, f"[TAINT][propagator][{rule.get('name') or rule.get('pattern')}] {sorted(collected_labels)} -> ret (origins: {sorted(origin_labels)})")
+                    for label in collected_labels:
+                        self.propagation_trace[label].append({
+                            "insn_ea": call.call_site_ea or 0,
+                            "insn_text": f"call {callee}",
+                            "from_attr": f"propagator:{rule.get('name') or rule.get('pattern')}",
+                            "to_attr": str(call.ret),
+                            "operation": "propagator_ret",
+                            "function": self.engine.func_info.function,
+                        })
 
     def _apply_default_return_propagation(self, call):
         if not call.ret:
@@ -293,6 +338,31 @@ class InstructionProcessor:
                             origin_labels = [o.label for o in origins] if origins else []
                             _log_info(self.logger, f"[TAINT][interproc][ret_to_arg] {sorted(labels)} -> arg[{idx}] (origins: {sorted(origin_labels)})")
 
+    def _get_propagation_trace(self, label):
+        return self.propagation_trace.get(label, [])
+
+    def _get_interproc_path(self, label):
+        if not self.engine.interproc_state:
+            return []
+        inter_path = []
+        interproc_state = self.engine.interproc_state
+        for func_ea, ctx in interproc_state.func_contexts.items():
+            if label in str(ctx.arg_taints) or label in str(ctx.ret_taint):
+                inter_path.append({
+                    "function": ctx.func_name,
+                    "function_ea": hex(func_ea) if isinstance(func_ea, int) else func_ea,
+                    "type": "context_arg" if label in str(ctx.arg_taints) else "context_ret",
+                })
+        return inter_path
+
+    def _build_propagation_steps(self, label):
+        steps = []
+        traces = self._get_propagation_trace(label)
+        for trace in traces:
+            step = f"{trace.get('function', '?')}::{trace.get('operation', '?')}: {trace.get('from_attr', '?')} -> {trace.get('to_attr', '?')} at {trace.get('insn_ea', '?')}"
+            steps.append(step)
+        return steps
+
     def _apply_sinks(self, call, insn, findings):
         callee, callee_ea = self._resolve_callee(call)
         args = call.args or []
@@ -308,6 +378,7 @@ class InstructionProcessor:
             tainted_args = []
             labels = set()
             origins = set()
+            label_traces = defaultdict(list)
 
             for idx in arg_indexes:
                 if idx < 0 or idx >= len(args):
@@ -335,6 +406,9 @@ class InstructionProcessor:
                     collected = True
                     for label in t:
                         if label.startswith("SYM:ARG:"):
+                            intra_path = self._get_propagation_trace(label)
+                            inter_path = self._get_interproc_path(label)
+                            propagation_steps = self._build_propagation_steps(label)
                             try:
                                 findings.append(
                                     Finding(
@@ -348,17 +422,32 @@ class InstructionProcessor:
                                         arg_indexes=[int(label.split(":")[2])],
                                         taint_labels=[label],
                                         sources=[],
+                                        intra_proc_path=intra_path,
+                                        inter_proc_path=inter_path,
+                                        propagation_steps=propagation_steps,
                                     )
                                 )
                             except Exception:
                                 pass
                     labels.update(t)
                     origins.update(current_origins)
+                    for label in t:
+                        label_traces[label].extend(self._get_propagation_trace(label))
                 if collected:
                     tainted_args.append(idx)
 
             if tainted_args:
                 self.logger.log(f"[SINK] Matched: {callee} args={tainted_args}")
+                source_list = [{"label": o.label, "ea": o.ea, "function": o.function} for o in sorted(origins)]
+                intra_path = []
+                for label in labels:
+                    intra_path.extend(self._get_propagation_trace(label))
+                inter_path = []
+                for label in labels:
+                    inter_path.extend(self._get_interproc_path(label))
+                propagation_steps = []
+                for label in labels:
+                    propagation_steps.extend(self._build_propagation_steps(label))
                 findings.append(
                     Finding(
                         rule_id=self.engine.ruleset.rule_id,
@@ -370,7 +459,10 @@ class InstructionProcessor:
                         sink={"name": callee, "ea": insn.ea},
                         arg_indexes=tainted_args,
                         taint_labels=sorted(labels),
-                        sources=[{"label": o.label, "ea": o.ea, "function": o.function} for o in sorted(origins)],
+                        sources=source_list,
+                        intra_proc_path=intra_path,
+                        inter_proc_path=inter_path,
+                        propagation_steps=propagation_steps,
                     )
                 )
 
@@ -412,6 +504,32 @@ class InstructionProcessor:
                 seen.add(attr)
                 args.append(attr)
         return args
+
+    def _get_propagation_trace(self, label):
+        return self.propagation_trace.get(label, [])
+
+    def _get_interproc_path(self, label):
+        if not self.engine.interproc_state:
+            return []
+        inter_path = []
+        interproc_state = self.engine.interproc_state
+        for func_ea, ctx in interproc_state.func_contexts.items():
+            ctx_str = str(ctx.arg_taints) + str(ctx.ret_taint)
+            if label in ctx_str:
+                inter_path.append({
+                    "function": ctx.func_name,
+                    "function_ea": hex(func_ea) if isinstance(func_ea, int) else func_ea,
+                    "type": "context_arg" if label in str(ctx.arg_taints) else "context_ret",
+                })
+        return inter_path
+
+    def _build_propagation_steps(self, label):
+        steps = []
+        traces = self._get_propagation_trace(label)
+        for trace in traces:
+            step = f"{trace.get('function', '?')}::{trace.get('operation', '?')}: {trace.get('from_attr', '?')} -> {trace.get('to_attr', '?')} at {trace.get('insn_ea', '?')}"
+            steps.append(step)
+        return steps
 
 
 __all__ = ["InstructionProcessor"]

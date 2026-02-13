@@ -422,7 +422,18 @@ class ProcTaintEngine:
             else:
                 finding.call_chains = raw_chains
 
-        return findings
+        unique_findings = self._deduplicate_findings(findings)
+        return unique_findings
+
+    def _deduplicate_findings(self, findings):
+        seen = set()
+        unique = []
+        for f in findings:
+            key = (f.rule_id, f.func_ea, f.sink.get("ea"), tuple(sorted(f.arg_indexes)))
+            if key not in seen:
+                seen.add(key)
+                unique.append(f)
+        return unique
 
 
 __all__ = ["ProcTaintEngine"]

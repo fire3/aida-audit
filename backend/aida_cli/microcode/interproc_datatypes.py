@@ -73,6 +73,9 @@ class Finding:
     taint_labels: List[str]
     sources: List[Dict]
     type: str = "sink"
+    intra_proc_path: List[Dict] = field(default_factory=list)
+    inter_proc_path: List[Dict] = field(default_factory=list)
+    propagation_steps: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict:
         return {
@@ -87,7 +90,19 @@ class Finding:
             "taint_labels": self.taint_labels,
             "sources": self.sources,
             "type": self.type,
+            "intra_proc_path": self.intra_proc_path,
+            "inter_proc_path": self.inter_proc_path,
+            "propagation_steps": self.propagation_steps,
         }
+
+    def __hash__(self):
+        return hash((self.rule_id, self.func_ea, self.sink.get("ea"), tuple(sorted(self.arg_indexes))))
+
+    def __eq__(self, other):
+        if not isinstance(other, Finding):
+            return False
+        return (self.rule_id, self.func_ea, self.sink.get("ea"), tuple(sorted(self.arg_indexes))) == \
+               (other.rule_id, other.func_ea, other.sink.get("ea"), tuple(sorted(other.arg_indexes)))
 
 
 @dataclass
