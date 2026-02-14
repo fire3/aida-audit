@@ -243,15 +243,42 @@ class InstructionProcessor:
         return labels, origins
 
     def _rule_matches(self, rule, callee, callee_ea=None):
-        if "ea" not in rule:
-            if "regex" in rule and callee:
-                import re
-                match = re.match(rule["regex"], callee)
-                return match is not None
-            return False
-        if callee_ea is None:
-            return False
-        return rule["ea"] == callee_ea
+        # 1. Try EA matching if both available
+        if "ea" in rule and callee_ea is not None:
+            if rule["ea"] == callee_ea:
+                return True
+
+        # 2. Try Regex matching
+        if "regex" in rule and callee:
+            import re
+            match = re.match(rule["regex"], callee)
+            if match is not None:
+                return True
+
+        # 3. Try Name matching
+        if "name" in rule and callee:
+            name = rule["name"]
+            # Exact match
+            if callee == name:
+                return True
+            # Common prefixes/suffixes handling for microcode/IDA names
+            # e.g. .recv, _recv, $recv, $".recv"
+            clean_callee = callee
+            if clean_callee.startswith("$"):
+                clean_callee = clean_callee.lstrip("$")
+            if clean_callee.startswith('"') and clean_callee.endswith('"'):
+                clean_callee = clean_callee.strip('"')
+
+            if clean_callee == name:
+                return True
+            if clean_callee == f".{name}":
+                return True
+            if clean_callee == f"_{name}":
+                return True
+            if clean_callee == f"__{name}":
+                return True
+
+        return False
 
     def _apply_sources(self, call, insn):
         callee, callee_ea = self._resolve_callee(call)
