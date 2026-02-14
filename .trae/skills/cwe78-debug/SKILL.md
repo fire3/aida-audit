@@ -14,8 +14,8 @@ This skill provides context, workflows, and tools for debugging CWE-78 (OS Comma
 
 ## 2. Debugging Techniques
 -   **Regression Test**: [regression_test_cwe78.py](scripts/regression_test_cwe78.py)
-    -   Run specific case: `... --filter <case_name>`
-    -   Run a small number of cases in the regression test: `... --limit <case_number>`
+    -   Run specific case: `--filter <case_name> test_case_dir`
+    -   Run a small number of cases in the regression test: `--limit <case_number> test_case_dir`
 -  **Check Rules**: Ensure the Source/Sink/Propagator function is defined in `taint_rules.py`.
 - **Export C**: Export  decompiled  C for better analysis. For Example
 ```
@@ -25,7 +25,7 @@ This skill provides context, workflows, and tools for debugging CWE-78 (OS Comma
 - The User may give a failed case name, You should use '--filter <case_name>' to run the specific case.
 
 ## 3. Taint Path Find Mechanism
--   **Code Reference**: [fixed_point_engine.py](backend/aida_cli/microcode/fixed_point_engine.py)
+-   **Code Reference**: (backend/aida_cli/microcode/*.py)
 
 ## 4. Environment
 -   **Interpreter**: `/home/fire3/opt/miniconda3/bin/python`

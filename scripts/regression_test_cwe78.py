@@ -170,7 +170,7 @@ def process_test_case(file_path, output_dir, clean, keep, verbose):
 
 def main():
     parser = argparse.ArgumentParser(description="Regression Test for CWE78")
-    parser.add_argument("--test-dir", default=DEFAULT_TEST_DIR, help="Directory containing test binaries")
+    parser.add_argument("testcases_dir", default=DEFAULT_TEST_DIR, help="Directory containing test binaries")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help="Directory to save results")
     parser.add_argument("--limit", type=int, default=0, help="Limit number of tests (0 for all)")
     parser.add_argument("--filter", help="Filter test cases by filename substring")
@@ -181,6 +181,9 @@ def main():
     
     args = parser.parse_args()
 
+    # Use provided directory or default
+    test_dir = args.testcases_dir if args.testcases_dir else DEFAULT_TEST_DIR
+
     # Setup directories
     if args.clean and os.path.exists(args.output_dir):
         print(f"Cleaning output directory: {args.output_dir}")
@@ -189,14 +192,14 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     
     # Collect test files
-    if not os.path.exists(args.test_dir):
-        print(f"Error: Test directory not found: {args.test_dir}")
+    if not os.path.exists(test_dir):
+        print(f"Error: Test directory not found: {test_dir}")
         sys.exit(1)
         
-    all_files = sorted(os.listdir(args.test_dir))
+    all_files = sorted(os.listdir(test_dir))
     test_files = []
     for f in all_files:
-        path = os.path.join(args.test_dir, f)
+        path = os.path.join(test_dir, f)
         if not os.path.isfile(path):
             continue
         # Skip known non-binaries if any (based on extension)
