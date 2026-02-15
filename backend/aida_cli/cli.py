@@ -275,10 +275,9 @@ def main():
         scan_cmd.main()
     elif command == "audit":
         parser = argparse.ArgumentParser()
-        parser.add_argument("target", help="Target binary or directory to audit")
-        parser.add_argument("--project", default=".", help="Project directory")
+        parser.add_argument("project", nargs="?", default=".", help="Project directory")
         args = parser.parse_args()
-        audit_cmd.run_audit(args.target, args.project)
+        audit_cmd.run_audit(args.project)
     else:
         print(f"Unknown command: {command}")
         print("Available commands: export, serve, config, workspace, audit, scan")

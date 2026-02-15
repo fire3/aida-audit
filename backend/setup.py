@@ -9,6 +9,7 @@ setup(
         "uvicorn>=0.22,<0.41",
         "h11",
         "rich",
+        "requests",
     ],
     entry_points={
         "console_scripts": [

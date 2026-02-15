@@ -6,7 +6,7 @@ import json
 import requests
 import subprocess
 import signal
-from typing import Optional
+from typing import Optional, Dict, Any
 from .audit_database import AuditDatabase
 from .constants import AUDIT_DB_FILENAME
 
@@ -14,35 +14,34 @@ OPENCODE_PORT = 4096
 OPENCODE_URL = f"http://localhost:{OPENCODE_PORT}"
 
 def ensure_opencode_config(project_path: str):
-    """Ensure aida-cli is registered in opencode config."""
+    """Ensure aida-cli is registered in opencode config inside project/opencode/opencode.json."""
     from . import cli
-    # We reuse the logic from cli.py, but we need to import it or copy it.
-    # Since cli.py has _build_opencode_stdio_config and logic to find config path,
-    # we can try to use it.
     
     # Construct the config payload
     python_cmd = sys.executable
     payload = cli._build_opencode_stdio_config(os.path.abspath(project_path), python_cmd, "aida-cli")
     
-    # Find existing config or default path
-    existing_path = cli._find_existing_config()
-    target_path = existing_path or cli._default_config_path()
+    # Create opencode directory
+    config_dir = os.path.join(project_path, "opencode")
+    os.makedirs(config_dir, exist_ok=True)
     
-    if os.path.exists(target_path):
+    # Write config file
+    config_path = os.path.join(config_dir, "opencode.json")
+    
+    if os.path.exists(config_path):
         try:
-            with open(target_path, 'r') as f:
+            with open(config_path, 'r') as f:
                 existing = json.load(f)
         except:
             existing = {}
         merged = cli._merge_opencode_config(existing, payload)
-        with open(target_path, 'w') as f:
+        with open(config_path, 'w') as f:
             json.dump(merged, f, indent=2)
     else:
-        os.makedirs(os.path.dirname(target_path), exist_ok=True)
-        with open(target_path, 'w') as f:
+        with open(config_path, 'w') as f:
             json.dump(payload, f, indent=2)
             
-    print(f"Updated OpenCode config at: {target_path}")
+    print(f"Updated OpenCode config at: {config_path}")
 
 def start_opencode_server() -> Optional[subprocess.Popen]:
     """Start opencode server if not running."""
@@ -89,14 +88,14 @@ def check_export_exists(project_path: str) -> bool:
             
     return has_db
 
-def run_audit(target: str, project_path: str):
+def run_audit(project_path: str):
     """Main audit loop."""
-    print(f"Starting audit for: {target}")
+    print(f"Starting audit in project: {project_path}")
 
     # Check for export
     if not check_export_exists(project_path):
         print(f"Error: No exported database found in '{project_path}'.")
-        print(f"Please run 'aida-cli export {target}' first.")
+        print(f"Please run 'aida-cli export <target>' first.")
         return
     
     # 1. Initialize Audit DB
@@ -112,15 +111,20 @@ def run_audit(target: str, project_path: str):
     
     try:
         # 4. Create Session
-        resp = requests.post(f"{OPENCODE_URL}/session", json={"title": f"Audit: {os.path.basename(target)}"})
+        print("Creating session...")
+        resp = requests.post(f"{OPENCODE_URL}/session", json={"title": f"Audit Session"})
         resp.raise_for_status()
-        session_id = resp.json()["id"]
+        session_data = resp.json()
+        session_id = session_data["id"]
         print(f"Created session: {session_id}")
+        
+        # Log model info if available
+        if "model" in session_data:
+            print(f"Current Model: {session_data['model']}")
         
         # 5. Send Initial Prompt
         system_prompt = load_agent_prompt()
         initial_message = f"""
-TARGET: {target}
 PROJECT_PATH: {os.path.abspath(project_path)}
 
 {system_prompt}
@@ -128,10 +132,6 @@ PROJECT_PATH: {os.path.abspath(project_path)}
 Please start by checking the audit plan.
 """
         print("Sending initial prompt...")
-        # Note: The API might vary. Based on web ref, POST /session/:id/message
-        # Body: { parts: [...] } or just message string?
-        # Web ref says: Body: { messageID?, model?, agent?, noReply?, system?, tools?, parts }
-        # Let's try sending 'parts' with text.
         
         payload = {
             "parts": [{"type": "text", "text": initial_message}]
@@ -144,9 +144,13 @@ Please start by checking the audit plan.
         resp.raise_for_status()
         
         # Log response
-        # The response format from opencode might need inspection.
-        # Assuming it returns the message object which contains parts.
         resp_data = resp.json()
+        
+        # Print LLM inference message details
+        print("--- LLM Response Info ---")
+        print(json.dumps(resp_data, indent=2))
+        print("-------------------------")
+
         if "parts" in resp_data:
             response_text = "".join([p.get("text", "") for p in resp_data["parts"] if p.get("type") == "text"])
             audit_db.add_message(session_id, "assistant", response_text)
@@ -182,6 +186,8 @@ Please start by checking the audit plan.
         print("Stopping audit...")
     except Exception as e:
         print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         if server_proc:
             os.killpg(os.getpgid(server_proc.pid), signal.SIGTERM)
@@ -189,8 +195,7 @@ Please start by checking the audit plan.
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("target", help="Target binary or directory to audit")
-    parser.add_argument("--project", default=".", help="Project directory")
+    parser.add_argument("project", nargs="?", default=".", help="Project directory")
     args = parser.parse_args()
     
-    run_audit(args.target, args.project)
+    run_audit(args.project)
