@@ -3,199 +3,199 @@ import os
 import sys
 import time
 import json
-import requests
-import subprocess
-import signal
-from typing import Optional, Dict, Any
+import traceback
+from typing import Optional, List, Dict, Any
+
+from .config import Config
+from .llm_client import LLMClient
+from .mcp_client import HttpMcpClient, StdioMcpClient, McpClient
 from .audit_database import AuditDatabase
 from .constants import AUDIT_DB_FILENAME
-
-OPENCODE_PORT = 4096
-OPENCODE_URL = f"http://localhost:{OPENCODE_PORT}"
-
-def ensure_opencode_config(project_path: str):
-    """Ensure aida-cli is registered in opencode config inside project/opencode/opencode.json."""
-    from . import cli
-    
-    # Construct the config payload
-    python_cmd = sys.executable
-    payload = cli._build_opencode_stdio_config(os.path.abspath(project_path), python_cmd, "aida-cli")
-    
-    # Create opencode directory
-    config_dir = os.path.join(project_path, "opencode")
-    os.makedirs(config_dir, exist_ok=True)
-    
-    # Write config file
-    config_path = os.path.join(config_dir, "opencode.json")
-    
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, 'r') as f:
-                existing = json.load(f)
-        except:
-            existing = {}
-        merged = cli._merge_opencode_config(existing, payload)
-        with open(config_path, 'w') as f:
-            json.dump(merged, f, indent=2)
-    else:
-        with open(config_path, 'w') as f:
-            json.dump(payload, f, indent=2)
-            
-    print(f"Updated OpenCode config at: {config_path}")
-
-def start_opencode_server() -> Optional[subprocess.Popen]:
-    """Start opencode server if not running."""
-    try:
-        requests.get(f"{OPENCODE_URL}/global/health", timeout=1)
-        print("OpenCode server is already running.")
-        return None
-    except requests.exceptions.ConnectionError:
-        print("Starting OpenCode server...")
-        # Assuming 'opencode' is in PATH
-        process = subprocess.Popen(
-            ["opencode", "serve", "--port", str(OPENCODE_PORT)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            preexec_fn=os.setsid 
-        )
-        # Wait for it to come up
-        for _ in range(10):
-            try:
-                requests.get(f"{OPENCODE_URL}/global/health", timeout=1)
-                print("OpenCode server started.")
-                return process
-            except requests.exceptions.ConnectionError:
-                time.sleep(1)
-        raise RuntimeError("Failed to start OpenCode server")
 
 def load_agent_prompt() -> str:
     """Load the system prompt from AGENTS.md."""
     template_path = os.path.join(os.path.dirname(__file__), "templates", "AGENTS.md")
-    with open(template_path, 'r') as f:
-        return f.read()
+    try:
+        with open(template_path, 'r') as f:
+            return f.read()
+    except FileNotFoundError:
+        print("Warning: AGENTS.md not found, using default prompt.")
+        return "You are a helpful security auditor."
 
-def check_export_exists(project_path: str) -> bool:
-    """Check if the project directory contains exported DB files."""
-    if not os.path.exists(project_path):
-        return False
-    
-    # Check for binary.db or any .db file that looks like an export
-    has_db = False
-    for fname in os.listdir(project_path):
-        if fname.endswith(".db") and fname != AUDIT_DB_FILENAME:
-            has_db = True
-            break
-            
-    return has_db
+def get_tools_for_llm(mcp_client: McpClient) -> List[Dict[str, Any]]:
+    """Fetch tools from MCP and convert to OpenAI tool format."""
+    mcp_tools = mcp_client.list_tools()
+    llm_tools = []
+    for tool in mcp_tools:
+        llm_tools.append({
+            "type": "function",
+            "function": {
+                "name": tool["name"],
+                "description": tool["description"],
+                "parameters": tool["inputSchema"]
+            }
+        })
+    return llm_tools
 
-def run_audit(project_path: str):
-    """Main audit loop."""
-    print(f"Starting audit in project: {project_path}")
-
-    # Check for export
-    if not check_export_exists(project_path):
-        print(f"Error: No exported database found in '{project_path}'.")
-        print(f"Please run 'aida-cli export <target>' first.")
-        return
-    
+def run_audit_loop(project_path: str, config: Config):
     # 1. Initialize Audit DB
     db_path = os.path.join(project_path, AUDIT_DB_FILENAME)
     audit_db = AuditDatabase(db_path)
     audit_db.connect()
-    
-    # 2. Ensure Config
-    ensure_opencode_config(project_path)
-    
-    # 3. Start Server
-    server_proc = start_opencode_server()
-    
+
+    # 2. Initialize MCP Client
+    print("Initializing MCP Client...")
+    mcp_transport = config.mcp.get("transport", "http")
+    if mcp_transport == "http":
+        url = config.mcp.get("url", "http://127.0.0.1:8765/mcp")
+        mcp_client = HttpMcpClient(url)
+    else:
+        cmd = config.mcp.get("command", ["aida-cli", "serve"])
+        cwd = config.mcp.get("working_directory", ".")
+        mcp_client = StdioMcpClient(cmd, cwd=os.path.abspath(cwd))
+        mcp_client.start()
+
     try:
-        # 4. Create Session
-        print("Creating session...")
-        resp = requests.post(f"{OPENCODE_URL}/session", json={"title": f"Audit Session"})
-        resp.raise_for_status()
-        session_data = resp.json()
-        session_id = session_data["id"]
-        print(f"Created session: {session_id}")
-        
-        # Log model info if available
-        if "model" in session_data:
-            print(f"Current Model: {session_data['model']}")
-        
-        # 5. Send Initial Prompt
-        system_prompt = load_agent_prompt()
-        initial_message = f"""
-PROJECT_PATH: {os.path.abspath(project_path)}
-
-{system_prompt}
-
-Please start by checking the audit plan.
-"""
-        print("Sending initial prompt...")
-        
-        payload = {
-            "parts": [{"type": "text", "text": initial_message}]
-        }
-        
-        # Log initial message
-        audit_db.add_message(session_id, "user", initial_message)
-
-        resp = requests.post(f"{OPENCODE_URL}/session/{session_id}/message", json=payload)
-        resp.raise_for_status()
-        
-        # Log response
-        resp_data = resp.json()
-        
-        # Print LLM inference message details
-        print("--- LLM Response Info ---")
-        print(json.dumps(resp_data, indent=2))
-        print("-------------------------")
-
-        if "parts" in resp_data:
-            response_text = "".join([p.get("text", "") for p in resp_data["parts"] if p.get("type") == "text"])
-            audit_db.add_message(session_id, "assistant", response_text)
-        
-        print("Agent started. Monitoring progress...")
-        
-        # 6. Monitor Loop
-        last_log_id = 0
-        while True:
-            # Check Audit DB logs
-            logs = audit_db.get_logs(limit=5)
-            new_logs = [l for l in logs if l['id'] > last_log_id]
-            for log in reversed(new_logs):
-                print(f"[Agent] {log['message']}")
-                last_log_id = log['id']
-            
-            # Check Plan status
-            plans = audit_db.get_plans()
-            pending = [p for p in plans if p['status'] == 'pending']
-            in_progress = [p for p in plans if p['status'] == 'in_progress']
-            failed = [p for p in plans if p['status'] == 'failed']
-            
-            if not pending and not in_progress and plans:
-                print("All plans completed!")
-                break
-                
-            if failed:
-                print(f"Warning: {len(failed)} tasks failed.")
-                
-            time.sleep(5)
-            
-    except KeyboardInterrupt:
-        print("Stopping audit...")
+        mcp_client.initialize()
+        tools = get_tools_for_llm(mcp_client)
+        print(f"Loaded {len(tools)} tools from MCP.")
     except Exception as e:
-        print(f"Error: {e}")
-        import traceback
+        print(f"Failed to initialize MCP: {e}")
+        return
+
+    # 3. Initialize LLM Client
+    api_key = config.get_llm_api_key()
+    if not api_key:
+        print("Error: LLM API Key not found. Please set AIDA_LLM_KEY or configure ~/.aida/config.json")
+        return
+    
+    llm_client = LLMClient(
+        base_url=config.get_llm_base_url(),
+        api_key=api_key,
+        model=config.get_llm_model()
+    )
+
+    # 4. Prepare Conversation
+    system_prompt = load_agent_prompt()
+    initial_context = f"PROJECT_PATH: {os.path.abspath(project_path)}"
+    
+    messages = [
+        {"role": "system", "content": f"{initial_context}\n\n{system_prompt}"},
+        {"role": "user", "content": "Please start the audit by checking the audit plan."}
+    ]
+    
+    session_id = f"audit-{int(time.time())}"
+    print(f"Starting audit session: {session_id}")
+
+    # 5. Main Loop
+    turn_count = 0
+    max_turns = 100 # Safety limit
+
+    try:
+        while turn_count < max_turns:
+            turn_count += 1
+            print(f"\n--- Turn {turn_count} ---")
+            
+            # Call LLM
+            try:
+                response = llm_client.chat_completion(messages, tools=tools)
+            except Exception as e:
+                print(f"LLM Call Failed: {e}")
+                time.sleep(5)
+                continue
+
+            message = response["choices"][0]["message"]
+            messages.append(message)
+            
+            content = message.get("content")
+            tool_calls = message.get("tool_calls")
+
+            # Log content
+            if content:
+                print(f"[Assistant]: {content}")
+                audit_db.add_message(session_id, "assistant", content)
+
+            if not tool_calls:
+                # If no tools called, maybe we are done or waiting for user?
+                # For automated audit, we usually expect continuous action until 'done'.
+                # But let's just wait a bit to avoid rapid loops if it hallucinates.
+                # Or prompts user input?
+                # For now, let's just break if it says "I am done" or similar, but simpler to just pause.
+                if content and "audit complete" in content.lower():
+                    print("Audit appears complete.")
+                    break
+                # If just talking, maybe continue?
+                # If it stops calling tools, we might need to prompt it to continue?
+                # Let's add a "continue" user message if it stops?
+                # But risky. Let's just pause.
+                pass
+
+            # Handle Tool Calls
+            if tool_calls:
+                for tool_call in tool_calls:
+                    func_name = tool_call["function"]["name"]
+                    args_str = tool_call["function"]["arguments"]
+                    call_id = tool_call["id"]
+                    
+                    print(f"[Tool Call] {func_name}({args_str})")
+                    
+                    try:
+                        args = json.loads(args_str)
+                        result = mcp_client.call_tool(func_name, args)
+                        
+                        # Format result
+                        if isinstance(result, (dict, list)):
+                            result_str = json.dumps(result, ensure_ascii=False)
+                        else:
+                            result_str = str(result)
+                            
+                        # Truncate if too long
+                        if len(result_str) > 5000:
+                            result_str = result_str[:5000] + "... (truncated)"
+                            
+                    except Exception as e:
+                        print(f"[Tool Error] {e}")
+                        result_str = f"Error: {str(e)}"
+
+                    # Append result
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "content": result_str
+                    })
+                    print(f"[Tool Result] Length: {len(result_str)}")
+
+    except KeyboardInterrupt:
+        print("\nAudit stopped by user.")
+    except Exception as e:
+        print(f"Fatal Error: {e}")
         traceback.print_exc()
     finally:
-        if server_proc:
-            os.killpg(os.getpgid(server_proc.pid), signal.SIGTERM)
+        if isinstance(mcp_client, StdioMcpClient):
+            mcp_client.stop()
         audit_db.close()
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+def main():
+    parser = argparse.ArgumentParser(description="AIDA Audit Command")
     parser.add_argument("project", nargs="?", default=".", help="Project directory")
+    parser.add_argument("--config", help="Path to config file")
+    parser.add_argument("--api-key", help="LLM API Key")
+    parser.add_argument("--url", help="LLM Base URL")
+    parser.add_argument("--model", help="LLM Model")
     args = parser.parse_args()
+
+    # Load Config
+    config = Config(args.config)
     
-    run_audit(args.project)
+    # Apply CLI overrides
+    if args.api_key:
+        config.data["llm"]["api_key"] = args.api_key
+    if args.url:
+        config.data["llm"]["base_url"] = args.url
+    if args.model:
+        config.data["llm"]["model"] = args.model
+
+    run_audit_loop(args.project, config)
+
+if __name__ == "__main__":
+    main()

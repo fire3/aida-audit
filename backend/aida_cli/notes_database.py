@@ -52,7 +52,6 @@ class NotesDatabase:
         self.db_path = db_path
         self.logger = logger
         self.conn: Optional[sqlite3.Connection] = None
-        self.cursor: Optional[sqlite3.Cursor] = None
 
     def log(self, msg: str):
         if self.logger:
@@ -67,7 +66,7 @@ class NotesDatabase:
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=30000")
-        self.cursor = self.conn.cursor()
+        self.create_schema()
         self.log(f"Connected to notes database: {self.db_path}")
 
     def close(self):
@@ -82,15 +81,16 @@ class NotesDatabase:
 
     def create_schema(self):
         self.log("Creating notes schema...")
+        cursor = self.conn.cursor()
 
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS tags (
                 tag_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT UNIQUE
             )
         """)
 
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS notes (
                 note_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 binary_name TEXT NOT NULL,
@@ -105,7 +105,7 @@ class NotesDatabase:
             )
         """)
 
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS note_tags (
                 note_id INTEGER NOT NULL REFERENCES notes(note_id),
                 tag_id INTEGER NOT NULL REFERENCES tags(tag_id),
@@ -113,7 +113,7 @@ class NotesDatabase:
             )
         """)
 
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS findings (
                 finding_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 note_id INTEGER UNIQUE REFERENCES notes(note_id),
@@ -130,33 +130,35 @@ class NotesDatabase:
             )
         """)
 
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_notes_binary ON notes(binary_name)
         """)
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_notes_type ON notes(note_type)
         """)
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_notes_func ON notes(function_name)
         """)
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_findings_binary ON findings(binary_name)
         """)
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity)
         """)
-        self.cursor.execute("""
+        cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_findings_category ON findings(category)
         """)
 
-        self._ensure_tags()
+        self._ensure_tags(cursor)
         self.conn.commit()
         self.log("Notes schema created successfully.")
 
-    def _ensure_tags(self):
+    def _ensure_tags(self, cursor=None):
+        if cursor is None:
+            cursor = self.conn.cursor()
         for tag in PREDEFINED_TAGS:
             try:
-                self.cursor.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (tag,))
+                cursor.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (tag,))
             except Exception:
                 pass
 
@@ -169,16 +171,18 @@ class NotesDatabase:
             return tags_input
         return []
 
-    def _ensure_tag_ids(self, tags: List[str]) -> List[int]:
+    def _ensure_tag_ids(self, tags: List[str], cursor=None) -> List[int]:
+        if cursor is None:
+            cursor = self.conn.cursor()
         tag_ids = []
         for tag in tags:
-            self.cursor.execute("SELECT tag_id FROM tags WHERE name = ?", (tag,))
-            row = self.cursor.fetchone()
+            cursor.execute("SELECT tag_id FROM tags WHERE name = ?", (tag,))
+            row = cursor.fetchone()
             if row:
                 tag_ids.append(row[0])
             else:
-                self.cursor.execute("INSERT INTO tags (name) VALUES (?)", (tag,))
-                tag_ids.append(self.cursor.lastrowid)
+                cursor.execute("INSERT INTO tags (name) VALUES (?)", (tag,))
+                tag_ids.append(cursor.lastrowid)
         return tag_ids
 
     def create_note(
@@ -200,18 +204,19 @@ class NotesDatabase:
         parsed_tags = self._parse_tags(tags)
         tags_json = json.dumps(parsed_tags) if parsed_tags else None
 
-        self.cursor.execute("""
+        cursor = self.conn.cursor()
+        cursor.execute("""
             INSERT INTO notes (binary_name, function_name, address, note_type, content, confidence, tags)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (binary_name, function_name, address, note_type, content, confidence, tags_json))
 
-        note_id = self.cursor.lastrowid
+        note_id = cursor.lastrowid
 
         if parsed_tags:
-            tag_ids = self._ensure_tag_ids(parsed_tags)
+            tag_ids = self._ensure_tag_ids(parsed_tags, cursor)
             for tag_id in tag_ids:
                 try:
-                    self.cursor.execute("INSERT OR IGNORE INTO note_tags (note_id, tag_id) VALUES (?, ?)",
+                    cursor.execute("INSERT OR IGNORE INTO note_tags (note_id, tag_id) VALUES (?, ?)",
                                         (note_id, tag_id))
                 except Exception:
                     pass
@@ -255,8 +260,9 @@ class NotesDatabase:
         """
         params.append(limit)
 
-        self.cursor.execute(sql, params)
-        rows = self.cursor.fetchall()
+        cursor = self.conn.cursor()
+        cursor.execute(sql, params)
+        rows = cursor.fetchall()
 
         results = []
         for row in rows:
@@ -291,6 +297,8 @@ class NotesDatabase:
     ) -> bool:
         updates = []
         params = []
+        
+        cursor = self.conn.cursor()
 
         if content is not None:
             updates.append("content = ?")
@@ -303,12 +311,12 @@ class NotesDatabase:
             params.append(tags_json)
             updates.append("updated_at = CURRENT_TIMESTAMP")
 
-            self.cursor.execute("DELETE FROM note_tags WHERE note_id = ?", (note_id,))
+            cursor.execute("DELETE FROM note_tags WHERE note_id = ?", (note_id,))
             if parsed_tags:
-                tag_ids = self._ensure_tag_ids(parsed_tags)
+                tag_ids = self._ensure_tag_ids(parsed_tags, cursor)
                 for tag_id in tag_ids:
                     try:
-                        self.cursor.execute("INSERT OR IGNORE INTO note_tags (note_id, tag_id) VALUES (?, ?)",
+                        cursor.execute("INSERT OR IGNORE INTO note_tags (note_id, tag_id) VALUES (?, ?)",
                                             (note_id, tag_id))
                     except Exception:
                         pass
@@ -319,18 +327,19 @@ class NotesDatabase:
             return False
 
         params.append(note_id)
-        self.cursor.execute(f"""
+        cursor.execute(f"""
             UPDATE notes SET {', '.join(updates)} WHERE note_id = ?
         """, params)
         self.conn.commit()
-        return self.cursor.rowcount > 0
+        return cursor.rowcount > 0
 
     def delete_note(self, note_id: int) -> bool:
-        self.cursor.execute("DELETE FROM note_tags WHERE note_id = ?", (note_id,))
-        self.cursor.execute("DELETE FROM findings WHERE note_id = ?", (note_id,))
-        self.cursor.execute("DELETE FROM notes WHERE note_id = ?", (note_id,))
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM note_tags WHERE note_id = ?", (note_id,))
+        cursor.execute("DELETE FROM findings WHERE note_id = ?", (note_id,))
+        cursor.execute("DELETE FROM notes WHERE note_id = ?", (note_id,))
         self.conn.commit()
-        return self.cursor.rowcount > 0
+        return cursor.rowcount > 0
 
     def create_finding(
         self,
@@ -357,13 +366,14 @@ class NotesDatabase:
             address=address,
             confidence="high"
         )
-
-        self.cursor.execute("""
+        
+        cursor = self.conn.cursor()
+        cursor.execute("""
             INSERT INTO findings (note_id, binary_name, function_name, address, severity, category, description, evidence, cvss, exploitability)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (note_id, binary_name, function_name, address, severity, category, description, evidence, cvss, exploitability))
 
-        finding_id = self.cursor.lastrowid
+        finding_id = cursor.lastrowid
         self.conn.commit()
         self.log(f"Created finding {finding_id} for {binary_name}")
         return finding_id
@@ -408,8 +418,9 @@ class NotesDatabase:
                 f.created_at DESC
         """
 
-        self.cursor.execute(sql, params)
-        rows = self.cursor.fetchall()
+        cursor = self.conn.cursor()
+        cursor.execute(sql, params)
+        rows = cursor.fetchall()
 
         return [
             {
@@ -430,25 +441,26 @@ class NotesDatabase:
         ]
 
     def get_statistics(self, binary_name: str) -> Dict[str, Any]:
-        self.cursor.execute("""
+        cursor = self.conn.cursor()
+        cursor.execute("""
             SELECT COUNT(*) FROM notes WHERE binary_name = ?
         """, (binary_name,))
-        total_notes = self.cursor.fetchone()[0]
+        total_notes = cursor.fetchone()[0]
 
-        self.cursor.execute("""
+        cursor.execute("""
             SELECT note_type, COUNT(*) FROM notes WHERE binary_name = ? GROUP BY note_type
         """, (binary_name,))
-        notes_by_type = dict(self.cursor.fetchall())
+        notes_by_type = dict(cursor.fetchall())
 
-        self.cursor.execute("""
+        cursor.execute("""
             SELECT COUNT(*) FROM findings WHERE binary_name = ?
         """, (binary_name,))
-        findings_count = self.cursor.fetchone()[0]
+        findings_count = cursor.fetchone()[0]
 
-        self.cursor.execute("""
+        cursor.execute("""
             SELECT severity, COUNT(*) FROM findings WHERE binary_name = ? GROUP BY severity
         """, (binary_name,))
-        findings_by_severity = dict(self.cursor.fetchall())
+        findings_by_severity = dict(cursor.fetchall())
 
         return {
             "binary_name": binary_name,
