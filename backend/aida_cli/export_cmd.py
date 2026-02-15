@@ -121,11 +121,7 @@ def _copy_to_out_dir(src_path, out_dir):
 
 def _make_db_name(src_path):
     name = os.path.basename(src_path)
-    try:
-        file_hash = _sha256_prefix(src_path)
-    except Exception:
-        file_hash = "nohash"
-    return f"{name}.{file_hash}.db"
+    return f"{name}.db"
 
 def _expand_targets(target_value):
     if not target_value:
@@ -750,7 +746,7 @@ class ExportOrchestrator:
             self.logger.log(f"Reuse C: {c_path}", context="ORCHESTRATOR")
 
         if save_idb is None:
-            save_idb = os.path.splitext(output_db)[0]
+            save_idb = os.path.splitext(input_path)[0]
 
         try:
             # Step 1: Run Master
