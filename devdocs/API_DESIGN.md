@@ -90,7 +90,7 @@ All API endpoints are prefixed with `/api/v1`.
 
 #### List Strings
 *   **GET** `/api/v1/binary/{binary_name}/strings`
-*   **Query Params**: `query`, `min_length`, `offset`, `limit`
+*   **Query Params**: `query`, `offset`, `limit`
 
 ### Analysis & Content Endpoints
 

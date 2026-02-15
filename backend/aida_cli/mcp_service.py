@@ -174,7 +174,7 @@ class McpService:
         """
         return self._get_binary(binary_name).get_extended_metadata()
 
-    @mcp_tool(name="list_binary_sections")
+    #@mcp_tool(name="list_binary_sections")
     def list_binary_sections(self, binary_name: str) -> List[Dict[str, Any]]:
         """Retrieve the list of sections (e.g., .text, .data) in the specified binary.
 
@@ -191,7 +191,7 @@ class McpService:
         """
         return self._get_binary(binary_name).list_sections()
 
-    @mcp_tool(name="list_binary_segments")
+    #@mcp_tool(name="list_binary_segments")
     def list_binary_segments(self, binary_name: str) -> List[Dict[str, Any]]:
         """Retrieve the list of segments in the specified binary.
 
@@ -252,7 +252,7 @@ class McpService:
         except Exception as e:
             raise McpError("INTERNAL_ERROR", str(e))
 
-    @mcp_tool(name="get_binary_bytes")
+    #@mcp_tool(name="get_binary_bytes")
     def get_binary_bytes(self, binary_name: str, address: Union[str, int], length: int, format_type: str = None) -> str:
         """Read raw bytes from a specific memory address in the binary.
 
@@ -517,7 +517,7 @@ class McpService:
         except Exception as e:
             raise McpError("INTERNAL_ERROR", str(e))
 
-    def get_binary_cross_references_to_address(self, binary_name: str, address: Union[str, int], offset: int = 0, limit: int = 50, filters: dict = None) -> List[Dict[str, Any]]:
+    def get_binary_cross_references_to_address(self, binary_name: str, address: Union[str, int], offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
         """Get cross references to an address.
 
         Args:
@@ -525,11 +525,10 @@ class McpService:
             address: Target address (hex string or integer).
             offset: Start index for pagination (default: 0).
             limit: Maximum number of xrefs to return (default: 50).
-            filters: Filters for xrefs (optional).
         Returns:
             list: List of dictionaries, each representing a cross reference.
         """
-        return self._get_binary(binary_name).get_xrefs_to_address(address, offset, limit, filters)
+        return self._get_binary(binary_name).get_xrefs_to_address(address, offset, limit, None)
 
     def get_binary_cross_references_from_address(self, binary_name: str, address: Union[str, int], offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
         """Get cross references from an address.
@@ -545,7 +544,7 @@ class McpService:
         return self._get_binary(binary_name).get_xrefs_from_address(address, offset, limit)
 
     @mcp_tool(name="get_binary_cross_references")
-    def get_binary_cross_references(self, binary_name: str, address: Union[str, int], offset: int = 0, limit: int = 50, filters: dict = None) -> Dict[str, List[Dict[str, Any]]]:
+    def get_binary_cross_references(self, binary_name: str, address: Union[str, int], offset: int = 0, limit: int = 50) -> Dict[str, List[Dict[str, Any]]]:
         """Retrieve cross-references (xrefs) to and from a specific address.
 
         Use this tool to find:
@@ -558,14 +557,13 @@ class McpService:
             address: The memory address to analyze. MUST be a string if using hex (e.g., "0x401000").
             offset: Pagination offset for the results list (default: 0).
             limit: Max number of xrefs to return per direction (max 50).
-            filters: Optional filters (e.g., type='code').
 
         Returns:
             dict: An object with 'to' (incoming references) and 'from' (outgoing references) lists.
         """
         try:
             return {
-                "to": self.get_binary_cross_references_to_address(binary_name, address, offset, limit, filters),
+                "to": self.get_binary_cross_references_to_address(binary_name, address, offset, limit),
                 "from": self.get_binary_cross_references_from_address(binary_name, address, offset, limit)
             }
         except LookupError as e:
