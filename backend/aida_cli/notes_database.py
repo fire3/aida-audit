@@ -60,13 +60,15 @@ class NotesDatabase:
             print(f"[NotesDB] {msg}")
 
     def connect(self):
-        if not os.path.exists(self.db_path):
-            self.log(f"Creating new notes database: {self.db_path}")
-
+        is_new = not os.path.exists(self.db_path)
+        
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=30000")
-        self.create_schema()
+        
+        if is_new:
+            self.create_schema()
+            self.log(f"Created notes database: {self.db_path}")
         self.log(f"Connected to notes database: {self.db_path}")
 
     def close(self):
