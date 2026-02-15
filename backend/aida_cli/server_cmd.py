@@ -37,17 +37,11 @@ async def lifespan(app: FastAPI):
         print(f"Loaded project from: {project_path}")
 
         notes_db_path = os.path.join(project_path, "project_notes.db")
-        # Always initialize notes database, creating it if it doesn't exist
-        try:
+        if os.path.exists(notes_db_path):
             notes_db = NotesDatabase(notes_db_path)
             notes_db.connect()
-            notes_db.create_schema()
             notes_mcp_tools.set_notes_db(notes_db)
             print(f"Loaded notes database: {notes_db_path}")
-        except Exception as e:
-            print(f"Failed to load notes database: {e}", file=sys.stderr)
-            # We don't raise here to allow the server to start even if notes DB fails
-            # But notes endpoints will fail with 500 if accessed.
     except Exception as e:
         print(f"Failed to load project: {e}", file=sys.stderr)
 

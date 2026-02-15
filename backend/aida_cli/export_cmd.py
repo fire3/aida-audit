@@ -86,7 +86,7 @@ def _is_within_dir(path, root_dir):
     return common == root_dir
 
 def _ensure_notes_db(out_dir: str) -> str:
-    notes_db = os.path.join(os.path.dirname(out_dir), "project_notes.db")
+    notes_db = os.path.join(out_dir, "project_notes.db")
     if not os.path.exists(notes_db):
         db = NotesDatabase(notes_db)
         db.connect()

@@ -35,6 +35,8 @@ def create_note(
     tags: Optional[str] = None,
     confidence: str = "medium"
 ) -> Dict[str, Any]:
+    if _notes_db is None:
+        raise RuntimeError("Project notes database not initialized. Please run 'aida-cli export' first.")
     db = get_notes_db()
     addr = _parse_address(address)
     note_id = db.create_note(
@@ -56,6 +58,8 @@ def get_notes(
     tags: Optional[str] = None,
     limit: int = 50
 ) -> List[Dict[str, Any]]:
+    if _notes_db is None:
+        return []
     db = get_notes_db()
     return db.get_notes(
         binary_name=binary_name,
@@ -71,12 +75,16 @@ def update_note(
     content: Optional[str] = None,
     tags: Optional[str] = None
 ) -> Dict[str, Any]:
+    if _notes_db is None:
+        raise RuntimeError("Project notes database not initialized. Please run 'aida-cli export' first.")
     db = get_notes_db()
     success = db.update_note(note_id=note_id, content=content, tags=tags)
     return {"success": success}
 
 
 def delete_note(note_id: int) -> Dict[str, Any]:
+    if _notes_db is None:
+        raise RuntimeError("Project notes database not initialized. Please run 'aida-cli export' first.")
     db = get_notes_db()
     success = db.delete_note(note_id=note_id)
     return {"success": success}
@@ -93,6 +101,8 @@ def mark_finding(
     cvss: Optional[float] = None,
     exploitability: Optional[str] = None
 ) -> Dict[str, Any]:
+    if _notes_db is None:
+        raise RuntimeError("Project notes database not initialized. Please run 'aida-cli export' first.")
     db = get_notes_db()
     addr = _parse_address(address)
     finding_id = db.create_finding(
@@ -116,10 +126,14 @@ def get_findings(
     severity: Optional[str] = None,
     category: Optional[str] = None
 ) -> List[Dict[str, Any]]:
+    if _notes_db is None:
+        return []
     db = get_notes_db()
     return db.get_findings(binary_name=binary_name, severity=severity, category=category)
 
 
 def get_analysis_progress(binary_name: str) -> Dict[str, Any]:
+    if _notes_db is None:
+        return {}
     db = get_notes_db()
     return db.get_statistics(binary_name=binary_name)
