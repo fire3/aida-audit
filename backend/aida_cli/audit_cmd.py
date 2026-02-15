@@ -37,6 +37,10 @@ def get_tools_for_llm(mcp_client: McpClient) -> List[Dict[str, Any]]:
         })
     return llm_tools
 
+def run_audit(project_path: str):
+    config = Config()
+    run_audit_loop(project_path, config)
+
 def run_audit_loop(project_path: str, config: Config):
     # 1. Initialize Audit DB
     db_path = os.path.join(project_path, AUDIT_DB_FILENAME)
@@ -66,7 +70,8 @@ def run_audit_loop(project_path: str, config: Config):
     # 3. Initialize LLM Client
     api_key = config.get_llm_api_key()
     if not api_key:
-        print("Error: LLM API Key not found. Please set AIDA_LLM_KEY or configure ~/.aida/config.json")
+        print("Error: LLM API Key not found.")
+        print("Please run 'aida-cli config' to set up your LLM configuration.")
         return
     
     llm_client = LLMClient(

@@ -48,3 +48,17 @@ class LLMClient:
             return message.get("tool_calls", [])
         except (KeyError, IndexError):
             return []
+
+    def list_models(self) -> List[str]:
+        url = f"{self.base_url}/models"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}"
+        }
+        try:
+            response = requests.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            return [model["id"] for model in data.get("data", [])]
+        except Exception as e:
+            print(f"Warning: Failed to fetch models: {e}")
+            return []
