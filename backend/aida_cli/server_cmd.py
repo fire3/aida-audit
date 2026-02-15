@@ -19,19 +19,24 @@ logger = logging.getLogger("aida_server")
 from .project_store import ProjectStore
 from .mcp_service import McpService, McpError
 from .notes_database import NotesDatabase
-from .constants import NOTES_DB_FILENAME
+from .audit_database import AuditDatabase
+from .constants import NOTES_DB_FILENAME, AUDIT_DB_FILENAME
 from . import notes_mcp_tools
+from . import audit_mcp_tools
 
 # Global service instance
 service = None
 project_store = None
+notes_db = None
+audit_db = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    global service, project_store, notes_db
+    global service, project_store, notes_db, audit_db
     project_path = os.environ.get("AIDA_MCP_PROJECT", ".")
     notes_db = None
+    audit_db = None
     try:
         project_store = ProjectStore(project_path)
         service = McpService(project_store)
@@ -43,6 +48,19 @@ async def lifespan(app: FastAPI):
             notes_db.connect()
             notes_mcp_tools.set_notes_db(notes_db)
             print(f"Loaded notes database: {notes_db_path}")
+            
+        audit_db_path = os.path.join(project_path, AUDIT_DB_FILENAME)
+        # We allow creating a new one if it doesn't exist? Or just load if exists?
+        # Usually audit starts with audit command which creates it.
+        # But server might run independently.
+        # Let's check existence or just create/connect. 
+        # AuditDatabase.connect() handles creation if dir exists.
+        if os.path.exists(os.path.dirname(audit_db_path)):
+             audit_db = AuditDatabase(audit_db_path)
+             audit_db.connect()
+             audit_mcp_tools.set_audit_db(audit_db)
+             print(f"Loaded audit database: {audit_db_path}")
+
     except Exception as e:
         print(f"Failed to load project: {e}", file=sys.stderr)
 
@@ -53,6 +71,8 @@ async def lifespan(app: FastAPI):
         project_store.close()
     if notes_db:
         notes_db.close()
+    if audit_db:
+        audit_db.close()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -508,6 +528,46 @@ def get_xrefs(
     svc = get_service()
     try:
         return svc.get_binary_cross_references(binary_name, address, offset, limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Audit Endpoints
+
+@api_router.get("/audit/plans")
+def get_audit_plans(status: Optional[str] = None):
+    try:
+        # Check if DB is initialized
+        if not audit_db:
+             return []
+        return audit_mcp_tools.audit_plan_list(status)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/audit/logs")
+def get_audit_logs(limit: int = 50):
+    if not audit_db:
+         return []
+    try:
+        return audit_db.get_logs(limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/audit/memory")
+def get_audit_memory():
+    if not audit_db:
+         return {}
+    try:
+        return audit_mcp_tools.audit_memory_list()
+    except Exception as e:
+         raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/audit/messages")
+def get_audit_messages(session_id: Optional[str] = None, limit: int = 100):
+    if not audit_db:
+        return []
+    try:
+        return audit_db.get_messages(session_id, limit)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

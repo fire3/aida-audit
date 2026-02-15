@@ -1,3 +1,4 @@
 recursive-include aida_cli/static *
 recursive-include aida_cli/ghidra_export *
 recursive-include aida_cli/skills *
+recursive-include aida_cli/templates *

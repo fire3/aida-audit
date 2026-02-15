@@ -23,6 +23,8 @@ setup(
             "ghidra_export/*",
             "skills/**/*",
             "skills/*",
+            "templates/**/*",
+            "templates/*",
         ],
     },
     include_package_data=True,

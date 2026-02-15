@@ -8,10 +8,10 @@ import subprocess
 import signal
 from typing import Optional
 from .audit_database import AuditDatabase
+from .constants import AUDIT_DB_FILENAME
 
 OPENCODE_PORT = 4096
 OPENCODE_URL = f"http://localhost:{OPENCODE_PORT}"
-AUDIT_DB_FILENAME = "audit.db"
 
 def ensure_opencode_config(project_path: str):
     """Ensure aida-cli is registered in opencode config."""
@@ -75,9 +75,29 @@ def load_agent_prompt() -> str:
     with open(template_path, 'r') as f:
         return f.read()
 
+def check_export_exists(project_path: str) -> bool:
+    """Check if the project directory contains exported DB files."""
+    if not os.path.exists(project_path):
+        return False
+    
+    # Check for binary.db or any .db file that looks like an export
+    has_db = False
+    for fname in os.listdir(project_path):
+        if fname.endswith(".db") and fname != AUDIT_DB_FILENAME:
+            has_db = True
+            break
+            
+    return has_db
+
 def run_audit(target: str, project_path: str):
     """Main audit loop."""
     print(f"Starting audit for: {target}")
+
+    # Check for export
+    if not check_export_exists(project_path):
+        print(f"Error: No exported database found in '{project_path}'.")
+        print(f"Please run 'aida-cli export {target}' first.")
+        return
     
     # 1. Initialize Audit DB
     db_path = os.path.join(project_path, AUDIT_DB_FILENAME)
@@ -117,8 +137,19 @@ Please start by checking the audit plan.
             "parts": [{"type": "text", "text": initial_message}]
         }
         
+        # Log initial message
+        audit_db.add_message(session_id, "user", initial_message)
+
         resp = requests.post(f"{OPENCODE_URL}/session/{session_id}/message", json=payload)
         resp.raise_for_status()
+        
+        # Log response
+        # The response format from opencode might need inspection.
+        # Assuming it returns the message object which contains parts.
+        resp_data = resp.json()
+        if "parts" in resp_data:
+            response_text = "".join([p.get("text", "") for p in resp_data["parts"] if p.get("type") == "text"])
+            audit_db.add_message(session_id, "assistant", response_text)
         
         print("Agent started. Monitoring progress...")
         

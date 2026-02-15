@@ -70,6 +70,16 @@ class AuditDatabase:
                 updated_at INTEGER
             )
         """)
+
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS audit_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL, -- user, assistant, system
+                content TEXT NOT NULL,
+                timestamp INTEGER
+            )
+        """)
         self.commit()
 
     # Plan Operations
@@ -148,3 +158,29 @@ class AuditDatabase:
         for row in self.cursor.fetchall():
             result[row[0]] = json.loads(row[1])
         return result
+
+    # Message Operations
+    def add_message(self, session_id: str, role: str, content: str):
+        timestamp = int(time.time())
+        self.cursor.execute(
+            "INSERT INTO audit_messages (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
+            (session_id, role, content, timestamp)
+        )
+        self.commit()
+
+    def get_messages(self, session_id: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+        query = "SELECT id, session_id, role, content, timestamp FROM audit_messages"
+        params = []
+        if session_id:
+            query += " WHERE session_id = ?"
+            params.append(session_id)
+        
+        query += " ORDER BY timestamp ASC, id ASC LIMIT ?"
+        params.append(limit)
+        
+        self.cursor.execute(query, params)
+        columns = [column[0] for column in self.cursor.description]
+        results = []
+        for row in self.cursor.fetchall():
+            results.append(dict(zip(columns, row)))
+        return results

@@ -98,8 +98,62 @@ export interface FunctionCalleeRef {
 export interface PseudocodeResult {
   function_address: string;
   name: string;
-  pseudo_code: string;
+  pseudocode: string;
 }
+
+// Audit Interfaces
+
+export interface AuditPlan {
+  id: number;
+  title: string;
+  description: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  created_at: number;
+  updated_at: number;
+}
+
+export interface AuditLog {
+  id: number;
+  plan_id?: number;
+  message: string;
+  timestamp: number;
+}
+
+export interface AuditMessage {
+  id: number;
+  session_id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: number;
+}
+
+export interface AuditMemory {
+  key: string;
+  value: any;
+  updated_at: number;
+}
+
+export const auditApi = {
+  getPlans: async (status?: string) => {
+    const params = status ? { status } : {};
+    const res = await apiClient.get<AuditPlan[]>('/audit/plans', { params });
+    return res.data;
+  },
+  getLogs: async (limit: number = 50) => {
+    const res = await apiClient.get<AuditLog[]>('/audit/logs', { params: { limit } });
+    return res.data;
+  },
+  getMemory: async () => {
+    const res = await apiClient.get<Record<string, any>>('/audit/memory');
+    return res.data;
+  },
+  getMessages: async (sessionId?: string, limit: number = 100) => {
+    const params: any = { limit };
+    if (sessionId) params.session_id = sessionId;
+    const res = await apiClient.get<AuditMessage[]>('/audit/messages', { params });
+    return res.data;
+  }
+};
 
 export interface BinaryString {
   address: string;
