@@ -17,6 +17,8 @@ logger = logging.getLogger("aida_server")
 
 from .project_store import ProjectStore
 from .mcp_service import McpService, McpError
+from .notes_database import NotesDatabase
+from . import notes_mcp_tools
 
 # Global service instance
 service = None
@@ -25,21 +27,30 @@ project_store = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    global service, project_store
+    global service, project_store, notes_db
     project_path = os.environ.get("AIDA_MCP_PROJECT", ".")
+    notes_db = None
     try:
         project_store = ProjectStore(project_path)
         service = McpService(project_store)
         print(f"Loaded project from: {project_path}")
+
+        notes_db_path = os.path.join(project_path, "project_notes.db")
+        if os.path.exists(notes_db_path):
+            notes_db = NotesDatabase(notes_db_path)
+            notes_db.connect()
+            notes_mcp_tools.set_notes_db(notes_db)
+            print(f"Loaded notes database: {notes_db_path}")
     except Exception as e:
         print(f"Failed to load project: {e}", file=sys.stderr)
-        # We don't exit here to allow debugging, but service will be broken
-    
+
     yield
-    
+
     # Shutdown
     if project_store:
         project_store.close()
+    if notes_db:
+        notes_db.close()
 
 app = FastAPI(lifespan=lifespan)
 

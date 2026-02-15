@@ -4,6 +4,8 @@ import inspect
 import traceback
 from typing import Any, Dict, List, Optional, Union, get_type_hints
 from .project_store import ProjectStore
+from .notes_database import NotesDatabase
+from . import notes_mcp_tools
 
 def mcp_tool(name=None):
     """Decorator to mark a method as an MCP tool."""
@@ -852,3 +854,154 @@ class McpService:
         if isinstance(v, str) and "," in v:
             return [x.strip() for x in v.split(",") if x.strip()]
         return v
+
+    @mcp_tool(name="create_note")
+    def create_note(self, binary_name: str, content: str, note_type: str,
+                    function_name: str = None, address = None,
+                    tags: str = None, confidence: str = "medium") -> Dict[str, Any]:
+        """Create a new analysis note.
+
+        Args:
+            binary_name: The binary file name this note is associated with.
+            content: The note content (analysis findings, observations, etc.).
+            note_type: Type of note. Options: vulnerability, behavior, function_summary,
+                       data_structure, control_flow, crypto_usage, obfuscation, io_operation, general.
+            function_name: Optional function name to associate with this note.
+            address: Optional virtual address (hex or int) to associate with this note.
+            tags: Optional comma-separated list of tags.
+            confidence: Confidence level. Options: high, medium, low, speculative. Default: medium.
+
+        Returns:
+            dict: Contains note_id of the created note.
+        """
+        return notes_mcp_tools.create_note(
+            binary_name=binary_name,
+            content=content,
+            note_type=note_type,
+            function_name=function_name,
+            address=address,
+            tags=tags,
+            confidence=confidence
+        )
+
+    @mcp_tool(name="get_notes")
+    def get_notes(self, binary_name: str = None, query: str = None,
+                  note_type: str = None, tags: str = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """Query analysis notes.
+
+        Args:
+            binary_name: Optional binary name to filter by.
+            query: Optional search term to match in note content.
+            note_type: Optional note type filter.
+            tags: Optional comma-separated tags to filter by.
+            limit: Maximum number of notes to return. Default: 50.
+
+        Returns:
+            list: Array of note objects with note_id, binary_name, function_name, address,
+                  note_type, content, confidence, tags, created_at, updated_at.
+        """
+        return notes_mcp_tools.get_notes(
+            binary_name=binary_name,
+            query=query,
+            note_type=note_type,
+            tags=tags,
+            limit=limit
+        )
+
+    @mcp_tool(name="update_note")
+    def update_note(self, note_id: int, content: str = None, tags: str = None) -> Dict[str, Any]:
+        """Update an existing note's content or tags.
+
+        Args:
+            note_id: The ID of the note to update.
+            content: Optional new content for the note.
+            tags: Optional comma-separated list of new tags.
+
+        Returns:
+            dict: Contains success boolean.
+        """
+        return notes_mcp_tools.update_note(
+            note_id=note_id,
+            content=content,
+            tags=tags
+        )
+
+    @mcp_tool(name="delete_note")
+    def delete_note(self, note_id: int) -> Dict[str, Any]:
+        """Delete a note.
+
+        Args:
+            note_id: The ID of the note to delete.
+
+        Returns:
+            dict: Contains success boolean.
+        """
+        return notes_mcp_tools.delete_note(note_id=note_id)
+
+    @mcp_tool(name="mark_finding")
+    def mark_finding(self, binary_name: str, severity: str, category: str, description: str,
+                     function_name: str = None, address = None,
+                     evidence: str = None, cvss: float = None,
+                     exploitability: str = None) -> Dict[str, Any]:
+        """Mark a security finding in the analysis.
+
+        Args:
+            binary_name: The binary file name this finding is associated with.
+            severity: Finding severity. Options: critical, high, medium, low, info.
+            category: Finding category. Options: buffer_overflow, format_string, integer_overflow,
+                      use_after_free, double_free, memory_disclosure, crypto_weak, hardcoded_secret,
+                      injection, path_traversal, authentication, authorization, anti_debug, anti_vm,
+                      packing, other.
+            description: Description of the security finding.
+            function_name: Optional function name associated with this finding.
+            address: Optional virtual address (hex or int) associated with this finding.
+            evidence: Optional evidence or code snippet supporting the finding.
+            cvss: Optional CVSS score (0.0-10.0).
+            exploitability: Optional exploitability assessment.
+
+        Returns:
+            dict: Contains finding_id and note_id.
+        """
+        return notes_mcp_tools.mark_finding(
+            binary_name=binary_name,
+            severity=severity,
+            category=category,
+            description=description,
+            function_name=function_name,
+            address=address,
+            evidence=evidence,
+            cvss=cvss,
+            exploitability=exploitability
+        )
+
+    @mcp_tool(name="get_findings")
+    def get_findings(self, binary_name: str = None, severity: str = None,
+                     category: str = None) -> List[Dict[str, Any]]:
+        """Query security findings.
+
+        Args:
+            binary_name: Optional binary name to filter by.
+            severity: Optional severity filter.
+            category: Optional category filter.
+
+        Returns:
+            list: Array of finding objects with finding_id, note_id, binary_name, function_name,
+                  address, severity, category, description, evidence, cvss, exploitability, created_at.
+        """
+        return notes_mcp_tools.get_findings(
+            binary_name=binary_name,
+            severity=severity,
+            category=category
+        )
+
+    @mcp_tool(name="get_analysis_progress")
+    def get_analysis_progress(self, binary_name: str) -> Dict[str, Any]:
+        """Get analysis progress statistics for a binary.
+
+        Args:
+            binary_name: The binary file name to get statistics for.
+
+        Returns:
+            dict: Contains binary_name, total_notes, notes_by_type, findings_count, findings_by_severity.
+        """
+        return notes_mcp_tools.get_analysis_progress(binary_name=binary_name)

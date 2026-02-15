@@ -20,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from .ghidra_importer import import_ghidra_export
 from .elf_service import ElfService
+from .notes_database import NotesDatabase
 
 # =============================================================================
 # Shared Utilities & Logging
@@ -83,6 +84,16 @@ def _is_within_dir(path, root_dir):
     except Exception:
         return False
     return common == root_dir
+
+def _ensure_notes_db(out_dir: str) -> str:
+    notes_db = os.path.join(os.path.dirname(out_dir), "project_notes.db")
+    if not os.path.exists(notes_db):
+        db = NotesDatabase(notes_db)
+        db.connect()
+        db.create_schema()
+        db.close()
+    return notes_db
+
 
 def _copy_to_out_dir(src_path, out_dir):
     src_path = os.path.abspath(src_path)
@@ -592,7 +603,9 @@ class ExportOrchestrator:
 
         self.logger.log(f"Input  : {input_path}", context="ORCHESTRATOR")
         self.logger.log(f"Output : {output_db}", context="ORCHESTRATOR")
-        
+
+        _ensure_notes_db(os.path.dirname(output_db))
+
         export_c_path = None
         want_c = export_c
         if want_c and not c_exists:
@@ -713,7 +726,9 @@ class ExportOrchestrator:
         self.logger.log(f"Input  : {input_path}", context="ORCHESTRATOR")
         self.logger.log(f"Output : {output_db}", context="ORCHESTRATOR")
         self.logger.log(f"Workers: {self.workers}", context="ORCHESTRATOR")
-        
+
+        _ensure_notes_db(os.path.dirname(output_db))
+
         # Setup temporary directory
         temp_dir = os.path.join(os.path.dirname(output_db), f"ida_parallel_temp_{os.getpid()}_{int(time.time())}")
         if os.path.exists(temp_dir):
