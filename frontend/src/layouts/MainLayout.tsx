@@ -15,6 +15,12 @@ export function MainLayout() {
             </Link>
             <nav className="flex items-center space-x-6 text-sm font-medium">
               <Link
+                to="/audit"
+                className="transition-colors hover:text-foreground/80 text-foreground/60"
+              >
+                Audit
+              </Link>
+              <Link
                 to="/notes"
                 className="transition-colors hover:text-foreground/80 text-foreground/60"
               >

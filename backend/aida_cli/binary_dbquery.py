@@ -649,7 +649,7 @@ class BinaryDbQuery:
                 {
                     "function_address": f.get("address") or _format_address(va),
                     "name": f.get("name"),
-                    "pseudo_code": content or "",
+                    "pseudocode": content or "",
                 }
             )
         return out

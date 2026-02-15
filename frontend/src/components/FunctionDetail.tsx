@@ -46,7 +46,7 @@ export function FunctionDetail({ binaryName, address, onNavigate }: FunctionDeta
       // Fetch pseudocode for the target implementation
       try {
         const pseudo = await binaryApi.getFunctionPseudocode(target.binary, target.export.address);
-        return { ...target, pseudocode: pseudo?.pseudo_code };
+        return { ...target, pseudocode: pseudo?.pseudocode };
       } catch {
         return { ...target, pseudocode: null };
       }
@@ -127,7 +127,7 @@ export function FunctionDetail({ binaryName, address, onNavigate }: FunctionDeta
                   customStyle={{ margin: 0, height: '100%', borderRadius: 0 }}
                   showLineNumbers
                 >
-                  {pseudocode?.pseudo_code || "// No pseudocode available."}
+                  {pseudocode?.pseudocode || "// No pseudocode available."}
                 </SyntaxHighlighter>
               </div>
             )
