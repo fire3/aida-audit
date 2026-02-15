@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Union, get_type_hints
 from .project_store import ProjectStore
 from .notes_database import NotesDatabase
 from . import notes_mcp_tools
+from . import audit_mcp_tools
 
 def mcp_tool(name=None):
     """Decorator to mark a method as an MCP tool."""
@@ -1005,3 +1006,61 @@ class McpService:
             dict: Contains binary_name, total_notes, notes_by_type, findings_count, findings_by_severity.
         """
         return notes_mcp_tools.get_analysis_progress(binary_name=binary_name)
+
+    # --- Audit Management Tools ---
+
+    @mcp_tool(name="audit_plan_add")
+    def audit_plan_add(self, title: str, description: str) -> Dict[str, Any]:
+        """Add a new task to the audit plan.
+        
+        Use this tool to decompose your audit goal into smaller, manageable steps.
+        Always maintain an up-to-date plan.
+        """
+        return audit_mcp_tools.audit_plan_add(title, description)
+
+    @mcp_tool(name="audit_plan_list")
+    def audit_plan_list(self, status: str = None) -> List[Dict[str, Any]]:
+        """List all tasks in the audit plan.
+        
+        Optionally filter by status (pending, in_progress, completed, failed).
+        Check this frequently to know what to do next.
+        """
+        return audit_mcp_tools.audit_plan_list(status)
+
+    @mcp_tool(name="audit_plan_update")
+    def audit_plan_update(self, plan_id: int, status: str, notes: str = None) -> Dict[str, Any]:
+        """Update the status of a plan task.
+        
+        Valid statuses: pending, in_progress, completed, failed.
+        You can also add a progress note to explain what you did.
+        """
+        return audit_mcp_tools.audit_plan_update(plan_id, status, notes)
+
+    @mcp_tool(name="audit_log_progress")
+    def audit_log_progress(self, message: str, plan_id: int = None) -> Dict[str, Any]:
+        """Log a general progress message or a specific update for a plan item.
+        
+        Use this to record your thoughts, decisions, or intermediate results that don't fit into a specific finding.
+        """
+        return audit_mcp_tools.audit_log_progress(message, plan_id)
+
+    @mcp_tool(name="audit_memory_set")
+    def audit_memory_set(self, key: str, value: Any) -> Dict[str, Any]:
+        """Store a piece of information in the long-term memory.
+        
+        The value can be a string, number, list, or dictionary.
+        Use this to persist important findings, context, addresses, or decisions across sessions.
+        """
+        return audit_mcp_tools.audit_memory_set(key, value)
+
+    @mcp_tool(name="audit_memory_get")
+    def audit_memory_get(self, key: str) -> Dict[str, Any]:
+        """Retrieve information from long-term memory by key.
+        """
+        return audit_mcp_tools.audit_memory_get(key)
+
+    @mcp_tool(name="audit_memory_list")
+    def audit_memory_list(self) -> Dict[str, Any]:
+        """List all stored memory keys and values.
+        """
+        return audit_mcp_tools.audit_memory_list()

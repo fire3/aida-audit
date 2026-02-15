@@ -11,6 +11,7 @@ import tempfile
 from . import export_cmd
 from . import server_cmd
 from . import scan_cmd
+from . import audit_cmd
 
 def _print_main_help():
     print("Usage: aida-cli <command> [args]")
@@ -20,6 +21,7 @@ def _print_main_help():
     print("  install - Generate MCP client config")
     print("  workspace - Initialize a local workspace")
     print("  scan    - Run IDA Microcode taint scan")
+    print("  audit   - Run automated code audit with OpenCode")
 
 def _build_opencode_stdio_config(project, python_cmd, server_name):
     command = python_cmd
@@ -271,8 +273,12 @@ def main():
         workspace_main()
     elif command == "scan":
         scan_cmd.main()
-    elif command == "taint":
-        taint_cmd.main()
+    elif command == "audit":
+        parser = argparse.ArgumentParser()
+        parser.add_argument("target", help="Target binary or directory to audit")
+        parser.add_argument("--project", default=".", help="Project directory")
+        args = parser.parse_args()
+        audit_cmd.run_audit(args.target, args.project)
     else:
         print(f"Unknown command: {command}")
         print("Available commands: export, serve, config, workspace, audit, scan")
