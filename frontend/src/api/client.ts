@@ -186,6 +186,69 @@ export interface McpTool {
   };
 }
 
+export interface Note {
+  note_id: number;
+  binary_name: string;
+  function_name?: string | null;
+  address?: number | null;
+  note_type: string;
+  content: string;
+  confidence: string;
+  tags?: string[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NoteCreate {
+  binary_name: string;
+  content: string;
+  note_type: string;
+  function_name?: string | null;
+  address?: string | number | null;
+  tags?: string | null;
+  confidence?: string;
+}
+
+export interface NoteUpdate {
+  content?: string | null;
+  tags?: string | null;
+}
+
+export interface Finding {
+  finding_id: number;
+  note_id: number;
+  binary_name: string;
+  function_name?: string | null;
+  address?: number | null;
+  severity: string;
+  category: string;
+  description: string;
+  evidence?: string | null;
+  cvss?: number | null;
+  exploitability?: string | null;
+  created_at: string;
+}
+
+export interface FindingCreate {
+  binary_name: string;
+  severity: string;
+  category: string;
+  description: string;
+  function_name?: string | null;
+  address?: string | number | null;
+  evidence?: string | null;
+  cvss?: number | null;
+  exploitability?: string | null;
+}
+
+export interface AnalysisProgress {
+  binary_name: string;
+  total_notes: number;
+  notes_by_type: Record<string, number>;
+  findings_count: number;
+  findings_by_severity: Record<string, number>;
+}
+
 export const projectApi = {
   getOverview: () => apiClient.get<ProjectOverview>('/project').then(res => res.data),
   getMcpTools: () => apiClient.get<McpTool[]>('/mcp/tools').then(res => res.data),
@@ -200,50 +263,77 @@ export const projectApi = {
 };
 
 export const binaryApi = {
-  getMetadata: (name: string) => apiClient.get<BinaryMetadata>(`/binary/${name}`).then(res => res.data),
+  getMetadata: (binaryName: string) => apiClient.get<BinaryMetadata>(`/binary/${binaryName}`).then(res => res.data),
+  getFunctions: (binaryName: string, query?: string, offset = 0, limit = 50) =>
+    apiClient.get<BinaryFunction[]>(`/binary/${binaryName}/functions`, { params: { query, offset, limit } }).then(res => res.data),
+  getDisassembly: (binaryName: string, startAddress: string, endAddress: string) =>
+    apiClient.get<string>(`/binary/${binaryName}/disassembly`, { params: { start_address: startAddress, end_address: endAddress } }).then(res => res.data),
+  getFunctionDisassembly: (binaryName: string, address: string) =>
+    apiClient.get<string>(`/binary/${binaryName}/function/${address}/disassembly`).then(res => res.data),
+  getFunctionPseudocode: (binaryName: string, address: string) =>
+    apiClient.get<PseudocodeResult>(`/binary/${binaryName}/function/${address}/pseudocode`).then(res => res.data),
+  getStrings: (binaryName: string, query?: string, offset = 0, limit = 50) =>
+    apiClient.get<BinaryString[]>(`/binary/${binaryName}/strings`, { params: { query, offset, limit } }).then(res => res.data),
+  getImports: (binaryName: string, offset = 0, limit = 50) =>
+    apiClient.get<BinaryImport[]>(`/binary/${binaryName}/imports`, { params: { offset, limit } }).then(res => res.data),
+  getExports: (binaryName: string, query?: string, offset = 0, limit = 50) =>
+    apiClient.get<BinaryExport[]>(`/binary/${binaryName}/exports`, { params: { query, offset, limit } }).then(res => res.data),
+  getSymbols: (binaryName: string, query?: string, offset = 0, limit = 50) =>
+    apiClient.get<BinarySymbol[]>(`/binary/${binaryName}/symbols`, { params: { query, offset, limit } }).then(res => res.data),
+  getSegments: (binaryName: string) => apiClient.get<BinarySegment[]>(`/binary/${binaryName}/segments`).then(res => res.data),
+  resolveAddress: (binaryName: string, address: string) =>
+    apiClient.get<ResolveAddressResult>(`/binary/${binaryName}/address/${address}`).then(res => res.data),
+  getCallers: (binaryName: string, address: string, depth = 1, limit = 50) =>
+    apiClient.get<FunctionCallerRef[]>(`/binary/${binaryName}/function/${address}/callers`, { params: { depth, limit } }).then(res => res.data),
+  getCallees: (binaryName: string, address: string, depth = 1, limit = 50) =>
+    apiClient.get<FunctionCalleeRef[]>(`/binary/${binaryName}/function/${address}/callees`, { params: { depth, limit } }).then(res => res.data),
+  getXrefsTo: (binaryName: string, address: string, offset = 0, limit = 50) =>
+    apiClient.get<XrefToItem[]>(`/binary/${binaryName}/xrefs/to/${address}`, { params: { offset, limit } }).then(res => res.data),
+  getXrefsFrom: (binaryName: string, address: string, offset = 0, limit = 50) =>
+    apiClient.get<XrefFromItem[]>(`/binary/${binaryName}/xrefs/from/${address}`, { params: { offset, limit } }).then(res => res.data),
+
+  // Methods used by components (aliases or new)
+  getDisassemblyContext: (binaryName: string, address: string, contextLines = 10) =>
+    apiClient.get<{ lines: string[] }>(`/binary/${binaryName}/address/${address}/disassembly`, { params: { context_lines: contextLines } }).then(res => res.data),
   
-  listFunctions: (name: string, query?: string, offset = 0, limit = 50) => 
-    apiClient.get<BinaryFunction[]>(`/binary/${name}/functions`, { params: { query, offset, limit } }).then(res => res.data),
+  listFunctions: (binaryName: string, query?: string, offset = 0, limit = 50) =>
+    binaryApi.getFunctions(binaryName, query, offset, limit),
+  
+  listStrings: (binaryName: string, query?: string, _minLength?: number, offset = 0, limit = 50) =>
+    // Note: minLength is not currently supported by backend
+    binaryApi.getStrings(binaryName, query, offset, limit),
     
-  getFunctionPseudocode: (name: string, address: string) =>
-    apiClient.get<PseudocodeResult>(`/binary/${name}/function/${encodeURIComponent(address)}/pseudocode`).then(res => res.data),
+  getFunctionCallers: (binaryName: string, address: string) => binaryApi.getCallers(binaryName, address),
+  getFunctionCallees: (binaryName: string, address: string) => binaryApi.getCallees(binaryName, address),
+
+  listImports: (binaryName: string, offset = 0, limit = 50) =>
+    binaryApi.getImports(binaryName, offset, limit),
     
-  getFunctionDisassembly: (name: string, address: string) =>
-    apiClient.get<string>(`/binary/${name}/function/${encodeURIComponent(address)}/disassembly`).then(res => res.data),
-
-  getDisassemblyContext: (name: string, address: string, contextLines: number = 10) =>
-    apiClient.get<string>(`/binary/${name}/address/${encodeURIComponent(address)}/disassembly`, { params: { context_lines: contextLines } }).then(res => res.data),
-
-  getFunctionCallers: (name: string, address: string, depth?: number, limit?: number) =>
-    apiClient.get<FunctionCallerRef[]>(`/binary/${name}/function/${encodeURIComponent(address)}/callers`, { params: { depth, limit } }).then(res => res.data),
-
-  getFunctionCallees: (name: string, address: string, depth?: number, limit?: number) =>
-    apiClient.get<FunctionCalleeRef[]>(`/binary/${name}/function/${encodeURIComponent(address)}/callees`, { params: { depth, limit } }).then(res => res.data),
+  listExports: (binaryName: string, query?: string, offset = 0, limit = 50) =>
+    binaryApi.getExports(binaryName, query, offset, limit),
     
-  getXrefsTo: (name: string, address: string, offset = 0, limit = 50) =>
-    apiClient.get<XrefToItem[]>(`/binary/${name}/xrefs/to/${encodeURIComponent(address)}`, { params: { offset, limit } }).then(res => res.data),
+  listSymbols: (binaryName: string, query?: string, offset = 0, limit = 50) =>
+    binaryApi.getSymbols(binaryName, query, offset, limit),
+    
+  listSegments: (binaryName: string) =>
+    binaryApi.getSegments(binaryName),
+};
 
-  getXrefsFrom: (name: string, address: string, offset = 0, limit = 50) =>
-    apiClient.get<XrefFromItem[]>(`/binary/${name}/xrefs/from/${encodeURIComponent(address)}`, { params: { offset, limit } }).then(res => res.data),
-
-  getCrossReferences: (name: string, address: string, offset = 0, limit = 50) =>
-    apiClient.get<{ to: XrefToItem[]; from: XrefFromItem[] }>(`/binary/${name}/xrefs/${encodeURIComponent(address)}`, { params: { offset, limit } }).then(res => res.data),
-
-  listStrings: (name: string, query?: string, min_length?: number, offset = 0, limit = 50) =>
-    apiClient.get<BinaryString[]>(`/binary/${name}/strings`, { params: { query, min_length, offset, limit } }).then(res => res.data),
-
-  listImports: (name: string, offset = 0, limit = 50) =>
-    apiClient.get<BinaryImport[]>(`/binary/${name}/imports`, { params: { offset, limit } }).then(res => res.data),
-
-  listExports: (name: string, query?: string, offset = 0, limit = 50) =>
-    apiClient.get<BinaryExport[]>(`/binary/${name}/exports`, { params: { query, offset, limit } }).then(res => res.data),
-
-  listSymbols: (name: string, query?: string, offset = 0, limit = 50) =>
-    apiClient.get<BinarySymbol[]>(`/binary/${name}/symbols`, { params: { query, offset, limit } }).then(res => res.data),
-
-  listSegments: (name: string) =>
-    apiClient.get<BinarySegment[]>(`/binary/${name}/segments`).then(res => res.data),
-
-  resolveAddress: (name: string, address: string) =>
-    apiClient.get<ResolveAddressResult>(`/binary/${name}/address/${encodeURIComponent(address)}`).then(res => res.data),
+export const notesApi = {
+  getNotes: (params: { binary_name?: string; query?: string; note_type?: string; tags?: string; limit?: number }) =>
+    apiClient.get<Note[]>('/notes', { params }).then(res => res.data),
+  createNote: (data: NoteCreate) =>
+    apiClient.post<{ note_id: number }>('/notes', data).then(res => res.data),
+  updateNote: (noteId: number, data: NoteUpdate) =>
+    apiClient.put<{ success: boolean }>(`/notes/${noteId}`, data).then(res => res.data),
+  deleteNote: (noteId: number) =>
+    apiClient.delete<{ success: boolean }>(`/notes/${noteId}`).then(res => res.data),
+  
+  getFindings: (params: { binary_name?: string; severity?: string; category?: string }) =>
+    apiClient.get<Finding[]>('/findings', { params }).then(res => res.data),
+  markFinding: (data: FindingCreate) =>
+    apiClient.post<{ finding_id: number; note_id: number }>('/findings', data).then(res => res.data),
+    
+  getAnalysisProgress: (binaryName: string) =>
+    apiClient.get<AnalysisProgress>(`/binary/${binaryName}/analysis-progress`).then(res => res.data),
 };

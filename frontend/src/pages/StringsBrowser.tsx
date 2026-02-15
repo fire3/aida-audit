@@ -32,7 +32,8 @@ function XrefItem({ binaryName, xref, onNavigate }: XrefItemProps) {
   const contextLines = useMemo(() => {
     if (!disassembly) return null;
     
-    const lines = disassembly.split('\n');
+    // disassembly is already { lines: string[] } from getDisassemblyContext
+    const lines = disassembly.lines;
     const targetAddr = xref.from_address.toLowerCase();
     
     // Find line starting with address (ignoring case)
@@ -79,7 +80,7 @@ function XrefItem({ binaryName, xref, onNavigate }: XrefItemProps) {
       ) : contextLines ? (
         <div className="ml-6 bg-muted/30 rounded border border-border/50 p-2 overflow-x-auto">
           <div className="font-mono text-xs space-y-0.5">
-            {contextLines.lines.map((line, i) => (
+            {contextLines.lines.map((line: string, i: number) => (
               <div 
                 key={i} 
                 className={cn(

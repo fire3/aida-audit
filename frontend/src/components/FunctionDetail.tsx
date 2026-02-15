@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { binaryApi, projectApi } from '../api/client';
+import type { FunctionCallerRef, FunctionCalleeRef } from '../api/client';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Code, FileText, ArrowRight, ArrowLeft, Search, Database } from 'lucide-react';
@@ -69,12 +70,12 @@ export function FunctionDetail({ binaryName, address, onNavigate }: FunctionDeta
     queryFn: () => binaryApi.getFunctionCallees(binaryName, address),
   });
 
-  const filteredCallers = callers?.filter(ref => 
+  const filteredCallers = callers?.filter((ref: FunctionCallerRef) => 
     (ref.caller_name?.toLowerCase().includes(callerSearch.toLowerCase()) || 
      ref.caller_address.toLowerCase().includes(callerSearch.toLowerCase()))
   );
 
-  const filteredCallees = callees?.filter(ref => 
+  const filteredCallees = callees?.filter((ref: FunctionCalleeRef) => 
     (ref.callee_name?.toLowerCase().includes(calleeSearch.toLowerCase()) || 
      ref.callee_address.toLowerCase().includes(calleeSearch.toLowerCase()))
   );

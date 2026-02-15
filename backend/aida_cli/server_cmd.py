@@ -6,10 +6,11 @@ import sys
 import uvicorn
 from contextlib import asynccontextmanager
 from typing import Optional, List, Union, Dict, Any
-from fastapi import FastAPI, Request, Response, APIRouter, HTTPException, Query, Path
+from fastapi import FastAPI, Request, Response, APIRouter, HTTPException, Query, Path, Body
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -36,11 +37,17 @@ async def lifespan(app: FastAPI):
         print(f"Loaded project from: {project_path}")
 
         notes_db_path = os.path.join(project_path, "project_notes.db")
-        if os.path.exists(notes_db_path):
+        # Always initialize notes database, creating it if it doesn't exist
+        try:
             notes_db = NotesDatabase(notes_db_path)
             notes_db.connect()
+            notes_db.create_schema()
             notes_mcp_tools.set_notes_db(notes_db)
             print(f"Loaded notes database: {notes_db_path}")
+        except Exception as e:
+            print(f"Failed to load notes database: {e}", file=sys.stderr)
+            # We don't raise here to allow the server to start even if notes DB fails
+            # But notes endpoints will fail with 500 if accessed.
     except Exception as e:
         print(f"Failed to load project: {e}", file=sys.stderr)
 
@@ -62,6 +69,31 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Pydantic Models ---
+class NoteCreate(BaseModel):
+    binary_name: str
+    content: str
+    note_type: str
+    function_name: Optional[str] = None
+    address: Optional[Union[str, int]] = None
+    tags: Optional[str] = None
+    confidence: str = "medium"
+
+class NoteUpdate(BaseModel):
+    content: Optional[str] = None
+    tags: Optional[str] = None
+
+class FindingCreate(BaseModel):
+    binary_name: str
+    severity: str
+    category: str
+    description: str
+    function_name: Optional[str] = None
+    address: Optional[Union[str, int]] = None
+    evidence: Optional[str] = None
+    cvss: Optional[float] = None
+    exploitability: Optional[str] = None
 
 # --- REST API Implementation ---
 
@@ -243,6 +275,101 @@ def list_exports(
     svc = get_service()
     try:
         return svc.list_binary_exports(binary_name, query=query, offset=offset, limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Notes Endpoints
+
+@api_router.get("/notes")
+def get_notes(
+    binary_name: Optional[str] = None,
+    query: Optional[str] = None,
+    note_type: Optional[str] = None,
+    tags: Optional[str] = None,
+    limit: int = 50
+):
+    try:
+        return notes_mcp_tools.get_notes(
+            binary_name=binary_name,
+            query=query,
+            note_type=note_type,
+            tags=tags,
+            limit=limit
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/notes")
+def create_note(note: NoteCreate):
+    try:
+        return notes_mcp_tools.create_note(
+            binary_name=note.binary_name,
+            content=note.content,
+            note_type=note.note_type,
+            function_name=note.function_name,
+            address=note.address,
+            tags=note.tags,
+            confidence=note.confidence
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.put("/notes/{note_id}")
+def update_note(note_id: int, note: NoteUpdate):
+    try:
+        return notes_mcp_tools.update_note(
+            note_id=note_id,
+            content=note.content,
+            tags=note.tags
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.delete("/notes/{note_id}")
+def delete_note(note_id: int):
+    try:
+        return notes_mcp_tools.delete_note(note_id=note_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Findings Endpoints
+
+@api_router.get("/findings")
+def get_findings(
+    binary_name: Optional[str] = None,
+    severity: Optional[str] = None,
+    category: Optional[str] = None
+):
+    try:
+        return notes_mcp_tools.get_findings(
+            binary_name=binary_name,
+            severity=severity,
+            category=category
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/findings")
+def mark_finding(finding: FindingCreate):
+    try:
+        return notes_mcp_tools.mark_finding(
+            binary_name=finding.binary_name,
+            severity=finding.severity,
+            category=finding.category,
+            description=finding.description,
+            function_name=finding.function_name,
+            address=finding.address,
+            evidence=finding.evidence,
+            cvss=finding.cvss,
+            exploitability=finding.exploitability
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/binary/{binary_name}/analysis-progress")
+def get_analysis_progress(binary_name: str):
+    try:
+        return notes_mcp_tools.get_analysis_progress(binary_name)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -10,6 +10,13 @@ import { ImportsBrowser } from './pages/ImportsBrowser';
 import { ExportsBrowser } from './pages/ExportsBrowser';
 import { SymbolsBrowser } from './pages/SymbolsBrowser';
 import { SegmentsBrowser } from './pages/SegmentsBrowser';
+import { ProjectNotes } from './pages/ProjectNotes';
+import { useParams } from 'react-router-dom';
+
+function BinaryNotesWrapper() {
+  const { binaryName } = useParams();
+  return <ProjectNotes initialBinaryName={binaryName} hideBinaryFilter={true} />;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,6 +43,7 @@ function App() {
         <Routes>
           <Route path="/" element={<MainLayout />}>
             <Route index element={<Dashboard />} />
+            <Route path="notes" element={<ProjectNotes />} />
             
             <Route path="binary/:binaryName" element={<BinaryLayout />}>
               <Route index element={<Navigate to="overview" replace />} />
@@ -46,6 +54,7 @@ function App() {
               <Route path="exports" element={<ExportsBrowser />} />
               <Route path="symbols" element={<SymbolsBrowser />} />
               <Route path="segments" element={<SegmentsBrowser />} />
+              <Route path="notes" element={<BinaryNotesWrapper />} />
             </Route>
             
             <Route path="*" element={<Placeholder title="404 Not Found" />} />
