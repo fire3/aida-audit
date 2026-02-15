@@ -2,6 +2,7 @@ import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { binaryApi } from '../api/client';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { ProjectNotes } from './ProjectNotes';
 
 export function BinaryOverview() {
   const { binaryName } = useParams();
@@ -135,6 +136,15 @@ export function BinaryOverview() {
                 </div>
             </CardContent>
        </Card>
+
+       {/* Notes & Findings */}
+       {binaryName && (
+           <ProjectNotes 
+               initialBinaryName={binaryName} 
+               hideBinaryFilter={true}
+               embedded={true}
+           />
+       )}
     </div>
   );
 }

@@ -6,16 +6,21 @@ import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Search, Plus, Filter, AlertTriangle, FileText, Tag, Trash2 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { AddNoteDialog } from '../components/AddNoteDialog';
+import { AddFindingDialog } from '../components/AddFindingDialog';
 
 interface ProjectNotesProps {
   initialBinaryName?: string;
   hideBinaryFilter?: boolean;
+  embedded?: boolean;
 }
 
-export function ProjectNotes({ initialBinaryName, hideBinaryFilter = false }: ProjectNotesProps) {
+export function ProjectNotes({ initialBinaryName, hideBinaryFilter = false, embedded = false }: ProjectNotesProps) {
   const [activeTab, setActiveTab] = useState<'notes' | 'findings'>('notes');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBinary, setSelectedBinary] = useState<string | undefined>(initialBinaryName);
+  const [isAddNoteOpen, setIsAddNoteOpen] = useState(false);
+  const [isAddFindingOpen, setIsAddFindingOpen] = useState(false);
   
   const queryClient = useQueryClient();
 
@@ -54,18 +59,39 @@ export function ProjectNotes({ initialBinaryName, hideBinaryFilter = false }: Pr
     }
   };
 
+  const handleAddClick = () => {
+    if (activeTab === 'notes') {
+      setIsAddNoteOpen(true);
+    } else {
+      setIsAddFindingOpen(true);
+    }
+  };
+
   return (
-    <div className="container py-6 space-y-6">
+    <div className={cn("space-y-6", !embedded && "container py-6")}>
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold tracking-tight">Project Notes & Findings</h1>
+        <h1 className={cn("font-bold tracking-tight", embedded ? "text-xl" : "text-3xl")}>
+            {embedded ? "Notes & Findings" : "Project Notes & Findings"}
+        </h1>
         <div className="flex items-center space-x-2">
-            {/* Add New Button Placeholder - In a real app this would open a modal */}
-            <Button>
+            <Button onClick={handleAddClick} size={embedded ? "sm" : "default"}>
                 <Plus className="mr-2 h-4 w-4" />
                 Add {activeTab === 'notes' ? 'Note' : 'Finding'}
             </Button>
         </div>
       </div>
+
+      <AddNoteDialog 
+        isOpen={isAddNoteOpen} 
+        onClose={() => setIsAddNoteOpen(false)} 
+        initialBinaryName={selectedBinary}
+      />
+
+      <AddFindingDialog 
+        isOpen={isAddFindingOpen} 
+        onClose={() => setIsAddFindingOpen(false)}
+        initialBinaryName={selectedBinary}
+      />
 
       {/* Tabs */}
       <div className="flex space-x-1 border-b">

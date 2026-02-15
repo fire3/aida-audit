@@ -2,6 +2,7 @@ import os
 import re
 
 from .binary_dbquery import BinaryDbQuery
+from .constants import NOTES_DB_FILENAME
 
 
 class ProjectStore:
@@ -27,7 +28,7 @@ class ProjectStore:
 
         if os.path.isdir(self.project_path):
             for fn in sorted(os.listdir(self.project_path)):
-                if fn.lower().endswith(".db"):
+                if fn.lower().endswith(".db") and fn != NOTES_DB_FILENAME:
                     db_path = os.path.join(self.project_path, fn)
                     self._add_binary({"db": db_path, "display_name": fn, "role": None})
 

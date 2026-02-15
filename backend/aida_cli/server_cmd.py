@@ -19,6 +19,7 @@ logger = logging.getLogger("aida_server")
 from .project_store import ProjectStore
 from .mcp_service import McpService, McpError
 from .notes_database import NotesDatabase
+from .constants import NOTES_DB_FILENAME
 from . import notes_mcp_tools
 
 # Global service instance
@@ -36,7 +37,7 @@ async def lifespan(app: FastAPI):
         service = McpService(project_store)
         print(f"Loaded project from: {project_path}")
 
-        notes_db_path = os.path.join(project_path, "project_notes.db")
+        notes_db_path = os.path.join(project_path, NOTES_DB_FILENAME)
         if os.path.exists(notes_db_path):
             notes_db = NotesDatabase(notes_db_path)
             notes_db.connect()

@@ -21,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from .ghidra_importer import import_ghidra_export
 from .elf_service import ElfService
 from .notes_database import NotesDatabase
+from .constants import NOTES_DB_FILENAME
 
 # =============================================================================
 # Shared Utilities & Logging
@@ -86,7 +87,7 @@ def _is_within_dir(path, root_dir):
     return common == root_dir
 
 def _ensure_notes_db(out_dir: str) -> str:
-    notes_db = os.path.join(out_dir, "project_notes.db")
+    notes_db = os.path.join(out_dir, NOTES_DB_FILENAME)
     if not os.path.exists(notes_db):
         db = NotesDatabase(notes_db)
         db.connect()
