@@ -201,13 +201,12 @@ def list_binary_symbols(
 def list_strings(
     binary_name: str,
     query: Optional[str] = None,
-    min_length: Optional[int] = None,
     offset: int = 0,
     limit: int = 50
 ):
     svc = get_service()
     try:
-        return svc.list_binary_strings(binary_name, query=query, min_length=min_length, offset=offset, limit=limit)
+        return svc.list_binary_strings(binary_name, query=query, offset=offset, limit=limit)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

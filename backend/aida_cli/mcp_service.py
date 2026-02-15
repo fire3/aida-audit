@@ -577,7 +577,7 @@ class McpService:
 
 
     @mcp_tool(name="list_binary_strings")
-    def list_binary_strings(self, binary_name: str, query: str = None, min_length: int = None, encodings: Union[str, List[str]] = None, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
+    def list_binary_strings(self, binary_name: str, query: str = None, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
         """Search for strings found within the binary.
 
         Use this tool to find text data (ASCII, Unicode, etc.).
@@ -586,17 +586,13 @@ class McpService:
         Args:
             binary_name: The unique name of the binary.
             query: A specific string or substring to search for (case-insensitive). Optional.
-            min_length: The minimum length of strings to return (default: 5).
-            encodings: List of encodings to include (e.g., ['ascii', 'utf-16le']). Optional.
             offset: The starting index for pagination.
             limit: The maximum number of strings to return (max 50).
 
         Returns:
             list: A list of string objects, including 'value', 'address', and 'encoding'.
         """
-        if encodings:
-            encodings = self._coerce_json_list(encodings)
-        return self._get_binary(binary_name).list_strings(query, min_length, encodings, offset, limit)
+        return self._get_binary(binary_name).list_strings(query, None, None, offset, limit)
 
     @mcp_tool(name="list_binary_imports")
     def list_binary_imports(self, binary_name: str, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
