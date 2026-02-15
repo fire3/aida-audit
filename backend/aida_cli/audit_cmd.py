@@ -47,14 +47,22 @@ def run_audit_loop(project_path: str, config: Config):
     audit_db = AuditDatabase(db_path)
     audit_db.connect()
 
-    # 2. Initialize MCP Client
+    # 2. Check LLM Config first
+    api_key = config.get_llm_api_key()
+    if not api_key:
+        print("Error: LLM API Key not found.")
+        print("Please run 'aida_cli config' to set up your LLM configuration.")
+        audit_db.close()
+        return
+
+    # 3. Initialize MCP Client
     print("Initializing MCP Client...")
     mcp_transport = config.mcp.get("transport", "http")
     if mcp_transport == "http":
         url = config.mcp.get("url", "http://127.0.0.1:8765/mcp")
         mcp_client = HttpMcpClient(url)
     else:
-        cmd = config.mcp.get("command", ["aida-cli", "serve"])
+        cmd = config.mcp.get("command", ["aida_cli", "serve"])
         cwd = config.mcp.get("working_directory", ".")
         mcp_client = StdioMcpClient(cmd, cwd=os.path.abspath(cwd))
         mcp_client.start()
@@ -65,15 +73,11 @@ def run_audit_loop(project_path: str, config: Config):
         print(f"Loaded {len(tools)} tools from MCP.")
     except Exception as e:
         print(f"Failed to initialize MCP: {e}")
-        return
-
-    # 3. Initialize LLM Client
-    api_key = config.get_llm_api_key()
-    if not api_key:
-        print("Error: LLM API Key not found.")
-        print("Please run 'aida-cli config' to set up your LLM configuration.")
+        print("Please ensure the MCP server is running (try 'aida_cli serve').")
+        audit_db.close()
         return
     
+    # 4. Initialize LLM Client
     llm_client = LLMClient(
         base_url=config.get_llm_base_url(),
         api_key=api_key,
@@ -188,6 +192,13 @@ def main():
     parser.add_argument("--url", help="LLM Base URL")
     parser.add_argument("--model", help="LLM Model")
     args = parser.parse_args()
+
+    project_path = os.path.abspath(args.project)
+    audit_db_path = os.path.join(project_path, AUDIT_DB_FILENAME)
+    if not os.path.exists(audit_db_path):
+        print(f"Error: No audit database found at {audit_db_path}")
+        print("Please run 'export' with this directory as the output first.")
+        sys.exit(1)
 
     # Load Config
     config = Config(args.config)
