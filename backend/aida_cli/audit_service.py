@@ -66,7 +66,7 @@ class BaseAgent:
         return load_agent_prompt(self.name)
         
     def get_initial_message(self) -> str:
-        return "Please start your session."
+        return ""
     
     def get_initial_context(self) -> str:
         return f"PROJECT_PATH: {os.path.abspath(self.project_path)}"
@@ -255,8 +255,8 @@ class AuditAgent(BaseAgent):
 
     def get_initial_message(self) -> str:
         if self.specific_task:
-            return f"Your assigned task is:\nTitle: {self.specific_task['title']}\nDescription: {self.specific_task['description']}\nID: {self.specific_task['id']}\n\nPlease execute this task immediately."
-        return "Please start your session."
+            return f"你的工作是:\n标题: {self.specific_task['title']}\n描述: {self.specific_task['description']}\nID: {self.specific_task['id']}\n\n现在请开始你的工作。"
+        return "开始你的工作。"
 
 class AuditService:
     def __init__(self, project_path: str, audit_db: AuditDatabase):
