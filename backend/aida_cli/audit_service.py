@@ -34,21 +34,27 @@ def get_tools_for_llm(mcp_client: McpClient) -> List[Dict[str, Any]]:
                 "parameters": tool["inputSchema"]
             }
         })
+    tool_names = [t["function"]["name"] for t in llm_tools]
+    print(f"[DEBUG] Available tools: {tool_names}")
     return llm_tools
 
 class BaseAgent:
+    project_store = None
+    
     def __init__(self, 
                  llm_client: LLMClient, 
                  mcp_client: McpClient, 
                  audit_db: AuditDatabase, 
                  project_path: str,
                  tools: List[Dict],
+                 project_store=None,
                  on_session_start: Optional[Callable[[str, str], None]] = None):
         self.llm_client = llm_client
         self.mcp_client = mcp_client
         self.audit_db = audit_db
         self.project_path = project_path
         self.all_tools = tools
+        self.project_store = project_store
         self.on_session_start = on_session_start
         self.session_id: Optional[str] = None
         
@@ -61,13 +67,16 @@ class BaseAgent:
         
     def get_initial_message(self) -> str:
         return "Please start your session."
+    
+    def get_initial_context(self) -> str:
+        return f"PROJECT_PATH: {os.path.abspath(self.project_path)}"
         
     def get_tools(self) -> List[Dict]:
         return self.all_tools
         
     def run(self, stop_event: threading.Event):
         system_prompt = self.get_system_prompt()
-        initial_context = f"PROJECT_PATH: {os.path.abspath(self.project_path)}"
+        initial_context = self.get_initial_context()
         
         content = self.get_initial_message()
         tools = self.get_tools()
@@ -88,7 +97,7 @@ class BaseAgent:
 
         while turn_count < max_turns:
             if stop_event.is_set():
-                self.audit_db.log_progress("Audit stopped by user.")
+                self.audit_db.log_progress(f"[{self.name}] Session ended: stopped by user (turn {turn_count})")
                 break
 
             turn_count += 1
@@ -114,13 +123,16 @@ class BaseAgent:
             # Check for completion signal
             if not tool_calls:
                 if content:
-                    self.audit_db.log_progress(f"[{self.name}] {content[:200]}...")
+                    self.audit_db.log_progress(f"[{self.name}] Session ended: normal completion (turn {turn_count})")
+                else:
+                    self.audit_db.log_progress(f"[{self.name}] Session ended: no response (turn {turn_count})")
                 break
 
             # Handle Tool Calls
             if tool_calls:
                 for tool_call in tool_calls:
                     if stop_event.is_set():
+                        self.audit_db.log_progress(f"[{self.name}] Session ended: stopped during tool execution (turn {turn_count})")
                         break
 
                     func_name = tool_call["function"]["name"]
@@ -159,6 +171,10 @@ class BaseAgent:
                         "tool_call_id": call_id,
                         "content": result_str
                     })
+        
+        # Log session end reason
+        if turn_count >= max_turns:
+            self.audit_db.log_progress(f"[{self.name}] Session ended: max turns reached ({max_turns})")
 
 PLAN_AGENT_EXCLUDE = {
     'audit_memory_set', 'audit_memory_get', 'audit_memory_list',
@@ -184,12 +200,28 @@ class PlanAgent(BaseAgent):
     @property
     def name(self) -> str:
         return "PLAN_AGENT"
+    
+    def get_initial_context(self) -> str:
+        project_path = os.path.abspath(self.project_path)
+        binaries = self.project_store.get_project_binaries(detail=True) if hasattr(self, 'project_store') and self.project_store else []
+        binary_info = []
+        for b in binaries[:10]:
+            binary_info.append(f"- {b.get('name', 'unknown')}: {b.get('architecture', '?')}, {b.get('file_type', '?')}")
+        binaries_desc = "\n".join(binary_info) if binary_info else "No binaries found"
+        return f"""PROJECT_PATH: {project_path}
+
+AVAILABLE BINARIES:
+{binaries_desc}
+
+Please create audit plans for security analysis of these binaries."""
         
     def get_tools(self) -> List[Dict]:
-        return [
+        tools = [
             t for t in self.all_tools
             if t['function']['name'] not in PLAN_AGENT_EXCLUDE
         ]
+        self.audit_db.log_progress(f"PlanAgent: Using {len(tools)} tools (excluded: {len(self.all_tools) - len(tools)})")
+        return tools
 
 class AuditAgent(BaseAgent):
     def __init__(self, 
@@ -208,11 +240,14 @@ class AuditAgent(BaseAgent):
         return "AUDIT_AGENT"
         
     def get_tools(self) -> List[Dict]:
-        audit_agent_keep = {'audit_create_agent_task'}
-        return [
+        plan_tools = {'audit_create_macro_plan', 'audit_plan_update', 'audit_plan_list'}
+        keep_tool = 'audit_create_agent_task'
+        tools = [
             t for t in self.all_tools 
-            if t['function']['name'] in audit_agent_keep
+            if t['function']['name'] in {keep_tool} or t['function']['name'] not in plan_tools
         ]
+        self.audit_db.log_progress(f"AuditAgent: Using {len(tools)} tools (excluded: {len(self.all_tools) - len(tools)})")
+        return tools
 
     def get_initial_message(self) -> str:
         if self.specific_task:
@@ -284,7 +319,8 @@ class AuditService:
             try:
                 mcp_client.initialize()
                 tools = get_tools_for_llm(mcp_client)
-                self.audit_db.log_progress(f"Audit Service: Connected to MCP, loaded {len(tools)} tools.")
+                tool_names = [t["function"]["name"] for t in tools]
+                self.audit_db.log_progress(f"Audit Service: Connected to MCP, loaded {len(tools)} tools: {tool_names}")
             except Exception as e:
                 raise RuntimeError(f"Failed to initialize MCP: {e}")
 
