@@ -1033,20 +1033,22 @@ class McpService:
     # --- Audit Management Tools ---
 
     @mcp_tool(name="audit_plan_add")
-    def audit_plan_add(self, title: str, description: str) -> Dict[str, Any]:
+    def audit_plan_add(self, title: str, description: str, parent_id: Optional[int] = None) -> Dict[str, Any]:
         """Add a new task to the audit plan.
         
         Use this tool to decompose your audit goal into smaller, manageable steps.
         Always maintain an up-to-date plan.
+        Supports creating sub-plans by providing a parent_id.
 
         Args:
             title: The task title. Be specific (e.g., "Analyze function 0x401000 for buffer overflow").
             description: Detailed description of what needs to be done.
+            parent_id: Optional ID of the parent plan task, for sub-tasks.
 
         Returns:
             dict: Contains the 'plan_id' of the newly created task.
         """
-        return audit_mcp_tools.audit_plan_add(title, description)
+        return audit_mcp_tools.audit_plan_add(title, description, parent_id)
 
     @mcp_tool(name="audit_plan_list")
     def audit_plan_list(self, status: str = None) -> List[Dict[str, Any]]:

@@ -138,11 +138,13 @@ class AuditDatabase:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS audit_plans (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                parent_id INTEGER,
                 title TEXT NOT NULL,
                 description TEXT,
                 status TEXT DEFAULT 'pending',
                 created_at INTEGER,
-                updated_at INTEGER
+                updated_at INTEGER,
+                FOREIGN KEY(parent_id) REFERENCES audit_plans(id)
             )
         """)
 
@@ -192,8 +194,17 @@ class AuditDatabase:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_plans_status ON audit_plans(status)")
 
         self._ensure_tags(cursor)
+        self._ensure_columns(cursor)
         self.commit()
         self.log("Audit schema created successfully.")
+
+    def _ensure_columns(self, cursor):
+        # Check if parent_id exists in audit_plans
+        cursor.execute("PRAGMA table_info(audit_plans)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "parent_id" not in columns:
+            self.log("Migrating schema: Adding parent_id to audit_plans")
+            cursor.execute("ALTER TABLE audit_plans ADD COLUMN parent_id INTEGER REFERENCES audit_plans(id)")
 
     def _ensure_tags(self, cursor=None):
         if cursor is None:

@@ -105,6 +105,7 @@ export interface PseudocodeResult {
 
 export interface AuditPlan {
   id: number;
+  parent_id?: number | null;
   title: string;
   description: string;
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
