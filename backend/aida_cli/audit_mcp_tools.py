@@ -1,4 +1,4 @@
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 from .audit_database import AuditDatabase
 
 _audit_db: Optional[AuditDatabase] = None
@@ -12,64 +12,169 @@ def get_audit_db() -> AuditDatabase:
         raise RuntimeError("Audit database not initialized")
     return _audit_db
 
+def _parse_address(addr: Optional[Union[str, int]]) -> Optional[int]:
+    if addr is None:
+        return None
+    if isinstance(addr, int):
+        return addr
+    addr_str = str(addr).strip()
+    if addr_str.startswith("0x") or addr_str.startswith("0X"):
+        return int(addr_str, 16)
+    return int(addr_str)
+
+# ========== Plan Operations ==========
+
 def audit_plan_add(title: str, description: str) -> Dict[str, Any]:
-    """
-    Add a new task to the audit plan.
-    Use this to decompose your audit goal into smaller, manageable steps.
-    """
     db = get_audit_db()
     plan_id = db.add_plan(title, description)
     return {"plan_id": plan_id, "status": "success"}
 
 def audit_plan_list(status: Optional[str] = None) -> List[Dict[str, Any]]:
-    """
-    List all tasks in the audit plan.
-    Optionally filter by status (pending, in_progress, completed, failed).
-    """
     db = get_audit_db()
     return db.get_plans(status)
 
 def audit_plan_update(plan_id: int, status: str, notes: Optional[str] = None) -> Dict[str, Any]:
-    """
-    Update the status of a plan task.
-    Valid statuses: pending, in_progress, completed, failed.
-    You can also add a progress note.
-    """
     db = get_audit_db()
-    success = db.update_plan_status(plan_id, status)
+    success = db.update_plan_status(plan_id, status, notes)
     if notes:
         db.log_progress(f"Plan {plan_id} updated to {status}: {notes}", plan_id)
     return {"success": success}
 
+# ========== Log Operations ==========
+
 def audit_log_progress(message: str, plan_id: Optional[int] = None) -> Dict[str, Any]:
-    """
-    Log a general progress message or a specific update for a plan item.
-    """
     db = get_audit_db()
     db.log_progress(message, plan_id)
     return {"status": "success"}
 
+# ========== Memory Operations ==========
+
 def audit_memory_set(key: str, value: Any) -> Dict[str, Any]:
-    """
-    Store a piece of information in the long-term memory.
-    The value can be a string, number, list, or dictionary (will be JSON encoded).
-    Use this to persist important findings, context, or decisions across sessions.
-    """
     db = get_audit_db()
     db.set_memory(key, value)
     return {"status": "success"}
 
 def audit_memory_get(key: str) -> Dict[str, Any]:
-    """
-    Retrieve information from long-term memory by key.
-    """
     db = get_audit_db()
     value = db.get_memory(key)
     return {"key": key, "value": value}
 
 def audit_memory_list() -> Dict[str, Any]:
-    """
-    List all stored memory keys and values.
-    """
     db = get_audit_db()
     return db.get_all_memories()
+
+# ========== Note Operations ==========
+
+def audit_create_note(
+    binary_name: str,
+    content: str,
+    note_type: str,
+    function_name: Optional[str] = None,
+    address: Optional[Union[str, int]] = None,
+    tags: Optional[str] = None,
+    confidence: str = "medium"
+) -> Dict[str, Any]:
+    db = get_audit_db()
+    addr = _parse_address(address)
+    note_id = db.create_note(
+        binary_name=binary_name,
+        content=content,
+        note_type=note_type,
+        function_name=function_name,
+        address=addr,
+        tags=tags,
+        confidence=confidence
+    )
+    return {"note_id": note_id}
+
+def audit_get_notes(
+    binary_name: Optional[str] = None,
+    query: Optional[str] = None,
+    note_type: Optional[str] = None,
+    tags: Optional[str] = None,
+    limit: int = 50
+) -> List[Dict[str, Any]]:
+    db = get_audit_db()
+    return db.get_notes(
+        binary_name=binary_name,
+        query=query,
+        note_type=note_type,
+        tags=tags,
+        limit=limit
+    )
+
+def audit_update_note(
+    note_id: int,
+    content: Optional[str] = None,
+    tags: Optional[str] = None
+) -> Dict[str, Any]:
+    db = get_audit_db()
+    success = db.update_note(note_id=note_id, content=content, tags=tags)
+    return {"success": success}
+
+def audit_delete_note(note_id: int) -> Dict[str, Any]:
+    db = get_audit_db()
+    success = db.delete_note(note_id=note_id)
+    return {"success": success}
+
+# ========== Finding Operations ==========
+
+def audit_mark_finding(
+    binary_name: str,
+    severity: str,
+    category: str,
+    description: str,
+    function_name: Optional[str] = None,
+    address: Optional[Union[str, int]] = None,
+    evidence: Optional[str] = None,
+    cvss: Optional[float] = None,
+    exploitability: Optional[str] = None
+) -> Dict[str, Any]:
+    db = get_audit_db()
+    addr = _parse_address(address)
+    finding_id = db.create_finding(
+        binary_name=binary_name,
+        severity=severity,
+        category=category,
+        description=description,
+        function_name=function_name,
+        address=addr,
+        evidence=evidence,
+        cvss=cvss,
+        exploitability=exploitability
+    )
+    note_id = db.get_findings(binary_name=binary_name, severity=severity, category=category)
+    actual_note_id = note_id[0]["note_id"] if note_id else None
+    return {"finding_id": finding_id, "note_id": actual_note_id}
+
+def audit_get_findings(
+    binary_name: Optional[str] = None,
+    severity: Optional[str] = None,
+    category: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    db = get_audit_db()
+    return db.get_findings(binary_name=binary_name, severity=severity, category=category)
+
+def audit_get_analysis_progress(binary_name: str) -> Dict[str, Any]:
+    db = get_audit_db()
+    return db.get_statistics(binary_name=binary_name)
+
+# ========== Finding-Plan Link Operations ==========
+
+def audit_link_finding_to_plan(finding_id: int, plan_id: int) -> Dict[str, Any]:
+    db = get_audit_db()
+    success = db.link_finding_to_plan(finding_id, plan_id)
+    return {"success": success}
+
+def audit_unlink_finding_from_plan(finding_id: int, plan_id: int) -> Dict[str, Any]:
+    db = get_audit_db()
+    success = db.unlink_finding_from_plan(finding_id, plan_id)
+    return {"success": success}
+
+def audit_get_plan_findings(plan_id: int) -> List[Dict[str, Any]]:
+    db = get_audit_db()
+    return db.get_plan_findings(plan_id)
+
+def audit_get_finding_plans(finding_id: int) -> List[Dict[str, Any]]:
+    db = get_audit_db()
+    return db.get_finding_plans(finding_id)

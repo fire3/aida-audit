@@ -20,9 +20,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 from .ghidra_importer import import_ghidra_export
 from .elf_service import ElfService
-from .notes_database import NotesDatabase
 from .audit_database import AuditDatabase
-from .constants import NOTES_DB_FILENAME, AUDIT_DB_FILENAME
+from .constants import AUDIT_DB_FILENAME
 
 # =============================================================================
 # Shared Utilities & Logging
@@ -88,13 +87,12 @@ def _is_within_dir(path, root_dir):
     return common == root_dir
 
 def _ensure_notes_db(out_dir: str, logger=None) -> str:
-    notes_db = os.path.join(out_dir, NOTES_DB_FILENAME)
-    if not os.path.exists(notes_db):
-        db = NotesDatabase(notes_db, logger=logger)
+    audit_db = os.path.join(out_dir, AUDIT_DB_FILENAME)
+    if not os.path.exists(audit_db):
+        db = AuditDatabase(audit_db, logger=logger)
         db.connect()
-        db.create_schema()
         db.close()
-    return notes_db
+    return audit_db
 
 
 def _ensure_audit_db(out_dir: str, logger=None) -> str:

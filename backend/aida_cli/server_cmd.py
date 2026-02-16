@@ -18,48 +18,32 @@ logger = logging.getLogger("aida_server")
 
 from .project_store import ProjectStore
 from .mcp_service import McpService, McpError
-from .notes_database import NotesDatabase
 from .audit_database import AuditDatabase
-from .constants import NOTES_DB_FILENAME, AUDIT_DB_FILENAME
-from . import notes_mcp_tools
+from .constants import AUDIT_DB_FILENAME
 from . import audit_mcp_tools
 
 # Global service instance
 service = None
 project_store = None
-notes_db = None
 audit_db = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    global service, project_store, notes_db, audit_db
+    global service, project_store, audit_db
     project_path = os.environ.get("AIDA_MCP_PROJECT", ".")
-    notes_db = None
     audit_db = None
     try:
         project_store = ProjectStore(project_path)
         service = McpService(project_store)
         print(f"Loaded project from: {project_path}")
 
-        notes_db_path = os.path.join(project_path, NOTES_DB_FILENAME)
-        if os.path.exists(notes_db_path):
-            notes_db = NotesDatabase(notes_db_path)
-            notes_db.connect()
-            notes_mcp_tools.set_notes_db(notes_db)
-            print(f"Loaded notes database: {notes_db_path}")
-            
         audit_db_path = os.path.join(project_path, AUDIT_DB_FILENAME)
-        # We allow creating a new one if it doesn't exist? Or just load if exists?
-        # Usually audit starts with audit command which creates it.
-        # But server might run independently.
-        # Let's check existence or just create/connect. 
-        # AuditDatabase.connect() handles creation if dir exists.
-        if os.path.exists(os.path.dirname(audit_db_path)):
-             audit_db = AuditDatabase(audit_db_path)
-             audit_db.connect()
-             audit_mcp_tools.set_audit_db(audit_db)
-             print(f"Loaded audit database: {audit_db_path}")
+        if os.path.exists(os.path.dirname(audit_db_path)) or not os.path.exists(audit_db_path):
+            audit_db = AuditDatabase(audit_db_path)
+            audit_db.connect()
+            audit_mcp_tools.set_audit_db(audit_db)
+            print(f"Loaded audit database: {audit_db_path}")
 
     except Exception as e:
         print(f"Failed to load project: {e}", file=sys.stderr)
@@ -69,8 +53,6 @@ async def lifespan(app: FastAPI):
     # Shutdown
     if project_store:
         project_store.close()
-    if notes_db:
-        notes_db.close()
     if audit_db:
         audit_db.close()
 

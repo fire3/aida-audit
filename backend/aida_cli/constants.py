@@ -1,2 +1,1 @@
-NOTES_DB_FILENAME = "project_notes.db"
-AUDIT_DB_FILENAME = "audit.db"
+AUDIT_DB_FILENAME = "aida_audit.db"

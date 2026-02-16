@@ -4,8 +4,6 @@ import inspect
 import traceback
 from typing import Any, Dict, List, Optional, Union, get_type_hints
 from .project_store import ProjectStore
-from .notes_database import NotesDatabase
-from . import notes_mcp_tools
 from . import audit_mcp_tools
 
 def mcp_tool(name=None):
@@ -856,10 +854,10 @@ class McpService:
             return [x.strip() for x in v.split(",") if x.strip()]
         return v
 
-    @mcp_tool(name="create_note")
-    def create_note(self, binary_name: str, content: str, note_type: str,
-                    function_name: str = None, address = None,
-                    tags: str = None, confidence: str = "medium") -> Dict[str, Any]:
+    @mcp_tool(name="audit_create_note")
+    def audit_create_note(self, binary_name: str, content: str, note_type: str,
+                          function_name: str = None, address = None,
+                          tags: str = None, confidence: str = "medium") -> Dict[str, Any]:
         """Create a new analysis note.
 
         Args:
@@ -875,7 +873,7 @@ class McpService:
         Returns:
             dict: Contains note_id of the created note.
         """
-        return notes_mcp_tools.create_note(
+        return audit_mcp_tools.audit_create_note(
             binary_name=binary_name,
             content=content,
             note_type=note_type,
@@ -885,9 +883,9 @@ class McpService:
             confidence=confidence
         )
 
-    @mcp_tool(name="get_notes")
-    def get_notes(self, binary_name: str = None, query: str = None,
-                  note_type: str = None, tags: str = None, limit: int = 50) -> List[Dict[str, Any]]:
+    @mcp_tool(name="audit_get_notes")
+    def audit_get_notes(self, binary_name: str = None, query: str = None,
+                        note_type: str = None, tags: str = None, limit: int = 50) -> List[Dict[str, Any]]:
         """Query analysis notes.
 
         Args:
@@ -901,7 +899,7 @@ class McpService:
             list: Array of note objects with note_id, binary_name, function_name, address,
                   note_type, content, confidence, tags, created_at, updated_at.
         """
-        return notes_mcp_tools.get_notes(
+        return audit_mcp_tools.audit_get_notes(
             binary_name=binary_name,
             query=query,
             note_type=note_type,
@@ -909,8 +907,8 @@ class McpService:
             limit=limit
         )
 
-    @mcp_tool(name="update_note")
-    def update_note(self, note_id: int, content: str = None, tags: str = None) -> Dict[str, Any]:
+    @mcp_tool(name="audit_update_note")
+    def audit_update_note(self, note_id: int, content: str = None, tags: str = None) -> Dict[str, Any]:
         """Update an existing note's content or tags.
 
         Args:
@@ -921,14 +919,14 @@ class McpService:
         Returns:
             dict: Contains success boolean.
         """
-        return notes_mcp_tools.update_note(
+        return audit_mcp_tools.audit_update_note(
             note_id=note_id,
             content=content,
             tags=tags
         )
 
-    @mcp_tool(name="delete_note")
-    def delete_note(self, note_id: int) -> Dict[str, Any]:
+    @mcp_tool(name="audit_delete_note")
+    def audit_delete_note(self, note_id: int) -> Dict[str, Any]:
         """Delete a note.
 
         Args:
@@ -937,13 +935,13 @@ class McpService:
         Returns:
             dict: Contains success boolean.
         """
-        return notes_mcp_tools.delete_note(note_id=note_id)
+        return audit_mcp_tools.audit_delete_note(note_id=note_id)
 
-    @mcp_tool(name="mark_finding")
-    def mark_finding(self, binary_name: str, severity: str, category: str, description: str,
-                     function_name: str = None, address = None,
-                     evidence: str = None, cvss: float = None,
-                     exploitability: str = None) -> Dict[str, Any]:
+    @mcp_tool(name="audit_mark_finding")
+    def audit_mark_finding(self, binary_name: str, severity: str, category: str, description: str,
+                           function_name: str = None, address = None,
+                           evidence: str = None, cvss: float = None,
+                           exploitability: str = None) -> Dict[str, Any]:
         """Mark a security finding in the analysis.
 
         Args:
@@ -963,7 +961,7 @@ class McpService:
         Returns:
             dict: Contains finding_id and note_id.
         """
-        return notes_mcp_tools.mark_finding(
+        return audit_mcp_tools.audit_mark_finding(
             binary_name=binary_name,
             severity=severity,
             category=category,
@@ -975,9 +973,9 @@ class McpService:
             exploitability=exploitability
         )
 
-    @mcp_tool(name="get_findings")
-    def get_findings(self, binary_name: str = None, severity: str = None,
-                     category: str = None) -> List[Dict[str, Any]]:
+    @mcp_tool(name="audit_get_findings")
+    def audit_get_findings(self, binary_name: str = None, severity: str = None,
+                           category: str = None) -> List[Dict[str, Any]]:
         """Query security findings.
 
         Args:
@@ -989,14 +987,14 @@ class McpService:
             list: Array of finding objects with finding_id, note_id, binary_name, function_name,
                   address, severity, category, description, evidence, cvss, exploitability, created_at.
         """
-        return notes_mcp_tools.get_findings(
+        return audit_mcp_tools.audit_get_findings(
             binary_name=binary_name,
             severity=severity,
             category=category
         )
 
-    @mcp_tool(name="get_analysis_progress")
-    def get_analysis_progress(self, binary_name: str) -> Dict[str, Any]:
+    @mcp_tool(name="audit_get_analysis_progress")
+    def audit_get_analysis_progress(self, binary_name: str) -> Dict[str, Any]:
         """Get analysis progress statistics for a binary.
 
         Args:
@@ -1005,7 +1003,32 @@ class McpService:
         Returns:
             dict: Contains binary_name, total_notes, notes_by_type, findings_count, findings_by_severity.
         """
-        return notes_mcp_tools.get_analysis_progress(binary_name=binary_name)
+        return audit_mcp_tools.audit_get_analysis_progress(binary_name=binary_name)
+
+    @mcp_tool(name="audit_link_finding_to_plan")
+    def audit_link_finding_to_plan(self, finding_id: int, plan_id: int) -> Dict[str, Any]:
+        """Link a security finding to an audit plan task.
+
+        Args:
+            finding_id: The ID of the finding to link.
+            plan_id: The ID of the plan task to link to.
+
+        Returns:
+            dict: Contains success boolean.
+        """
+        return audit_mcp_tools.audit_link_finding_to_plan(finding_id, plan_id)
+
+    @mcp_tool(name="audit_get_plan_findings")
+    def audit_get_plan_findings(self, plan_id: int) -> List[Dict[str, Any]]:
+        """Get all findings linked to a specific audit plan task.
+
+        Args:
+            plan_id: The ID of the plan task.
+
+        Returns:
+            list: Array of finding objects linked to the plan task.
+        """
+        return audit_mcp_tools.audit_get_plan_findings(plan_id)
 
     # --- Audit Management Tools ---
 
@@ -1015,6 +1038,13 @@ class McpService:
         
         Use this tool to decompose your audit goal into smaller, manageable steps.
         Always maintain an up-to-date plan.
+
+        Args:
+            title: The task title. Be specific (e.g., "Analyze function 0x401000 for buffer overflow").
+            description: Detailed description of what needs to be done.
+
+        Returns:
+            dict: Contains the 'plan_id' of the newly created task.
         """
         return audit_mcp_tools.audit_plan_add(title, description)
 
@@ -1024,6 +1054,12 @@ class McpService:
         
         Optionally filter by status (pending, in_progress, completed, failed).
         Check this frequently to know what to do next.
+
+        Args:
+            status: Optional status filter. Options: pending, in_progress, completed, failed.
+
+        Returns:
+            list: Array of task objects, each containing 'plan_id', 'title', 'description', 'status', 'notes', 'created_at', 'updated_at'.
         """
         return audit_mcp_tools.audit_plan_list(status)
 
@@ -1033,6 +1069,14 @@ class McpService:
         
         Valid statuses: pending, in_progress, completed, failed.
         You can also add a progress note to explain what you did.
+
+        Args:
+            plan_id: The ID of the plan task to update.
+            status: New status. Options: pending, in_progress, completed, failed.
+            notes: Optional progress notes describing what was done.
+
+        Returns:
+            dict: Contains 'success' boolean.
         """
         return audit_mcp_tools.audit_plan_update(plan_id, status, notes)
 
@@ -1041,6 +1085,13 @@ class McpService:
         """Log a general progress message or a specific update for a plan item.
         
         Use this to record your thoughts, decisions, or intermediate results that don't fit into a specific finding.
+
+        Args:
+            message: The progress message to log.
+            plan_id: Optional plan task ID to associate this log with.
+
+        Returns:
+            dict: Contains 'log_id' of the created log entry.
         """
         return audit_mcp_tools.audit_log_progress(message, plan_id)
 
@@ -1050,17 +1101,33 @@ class McpService:
         
         The value can be a string, number, list, or dictionary.
         Use this to persist important findings, context, addresses, or decisions across sessions.
+
+        Args:
+            key: The key to store the value under (e.g., 'entry_point', 'vulnerable_functions').
+            value: The value to store. Can be any JSON-serializable type.
+
+        Returns:
+            dict: Contains 'success' boolean.
         """
         return audit_mcp_tools.audit_memory_set(key, value)
 
     @mcp_tool(name="audit_memory_get")
     def audit_memory_get(self, key: str) -> Dict[str, Any]:
         """Retrieve information from long-term memory by key.
+
+        Args:
+            key: The key to retrieve the value for.
+
+        Returns:
+            dict: Contains the 'value' stored under the key, or null if not found.
         """
         return audit_mcp_tools.audit_memory_get(key)
 
     @mcp_tool(name="audit_memory_list")
     def audit_memory_list(self) -> Dict[str, Any]:
         """List all stored memory keys and values.
+
+        Returns:
+            dict: An object containing 'memory' array, where each item has 'key' and 'value'.
         """
         return audit_mcp_tools.audit_memory_list()
