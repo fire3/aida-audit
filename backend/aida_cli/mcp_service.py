@@ -1079,21 +1079,21 @@ class McpService:
         return audit_mcp_tools.audit_plan_list(status, plan_type)
 
     @mcp_tool(name="audit_plan_update")
-    def audit_plan_update(self, plan_id: int, status: str, notes: str = None) -> Dict[str, Any]:
-        """Update the status of a plan task.
+    def audit_plan_update(self, plan_id: int, notes: str = None) -> Dict[str, Any]:
+        """Update the notes of a plan task.
         
-        Valid statuses: pending, in_progress, completed, failed.
-        You can also add a progress note to explain what you did.
+        Note: You cannot change the status (pending/in_progress/completed) via this tool.
+        Status is managed automatically by the Audit Service.
+        Use this tool to add progress notes or findings to a task.
 
         Args:
             plan_id: The ID of the plan task to update.
-            status: New status. Options: pending, in_progress, completed, failed.
             notes: Optional progress notes describing what was done.
 
         Returns:
             dict: Contains 'success' boolean.
         """
-        return audit_mcp_tools.audit_plan_update(plan_id, status, notes)
+        return audit_mcp_tools.audit_plan_update(plan_id, notes)
 
     @mcp_tool(name="audit_log_progress")
     def audit_log_progress(self, message: str, plan_id: int = None) -> Dict[str, Any]:

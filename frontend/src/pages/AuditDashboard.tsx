@@ -3,7 +3,7 @@ import { auditApi, type AuditPlan } from '../api/client';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { useState, useMemo, useEffect } from 'react';
-import { 
+import {
   CheckCircle2, 
   Circle, 
   Clock, 
@@ -259,35 +259,32 @@ export function AuditDashboard() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'plan' | 'logs' | 'memory' | 'chat' | 'findings'>('plan');
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(true);
   
-  const { data: status } = useQuery({ queryKey: ['auditStatus'], queryFn: auditApi.getStatus, refetchInterval: 2000 });
-  const { data: plans } = useQuery({ queryKey: ['auditPlans'], queryFn: () => auditApi.getPlans(), refetchInterval: 5000 });
-  const { data: logs } = useQuery({ queryKey: ['auditLogs'], queryFn: () => auditApi.getLogs(), refetchInterval: 2000 });
-  const { data: memory } = useQuery({ queryKey: ['auditMemory'], queryFn: auditApi.getMemory, refetchInterval: 10000 });
+  const { data: status } = useQuery({ queryKey: ['auditStatus'], queryFn: auditApi.getStatus, refetchInterval: autoRefresh ? 2000 : false });
+  const { data: plans } = useQuery({ queryKey: ['auditPlans'], queryFn: () => auditApi.getPlans(), refetchInterval: autoRefresh ? 5000 : false });
+  const { data: logs } = useQuery({ queryKey: ['auditLogs'], queryFn: () => auditApi.getLogs(), refetchInterval: autoRefresh ? 2000 : false });
+  const { data: memory } = useQuery({ queryKey: ['auditMemory'], queryFn: auditApi.getMemory, refetchInterval: autoRefresh ? 10000 : false });
   
-  const { data: sessions } = useQuery({ queryKey: ['auditSessions'], queryFn: auditApi.getSessions, refetchInterval: 10000 });
+  const { data: sessions } = useQuery({ queryKey: ['auditSessions'], queryFn: auditApi.getSessions, refetchInterval: autoRefresh ? 10000 : false });
 
-  // Select latest session by default if not selected, or switch to new sessions
+  // Select latest session only if none selected
   useEffect(() => {
-      if (sessions && sessions.length > 0) {
+      if (sessions && sessions.length > 0 && !selectedSession) {
           const latestSession = sessions[0].session_id;
-          if (!selectedSession || (status?.current_session_id && selectedSession !== latestSession)) {
-              setSelectedSession(latestSession);
-          }
-      } else if (!selectedSession && status?.current_session_id) {
-          setSelectedSession(status.current_session_id);
+          setSelectedSession(latestSession);
       }
-  }, [sessions, status, selectedSession]);
+  }, [sessions, selectedSession]);
 
   const { data: messages } = useQuery({ 
     queryKey: ['auditMessages', selectedSession, status?.current_session_id], 
     queryFn: () => auditApi.getMessages(selectedSession || undefined), 
-    refetchInterval: 2000,
+    refetchInterval: autoRefresh ? 2000 : false,
     enabled: !!selectedSession
   });
 
-  const { data: notes } = useQuery({ queryKey: ['auditNotes'], queryFn: () => auditApi.getNotes(), refetchInterval: 5000 });
-  const { data: findings } = useQuery({ queryKey: ['auditFindings'], queryFn: () => auditApi.getFindings(), refetchInterval: 5000 });
+  const { data: notes } = useQuery({ queryKey: ['auditNotes'], queryFn: () => auditApi.getNotes(), refetchInterval: autoRefresh ? 5000 : false });
+  const { data: findings } = useQuery({ queryKey: ['auditFindings'], queryFn: () => auditApi.getFindings(), refetchInterval: autoRefresh ? 5000 : false });
 
   const startMutation = useMutation({
     mutationFn: auditApi.start,
@@ -313,6 +310,15 @@ export function AuditDashboard() {
         </div>
         
         <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+                <label className="text-xs text-muted-foreground font-medium">Auto-Refresh</label>
+                <button 
+                    onClick={() => setAutoRefresh(!autoRefresh)}
+                    className={`w-8 h-4 rounded-full transition-colors relative ${autoRefresh ? 'bg-green-500' : 'bg-slate-300'}`}
+                >
+                    <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform ${autoRefresh ? 'left-4.5 translate-x-4' : 'left-0.5'}`} />
+                </button>
+            </div>
             <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-900 rounded-md border">
                 <span className="text-xs text-muted-foreground uppercase font-bold tracking-wider">Status</span>
                 <div className={`w-2 h-2 rounded-full ${status?.status === 'running' ? 'bg-green-500 animate-pulse' : status?.status === 'failed' ? 'bg-red-500' : 'bg-slate-300'}`} />
@@ -433,12 +439,13 @@ export function AuditDashboard() {
         )}
         
         {activeTab === 'findings' && (
-          <div className="h-full grid grid-cols-1 md:grid-cols-2 gap-4 overflow-hidden">
-              <Card className="h-full flex flex-col">
+          <div className="h-full overflow-auto">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
+              <Card className="flex flex-col h-fit">
                   <div className="p-4 border-b bg-slate-50 dark:bg-slate-900/50 font-semibold flex items-center gap-2">
                       <AlertTriangle className="w-4 h-4 text-red-500" /> Security Findings
                   </div>
-                  <CardContent className="flex-1 overflow-auto p-4">
+                  <CardContent className="p-4">
                       {findings && findings.length > 0 ? (
                           <div className="space-y-4">
                               {findings.map(finding => (
@@ -475,18 +482,18 @@ export function AuditDashboard() {
                               ))}
                           </div>
                       ) : (
-                          <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                          <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
                               <p>No security findings yet.</p>
                           </div>
                       )}
                   </CardContent>
               </Card>
               
-              <Card className="h-full flex flex-col">
+              <Card className="flex flex-col h-fit">
                   <div className="p-4 border-b bg-slate-50 dark:bg-slate-900/50 font-semibold flex items-center gap-2">
                       <StickyNote className="w-4 h-4 text-blue-500" /> Analysis Notes
                   </div>
-                  <CardContent className="flex-1 overflow-auto p-4">
+                  <CardContent className="p-4">
                       {notes && notes.length > 0 ? (
                           <div className="space-y-4">
                               {notes.map(note => (
@@ -499,8 +506,8 @@ export function AuditDashboard() {
                                               </div>
                                               <span className="text-[10px] text-muted-foreground">{new Date(note.created_at).toLocaleString()}</span>
                                           </summary>
-                                          <div className="pl-6 text-sm whitespace-pre-wrap mt-2">
-                                              {note.content}
+                                          <div className="pl-6 text-sm mt-2 prose prose-sm dark:prose-invert max-w-none">
+                                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{note.content}</ReactMarkdown>
                                           </div>
                                           {note.tags && note.tags.length > 0 && (
                                               <div className="flex flex-wrap gap-1 mt-2 pl-6">
@@ -514,12 +521,13 @@ export function AuditDashboard() {
                               ))}
                           </div>
                       ) : (
-                          <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                          <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
                               <p>No analysis notes yet.</p>
                           </div>
                       )}
                   </CardContent>
               </Card>
+              </div>
           </div>
         )}
 
@@ -527,7 +535,7 @@ export function AuditDashboard() {
           <Card className="h-full flex flex-col border-0 shadow-none bg-transparent">
             <CardContent className="flex-1 bg-black rounded-lg p-0 overflow-hidden border border-slate-800">
                <div className="h-full overflow-auto p-4 font-mono text-xs text-green-400 space-y-1">
-               {logs?.map((log) => (
+               {[...(logs || [])].reverse().map((log) => (
                  <div key={log.id} className="break-all hover:bg-white/5 px-1 rounded">
                    <span className="opacity-50 mr-3 text-blue-400">[{new Date(log.timestamp * 1000).toLocaleTimeString()}]</span>
                    {log.message}

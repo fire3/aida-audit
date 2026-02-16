@@ -91,6 +91,10 @@ class BaseAgent:
             self.on_session_start(self.session_id, self.name)
             
         self.audit_db.log_progress(f"Starting session: {self.session_id} ({self.name})")
+
+        # Record initial prompts
+        self.audit_db.add_message(self.session_id, "system", f"{initial_context}\n\n{system_prompt}")
+        self.audit_db.add_message(self.session_id, "user", content)
         
         turn_count = 0
         max_turns = 200
@@ -359,6 +363,9 @@ class AuditService:
                     task = pending_tasks[0]
                     self.audit_db.log_progress(f"Assigning task to Audit Agent: {task['title']} (ID: {task['id']})")
                     
+                    # Mark task as in_progress
+                    self.audit_db.update_plan_status(task['id'], "in_progress")
+
                     audit_agent = AuditAgent(
                         llm_client,
                         mcp_client,
@@ -369,6 +376,9 @@ class AuditService:
                         on_session_start=self._update_session_info
                     )
                     audit_agent.run(self._stop_event)
+                    
+                    # Mark task as completed (assuming success if it returns)
+                    self.audit_db.update_plan_status(task['id'], "completed")
 
                 # Optional: Sleep briefly between sessions
                 time.sleep(2)

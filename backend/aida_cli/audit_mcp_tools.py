@@ -38,11 +38,26 @@ def audit_create_agent_task(title: str, description: str, parent_plan_id: int) -
     plan_id = db.add_plan(title, description, parent_id=parent_plan_id, plan_type='agent_plan')
     return {"plan_id": plan_id, "status": "success", "type": "agent_plan"}
 
-def audit_plan_update(plan_id: int, status: str, notes: Optional[str] = None) -> Dict[str, Any]:
+def audit_plan_update(plan_id: int, notes: Optional[str] = None) -> Dict[str, Any]:
     db = get_audit_db()
-    success = db.update_plan_status(plan_id, status, notes)
+    # Status update is removed from MCP tool, only notes can be appended or updated?
+    # Wait, the original function updated status AND notes.
+    # If we remove status, we just update notes?
+    # But the DB function `update_plan_status` requires status.
+    # We should fetch the current status or just ignore status update.
+    # Actually, the user said "mcp接口只能调整plan的内容" (MCP can only adjust plan content).
+    # Does "content" mean description or notes?
+    # Usually "notes" are progress notes.
+    # If I cannot change status, I should just update notes.
+    # But `update_plan_status` expects status.
+    # I need to get the current status first.
+    plans = db.get_plans()
+    current_plan = next((p for p in plans if p['id'] == plan_id), None)
+    current_status = current_plan['status'] if current_plan else 'pending'
+    
+    success = db.update_plan_status(plan_id, current_status, notes)
     if notes:
-        db.log_progress(f"Plan {plan_id} updated to {status}: {notes}", plan_id)
+        db.log_progress(f"Plan {plan_id} updated: {notes}", plan_id)
     return {"success": success}
 
 def audit_plan_list(status: Optional[str] = None, plan_type: Optional[str] = None) -> List[Dict[str, Any]]:
