@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { auditApi } from '../api/client';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Button } from '../components/ui/button';
 
 function Badge({ children, variant }: { children: React.ReactNode, variant: string }) {
     const colors = {
@@ -18,14 +19,51 @@ function Badge({ children, variant }: { children: React.ReactNode, variant: stri
 }
 
 export function AuditDashboard() {
+  const queryClient = useQueryClient();
+  const { data: status } = useQuery({ queryKey: ['auditStatus'], queryFn: auditApi.getStatus, refetchInterval: 2000 });
   const { data: plans } = useQuery({ queryKey: ['auditPlans'], queryFn: () => auditApi.getPlans(), refetchInterval: 5000 });
   const { data: logs } = useQuery({ queryKey: ['auditLogs'], queryFn: () => auditApi.getLogs(), refetchInterval: 2000 });
   const { data: memory } = useQuery({ queryKey: ['auditMemory'], queryFn: auditApi.getMemory, refetchInterval: 10000 });
   const { data: messages } = useQuery({ queryKey: ['auditMessages'], queryFn: () => auditApi.getMessages(), refetchInterval: 2000 });
 
+  const startMutation = useMutation({
+    mutationFn: auditApi.start,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['auditStatus'] });
+    }
+  });
+
+  const stopMutation = useMutation({
+    mutationFn: auditApi.stop,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['auditStatus'] });
+    }
+  });
+
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <h1 className="text-3xl font-bold tracking-tight">Automated Audit Dashboard</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold tracking-tight">Automated Audit Dashboard</h1>
+        <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Status:</span>
+                <Badge variant={status?.status === 'running' ? 'default' : status?.status === 'failed' ? 'destructive' : 'outline'}>
+                    {status?.status?.toUpperCase() || 'UNKNOWN'}
+                </Badge>
+                {status?.error && <span className="text-xs text-red-500 ml-2">{status.error}</span>}
+            </div>
+            
+            {status?.status === 'running' ? (
+                <Button variant="destructive" onClick={() => stopMutation.mutate()} disabled={stopMutation.isPending}>
+                    {stopMutation.isPending ? 'Stopping...' : 'Stop Audit'}
+                </Button>
+            ) : (
+                <Button onClick={() => startMutation.mutate()} disabled={startMutation.isPending}>
+                    {startMutation.isPending ? 'Starting...' : 'Start Audit'}
+                </Button>
+            )}
+        </div>
+      </div>
       
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Plans */}

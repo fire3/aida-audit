@@ -255,7 +255,7 @@ class AuditDatabase:
         return cursor.rowcount > 0
 
     def get_plans(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
-        query = "SELECT id, title, description, status, notes, created_at, updated_at FROM audit_plans"
+        query = "SELECT id, title, description, status, created_at, updated_at FROM audit_plans"
         params = []
         if status:
             query += " WHERE status = ?"

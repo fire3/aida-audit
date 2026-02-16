@@ -19,6 +19,7 @@ logger = logging.getLogger("aida_server")
 from .project_store import ProjectStore
 from .mcp_service import McpService, McpError
 from .audit_database import AuditDatabase
+from .audit_service import AuditService
 from .constants import AUDIT_DB_FILENAME
 from . import audit_mcp_tools
 
@@ -26,11 +27,12 @@ from . import audit_mcp_tools
 service = None
 project_store = None
 audit_db = None
+audit_service = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    global service, project_store, audit_db
+    global service, project_store, audit_db, audit_service
     project_path = os.environ.get("AIDA_MCP_PROJECT", ".")
     audit_db = None
     try:
@@ -39,11 +41,14 @@ async def lifespan(app: FastAPI):
         print(f"Loaded project from: {project_path}")
 
         audit_db_path = os.path.join(project_path, AUDIT_DB_FILENAME)
-        if os.path.exists(os.path.dirname(audit_db_path)) or not os.path.exists(audit_db_path):
+        if os.path.exists(os.path.dirname(audit_db_path)):
             audit_db = AuditDatabase(audit_db_path)
             audit_db.connect()
             audit_mcp_tools.set_audit_db(audit_db)
             print(f"Loaded audit database: {audit_db_path}")
+            
+            audit_service = AuditService(project_path, audit_db)
+            print(f"Audit Service initialized")
 
     except Exception as e:
         print(f"Failed to load project: {e}", file=sys.stderr)
@@ -51,6 +56,8 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    if audit_service:
+        audit_service.stop()
     if project_store:
         project_store.close()
     if audit_db:
@@ -553,6 +560,29 @@ def get_audit_messages(session_id: Optional[str] = None, limit: int = 100):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.get("/audit/status")
+def get_audit_status():
+    if not audit_service:
+        return {"status": "not_initialized", "error": "Audit service not available"}
+    return audit_service.get_status()
+
+@api_router.post("/audit/start")
+def start_audit():
+    if not audit_service:
+        raise HTTPException(status_code=503, detail="Audit service not initialized")
+    try:
+        audit_service.start()
+        return {"status": "started"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/audit/stop")
+def stop_audit():
+    if not audit_service:
+        raise HTTPException(status_code=503, detail="Audit service not initialized")
+    audit_service.stop()
+    return {"status": "stopping"}
+
 
 # Include the API router
 app.include_router(api_router)
@@ -700,6 +730,7 @@ def main():
     args = parser.parse_args()
 
     os.environ["AIDA_MCP_PROJECT"] = args.project
+    os.environ["AIDA_MCP_PORT"] = str(args.port)
     
     # Check if project path exists
     if not os.path.exists(args.project):

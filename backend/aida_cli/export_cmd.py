@@ -86,15 +86,6 @@ def _is_within_dir(path, root_dir):
         return False
     return common == root_dir
 
-def _ensure_notes_db(out_dir: str, logger=None) -> str:
-    audit_db = os.path.join(out_dir, AUDIT_DB_FILENAME)
-    if not os.path.exists(audit_db):
-        db = AuditDatabase(audit_db, logger=logger)
-        db.connect()
-        db.close()
-    return audit_db
-
-
 def _ensure_audit_db(out_dir: str, logger=None) -> str:
     audit_db = os.path.join(out_dir, AUDIT_DB_FILENAME)
     if not os.path.exists(audit_db):
@@ -613,7 +604,6 @@ class ExportOrchestrator:
         self.logger.log(f"Input  : {input_path}", context="ORCHESTRATOR")
         self.logger.log(f"Output : {output_db}", context="ORCHESTRATOR")
 
-        _ensure_notes_db(os.path.dirname(output_db), self.logger)
         _ensure_audit_db(os.path.dirname(output_db), self.logger)
 
         export_c_path = None
@@ -737,7 +727,6 @@ class ExportOrchestrator:
         self.logger.log(f"Output : {output_db}", context="ORCHESTRATOR")
         self.logger.log(f"Workers: {self.workers}", context="ORCHESTRATOR")
 
-        _ensure_notes_db(os.path.dirname(output_db), self.logger)
         _ensure_audit_db(os.path.dirname(output_db), self.logger)
 
         # Setup temporary directory

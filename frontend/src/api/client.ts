@@ -133,6 +133,11 @@ export interface AuditMemory {
   updated_at: number;
 }
 
+export interface AuditStatus {
+  status: 'idle' | 'running' | 'completed' | 'failed' | 'not_initialized';
+  error?: string;
+}
+
 export const auditApi = {
   getPlans: async (status?: string) => {
     const params = status ? { status } : {};
@@ -151,6 +156,18 @@ export const auditApi = {
     const params: any = { limit };
     if (sessionId) params.session_id = sessionId;
     const res = await apiClient.get<AuditMessage[]>('/audit/messages', { params });
+    return res.data;
+  },
+  getStatus: async () => {
+    const res = await apiClient.get<AuditStatus>('/audit/status');
+    return res.data;
+  },
+  start: async () => {
+    const res = await apiClient.post<{status: string}>('/audit/start');
+    return res.data;
+  },
+  stop: async () => {
+    const res = await apiClient.post<{status: string}>('/audit/stop');
     return res.data;
   }
 };
