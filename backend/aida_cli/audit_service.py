@@ -3,7 +3,7 @@ import time
 import json
 import traceback
 import threading
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Callable
 
 from .config import Config
 from .llm_client import LLMClient
@@ -35,6 +35,169 @@ def get_tools_for_llm(mcp_client: McpClient) -> List[Dict[str, Any]]:
             }
         })
     return llm_tools
+
+class BaseAgent:
+    def __init__(self, 
+                 llm_client: LLMClient, 
+                 mcp_client: McpClient, 
+                 audit_db: AuditDatabase, 
+                 project_path: str,
+                 tools: List[Dict],
+                 on_session_start: Optional[Callable[[str, str], None]] = None):
+        self.llm_client = llm_client
+        self.mcp_client = mcp_client
+        self.audit_db = audit_db
+        self.project_path = project_path
+        self.all_tools = tools
+        self.on_session_start = on_session_start
+        self.session_id: Optional[str] = None
+        
+    @property
+    def name(self) -> str:
+        raise NotImplementedError
+        
+    def get_system_prompt(self) -> str:
+        return load_agent_prompt(self.name)
+        
+    def get_initial_message(self) -> str:
+        return "Please start your session."
+        
+    def get_tools(self) -> List[Dict]:
+        return self.all_tools
+        
+    def run(self, stop_event: threading.Event):
+        system_prompt = self.get_system_prompt()
+        initial_context = f"PROJECT_PATH: {os.path.abspath(self.project_path)}"
+        
+        content = self.get_initial_message()
+        tools = self.get_tools()
+        
+        messages = [
+            {"role": "system", "content": f"{initial_context}\n\n{system_prompt}"},
+            {"role": "user", "content": content}
+        ]
+        
+        self.session_id = f"{self.name.lower()}-{int(time.time())}"
+        if self.on_session_start:
+            self.on_session_start(self.session_id, self.name)
+            
+        self.audit_db.log_progress(f"Starting session: {self.session_id} ({self.name})")
+        
+        turn_count = 0
+        max_turns = 200
+
+        while turn_count < max_turns:
+            if stop_event.is_set():
+                self.audit_db.log_progress("Audit stopped by user.")
+                break
+
+            turn_count += 1
+            
+            # Call LLM
+            try:
+                response = self.llm_client.chat_completion(messages, tools=tools)
+            except Exception as e:
+                self.audit_db.log_progress(f"LLM Call Failed: {e}")
+                time.sleep(5)
+                continue
+
+            message = response["choices"][0]["message"]
+            messages.append(message)
+            
+            content = message.get("content")
+            tool_calls = message.get("tool_calls")
+
+            # Log content
+            if content:
+                self.audit_db.add_message(self.session_id, "assistant", content)
+
+            # Check for completion signal
+            if not tool_calls:
+                if content:
+                    self.audit_db.log_progress(f"[{self.name}] {content[:200]}...")
+                break
+
+            # Handle Tool Calls
+            if tool_calls:
+                for tool_call in tool_calls:
+                    if stop_event.is_set():
+                        break
+
+                    func_name = tool_call["function"]["name"]
+                    args_str = tool_call["function"]["arguments"]
+                    call_id = tool_call["id"]
+                    
+                    # Log tool call
+                    try:
+                        tool_call_json = json.dumps({
+                            "name": func_name,
+                            "arguments": json.loads(args_str)
+                        })
+                        self.audit_db.add_message(self.session_id, "tool_call", tool_call_json)
+                    except:
+                        self.audit_db.add_message(self.session_id, "tool_call", f"{func_name}({args_str})")
+                    
+                    try:
+                        args = json.loads(args_str)
+                        result = self.mcp_client.call_tool(func_name, args)
+                        
+                        if isinstance(result, (dict, list)):
+                            result_str = json.dumps(result, ensure_ascii=False)
+                        else:
+                            result_str = str(result)
+                            
+                        if len(result_str) > 5000:
+                            result_str = result_str[:5000] + "... (truncated)"
+                        
+                        self.audit_db.add_message(self.session_id, "tool_result", result_str)
+                            
+                    except Exception as e:
+                        result_str = f"Error: {str(e)}"
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "content": result_str
+                    })
+
+class PlanAgent(BaseAgent):
+    @property
+    def name(self) -> str:
+        return "PLAN_AGENT"
+        
+    def get_tools(self) -> List[Dict]:
+        plan_tool_names = {'audit_create_macro_plan', 'audit_create_agent_task', 'audit_plan_update', 'audit_plan_list'}
+        return [
+             t for t in self.all_tools
+             if t['function']['name'] in plan_tool_names
+        ]
+
+class AuditAgent(BaseAgent):
+    def __init__(self, 
+                 llm_client: LLMClient, 
+                 mcp_client: McpClient, 
+                 audit_db: AuditDatabase, 
+                 project_path: str,
+                 tools: List[Dict],
+                 specific_task: Optional[Dict] = None,
+                 on_session_start: Optional[Callable[[str, str], None]] = None):
+        super().__init__(llm_client, mcp_client, audit_db, project_path, tools, on_session_start)
+        self.specific_task = specific_task
+        
+    @property
+    def name(self) -> str:
+        return "AUDIT_AGENT"
+        
+    def get_tools(self) -> List[Dict]:
+        return [
+            t for t in self.all_tools 
+            if t['function']['name'] not in ['audit_plan_list', 'audit_create_macro_plan', 'audit_create_agent_task', 'audit_plan_update']
+        ]
+
+    def get_initial_message(self) -> str:
+        if self.specific_task:
+            return f"Your assigned task is:\nTitle: {self.specific_task['title']}\nDescription: {self.specific_task['description']}\nID: {self.specific_task['id']}\n\nPlease execute this task immediately."
+        return "Please start your session."
 
 class AuditService:
     def __init__(self, project_path: str, audit_db: AuditDatabase):
@@ -71,6 +234,10 @@ class AuditService:
             "current_session_id": self.current_session_id,
             "current_agent": self.current_agent
         }
+
+    def _update_session_info(self, session_id: str, agent_name: str):
+        self.current_session_id = session_id
+        self.current_agent = agent_name
 
     def _run_loop(self):
         mcp_client = None
@@ -112,7 +279,15 @@ class AuditService:
             while not self._stop_event.is_set():
                 # Step 1: Run Plan Agent
                 self.audit_db.log_progress("Starting Planning Phase...")
-                self._run_session("PLAN_AGENT", llm_client, tools, mcp_client)
+                plan_agent = PlanAgent(
+                    llm_client, 
+                    mcp_client, 
+                    self.audit_db, 
+                    self.project_path, 
+                    tools,
+                    on_session_start=self._update_session_info
+                )
+                plan_agent.run(self._stop_event)
                 
                 if self._stop_event.is_set():
                     break
@@ -125,26 +300,19 @@ class AuditService:
                 if not pending_tasks:
                      self.audit_db.log_progress("No pending agent tasks found. Skipping Execution Phase.")
                 else:
-                    # Pick one task (or iterate? Let's iterate over all pending tasks for now, or just one per cycle?)
-                    # User said: "audit agent should get unfinished tasks from agent plan list via prompt"
-                    # Let's do one task per cycle to allow re-planning in between if needed.
                     task = pending_tasks[0]
                     self.audit_db.log_progress(f"Assigning task to Audit Agent: {task['title']} (ID: {task['id']})")
                     
-                    # Filter tools for Audit Agent
-                    # Remove 'audit_plan_list' and maybe others?
-                    # User: "audit plan tools should be removed... only retain an interface for it to add new tasks for itself"
-                    # So we keep audit_plan_add, audit_plan_update. Remove audit_plan_list.
-                    # Also keep all other tools (notes, memory, reverse engineering).
-                    # Actually, user said "remove notes findings these interfaces" from PLAN AGENT.
-                    # And "audit plan tools should be removed" from AUDIT AGENT.
-                    
-                    audit_tools = [
-                        t for t in tools 
-                        if t['function']['name'] not in ['audit_plan_list']
-                    ]
-                    
-                    self._run_session("AUDIT_AGENT", llm_client, audit_tools, mcp_client, specific_task=task)
+                    audit_agent = AuditAgent(
+                        llm_client,
+                        mcp_client,
+                        self.audit_db,
+                        self.project_path,
+                        tools,
+                        specific_task=task,
+                        on_session_start=self._update_session_info
+                    )
+                    audit_agent.run(self._stop_event)
 
                 # Optional: Sleep briefly between sessions
                 time.sleep(2)
@@ -167,132 +335,3 @@ class AuditService:
                      self.status = "idle"
                  else:
                      self.status = "completed"
-
-    def _run_session(self, agent_name: str, llm_client: LLMClient, tools: List[Dict], mcp_client: McpClient, specific_task: Optional[Dict] = None):
-        # Load Prompt
-        system_prompt = load_agent_prompt(agent_name)
-        initial_context = f"PROJECT_PATH: {os.path.abspath(self.project_path)}"
-        
-        # Filter tools for Plan Agent as requested
-        # User: "need plan agent to remove notes findings these interfaces, focus on creating two plans"
-        if agent_name == "PLAN_AGENT":
-             tools = [
-                 t for t in tools
-                 if not t['function']['name'].startswith('audit_mark_finding')
-                 and not t['function']['name'].startswith('audit_create_note')
-                 # Keep audit_get_notes/findings for context?
-                 # User said "remove notes findings these interfaces". 
-                 # Usually planning needs to see findings. 
-                 # "remove notes findings these interfaces" likely means creation interfaces.
-                 # Let's assume read-only is fine, but maybe user wants strict separation.
-                 # "focus on two plan creation".
-                 # Let's remove write operations: create_note, mark_finding, update_note, delete_note.
-                 # Keep get_notes, get_findings.
-             ]
-
-        content = "Please start your session."
-        if specific_task:
-            content = f"Your assigned task is:\nTitle: {specific_task['title']}\nDescription: {specific_task['description']}\nID: {specific_task['id']}\n\nPlease execute this task immediately."
-
-        messages = [
-            {"role": "system", "content": f"{initial_context}\n\n{system_prompt}"},
-            {"role": "user", "content": content}
-        ]
-        
-        session_id = f"{agent_name.lower()}-{int(time.time())}"
-        self.current_session_id = session_id
-        self.current_agent = agent_name
-        self.audit_db.log_progress(f"Starting session: {session_id} ({agent_name})")
-
-        turn_count = 0
-        max_turns = 50 # Limit per session to avoid infinite loops
-
-        while turn_count < max_turns:
-            if self._stop_event.is_set():
-                self.audit_db.log_progress("Audit stopped by user.")
-                break
-
-            turn_count += 1
-            
-            # Call LLM
-            try:
-                response = llm_client.chat_completion(messages, tools=tools)
-            except Exception as e:
-                self.audit_db.log_progress(f"LLM Call Failed: {e}")
-                time.sleep(5)
-                continue
-
-            message = response["choices"][0]["message"]
-            messages.append(message)
-            
-            content = message.get("content")
-            tool_calls = message.get("tool_calls")
-
-            # Log content
-            if content:
-                self.audit_db.add_message(session_id, "assistant", content)
-
-            # Check for completion signal
-            if not tool_calls:
-                # If LLM says "audit complete" or just finishes without tool calls, end session
-                # But we should be careful. Sometimes it just talks.
-                # However, for these specific agents, we instructed them to end session.
-                # Let's assume if it returns text without tool calls, it might be done or asking for info.
-                # But usually, if it's "Plan Agent", it adds plans then says "Done".
-                # If it's "Audit Agent", it does work then says "Done".
-                # So if no tool calls, we can probably check for keywords or just continue if it looks like a question?
-                # Actually, our prompt says "Your session should end...". 
-                # Let's just break if no tool calls are present, assuming it's a "summary" message.
-                if content:
-                    # Log it as progress too so it appears in logs
-                    self.audit_db.log_progress(f"[{agent_name}] {content[:200]}...")
-                
-                # We break the session loop here to yield control back to the outer loop (switch agent)
-                break
-
-            # Handle Tool Calls
-            if tool_calls:
-                for tool_call in tool_calls:
-                    if self._stop_event.is_set():
-                        break
-
-                    func_name = tool_call["function"]["name"]
-                    args_str = tool_call["function"]["arguments"]
-                    call_id = tool_call["id"]
-                    
-                    # Log tool call
-                    try:
-                        tool_call_json = json.dumps({
-                            "name": func_name,
-                            "arguments": json.loads(args_str)
-                        })
-                        self.audit_db.add_message(session_id, "tool_call", tool_call_json)
-                    except:
-                        self.audit_db.add_message(session_id, "tool_call", f"{func_name}({args_str})")
-                    
-                    try:
-                        args = json.loads(args_str)
-                        result = mcp_client.call_tool(func_name, args)
-                        
-                        # Format result
-                        if isinstance(result, (dict, list)):
-                            result_str = json.dumps(result, ensure_ascii=False)
-                        else:
-                            result_str = str(result)
-                            
-                        # Truncate if too long
-                        if len(result_str) > 5000:
-                            result_str = result_str[:5000] + "... (truncated)"
-                        
-                        # Log tool result
-                        self.audit_db.add_message(session_id, "tool_result", result_str)
-                            
-                    except Exception as e:
-                        result_str = f"Error: {str(e)}"
-
-                    # Append result
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": call_id,
-                        "content": result_str
-                    })
