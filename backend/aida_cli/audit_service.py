@@ -160,16 +160,35 @@ class BaseAgent:
                         "content": result_str
                     })
 
+PLAN_AGENT_EXCLUDE = {
+    'audit_memory_set', 'audit_memory_get', 'audit_memory_list',
+    'audit_create_note', 'audit_get_notes', 'audit_update_note', 'audit_delete_note',
+    'audit_mark_finding', 'audit_get_findings', 'audit_get_analysis_progress',
+    'audit_link_finding_to_plan', 'audit_unlink_finding_from_plan',
+    'audit_get_plan_findings', 'audit_get_finding_plans',
+    'audit_log_progress'
+}
+
+AUDIT_AGENT_EXCLUDE = {
+    'audit_create_macro_plan', 'audit_plan_update', 'audit_plan_list',
+    'audit_memory_set', 'audit_memory_get', 'audit_memory_list',
+    'audit_create_note', 'audit_get_notes', 'audit_update_note', 'audit_delete_note',
+    'audit_mark_finding', 'audit_get_findings', 'audit_get_analysis_progress',
+    'audit_link_finding_to_plan', 'audit_unlink_finding_from_plan',
+    'audit_get_plan_findings', 'audit_get_finding_plans',
+    'audit_log_progress'
+}
+
+
 class PlanAgent(BaseAgent):
     @property
     def name(self) -> str:
         return "PLAN_AGENT"
         
     def get_tools(self) -> List[Dict]:
-        plan_tool_names = {'audit_create_macro_plan', 'audit_create_agent_task', 'audit_plan_update', 'audit_plan_list'}
         return [
-             t for t in self.all_tools
-             if t['function']['name'] in plan_tool_names
+            t for t in self.all_tools
+            if t['function']['name'] not in PLAN_AGENT_EXCLUDE
         ]
 
 class AuditAgent(BaseAgent):
@@ -189,9 +208,10 @@ class AuditAgent(BaseAgent):
         return "AUDIT_AGENT"
         
     def get_tools(self) -> List[Dict]:
+        audit_agent_keep = {'audit_create_agent_task'}
         return [
             t for t in self.all_tools 
-            if t['function']['name'] not in ['audit_plan_list', 'audit_create_macro_plan', 'audit_create_agent_task', 'audit_plan_update']
+            if t['function']['name'] in audit_agent_keep
         ]
 
     def get_initial_message(self) -> str:
