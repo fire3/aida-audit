@@ -24,16 +24,19 @@ def _parse_address(addr: Optional[Union[str, int]]) -> Optional[int]:
 
 # ========== Plan Operations ==========
 
-def audit_plan_add(title: str, description: str, parent_id: Optional[int] = None, plan_type: str = 'agent_plan') -> Dict[str, Any]:
+def audit_create_macro_plan(title: str, description: str, parent_id: Optional[int] = None) -> Dict[str, Any]:
+    """Create a high-level audit plan (Audit Plan)."""
     db = get_audit_db()
-    if plan_type not in ['audit_plan', 'agent_plan']:
-        plan_type = 'agent_plan'
-    plan_id = db.add_plan(title, description, parent_id, plan_type)
-    return {"plan_id": plan_id, "status": "success"}
+    plan_id = db.add_plan(title, description, parent_id, plan_type='audit_plan')
+    return {"plan_id": plan_id, "status": "success", "type": "audit_plan"}
 
-def audit_plan_list(status: Optional[str] = None, plan_type: Optional[str] = None) -> List[Dict[str, Any]]:
+def audit_create_agent_task(title: str, description: str, parent_plan_id: int) -> Dict[str, Any]:
+    """Create a specific executable task for an agent (Agent Plan)."""
     db = get_audit_db()
-    return db.get_plans(status, plan_type)
+    # Verify parent exists and is an audit_plan? (Optional but good practice)
+    # For now, just create it.
+    plan_id = db.add_plan(title, description, parent_id=parent_plan_id, plan_type='agent_plan')
+    return {"plan_id": plan_id, "status": "success", "type": "agent_plan"}
 
 def audit_plan_update(plan_id: int, status: str, notes: Optional[str] = None) -> Dict[str, Any]:
     db = get_audit_db()
@@ -41,6 +44,10 @@ def audit_plan_update(plan_id: int, status: str, notes: Optional[str] = None) ->
     if notes:
         db.log_progress(f"Plan {plan_id} updated to {status}: {notes}", plan_id)
     return {"success": success}
+
+def audit_plan_list(status: Optional[str] = None, plan_type: Optional[str] = None) -> List[Dict[str, Any]]:
+    db = get_audit_db()
+    return db.get_plans(status, plan_type)
 
 # ========== Log Operations ==========
 

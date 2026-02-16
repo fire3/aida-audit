@@ -353,6 +353,20 @@ class AuditDatabase:
         )
         self.commit()
 
+    def get_sessions(self) -> List[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT session_id, MIN(timestamp) as start_time, COUNT(*) as message_count 
+            FROM audit_messages 
+            GROUP BY session_id 
+            ORDER BY start_time DESC
+        """)
+        columns = [column[0] for column in cursor.description]
+        results = []
+        for row in cursor.fetchall():
+            results.append(dict(zip(columns, row)))
+        return results
+
     def get_messages(self, session_id: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
         query = "SELECT id, session_id, role, content, timestamp FROM audit_messages"
         params = []

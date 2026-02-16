@@ -554,9 +554,18 @@ def get_audit_memory():
 @api_router.get("/audit/messages")
 def get_audit_messages(session_id: Optional[str] = None, limit: int = 100):
     if not audit_db:
-        return []
+         return []
     try:
         return audit_db.get_messages(session_id, limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/audit/sessions")
+def get_audit_sessions():
+    if not audit_db:
+         return []
+    try:
+        return audit_db.get_sessions()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

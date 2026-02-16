@@ -1032,38 +1032,51 @@ class McpService:
 
     # --- Audit Management Tools ---
 
-    @mcp_tool(name="audit_plan_add")
-    def audit_plan_add(self, title: str, description: str, parent_id: Optional[int] = None) -> Dict[str, Any]:
-        """Add a new task to the audit plan.
+    @mcp_tool(name="audit_create_macro_plan")
+    def audit_create_macro_plan(self, title: str, description: str, parent_id: Optional[int] = None) -> Dict[str, Any]:
+        """Create a high-level macro audit plan.
         
-        Use this tool to decompose your audit goal into smaller, manageable steps.
-        Always maintain an up-to-date plan.
-        Supports creating sub-plans by providing a parent_id.
-
+        Use this for structural, phased planning (e.g., 'Reconnaissance', 'Auth Module Analysis').
+        
         Args:
-            title: The task title. Be specific (e.g., "Analyze function 0x401000 for buffer overflow").
-            description: Detailed description of what needs to be done.
-            parent_id: Optional ID of the parent plan task, for sub-tasks.
+            title: The title of the macro plan.
+            description: Detailed description of the audit phase.
+            parent_id: Optional parent macro plan ID (for nesting).
 
         Returns:
-            dict: Contains the 'plan_id' of the newly created task.
+            dict: Contains 'plan_id' of the created plan.
         """
-        return audit_mcp_tools.audit_plan_add(title, description, parent_id)
+        return audit_mcp_tools.audit_create_macro_plan(title, description, parent_id)
+
+    @mcp_tool(name="audit_create_agent_task")
+    def audit_create_agent_task(self, title: str, description: str, parent_plan_id: int) -> Dict[str, Any]:
+        """Create a specific executable task for the Audit Agent.
+        
+        Use this for assigning concrete work (e.g., 'Analyze login() function').
+        MUST be linked to a parent Macro Plan.
+        
+        Args:
+            title: The title of the task.
+            description: Specific instructions for the agent (function name, address, goal).
+            parent_plan_id: The ID of the parent Macro Plan this task belongs to.
+
+        Returns:
+            dict: Contains 'plan_id' of the created task.
+        """
+        return audit_mcp_tools.audit_create_agent_task(title, description, parent_plan_id)
 
     @mcp_tool(name="audit_plan_list")
-    def audit_plan_list(self, status: str = None) -> List[Dict[str, Any]]:
-        """List all tasks in the audit plan.
+    def audit_plan_list(self, status: str = None, plan_type: str = None) -> List[Dict[str, Any]]:
+        """List audit plans or agent tasks.
         
-        Optionally filter by status (pending, in_progress, completed, failed).
-        Check this frequently to know what to do next.
-
         Args:
-            status: Optional status filter. Options: pending, in_progress, completed, failed.
+            status: Filter by status ('pending', 'in_progress', 'completed', 'failed').
+            plan_type: Filter by type ('audit_plan' for macro, 'agent_plan' for tasks).
 
         Returns:
-            list: Array of task objects, each containing 'plan_id', 'title', 'description', 'status', 'notes', 'created_at', 'updated_at'.
+            list: List of plan objects.
         """
-        return audit_mcp_tools.audit_plan_list(status)
+        return audit_mcp_tools.audit_plan_list(status, plan_type)
 
     @mcp_tool(name="audit_plan_update")
     def audit_plan_update(self, plan_id: int, status: str, notes: str = None) -> Dict[str, Any]:

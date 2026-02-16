@@ -31,7 +31,7 @@
 ## 可用工具
 - **逆向分析**：`get_binary_function_pseudocode_by_address`, `list_binary_functions`, `get_binary_cross_references` 等。
 - **记录**：`audit_create_note`, `audit_mark_finding`.
-- **任务管理**：`audit_plan_add` (仅限为自己添加必要的子任务，`plan_type='agent_plan'`), `audit_plan_update`.
+- **任务管理**：`audit_create_agent_task` (仅限为自己添加必要的子任务，需关联当前宏观计划), `audit_plan_update`.
 
 ## 禁止事项
 - **禁止**查看或修改 Audit Plan（宏观计划）。

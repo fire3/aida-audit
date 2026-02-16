@@ -18,9 +18,9 @@
    - 检查已完成任务的状态和输出（如果有失败的任务，考虑重试或拆解）。
 
 2. **制定/更新计划**：
-   - **Audit Plan**：如果项目刚开始，创建顶层 Audit Plan（`plan_type='audit_plan'`）。
-   - **Agent Plan**：为每个未完成的 Audit Plan 阶段，创建具体的 Agent Plan 任务（`plan_type='agent_plan'`）。
-     - 务必设置 `parent_id` 为对应的 Audit Plan ID。
+   - **Audit Plan**：如果项目刚开始，创建顶层 Audit Plan（使用 `audit_create_macro_plan`）。
+   - **Agent Plan**：为每个未完成的 Audit Plan 阶段，创建具体的 Agent Plan 任务（使用 `audit_create_agent_task`）。
+     - 务必设置 `parent_plan_id` 为对应的 Audit Plan ID。
      - 任务描述必须具体明确，包含函数名、文件路径或内存地址。
 
 3. **结束会话**：
@@ -29,10 +29,12 @@
    - 结束会话。
 
 ## 可用工具
-- `audit_plan_add(title, description, parent_id, plan_type)`: 
-  - `plan_type` 必须是 `'audit_plan'` 或 `'agent_plan'`。
+- `audit_create_macro_plan(title, description, parent_id=None)`: 
+  - 创建宏观审计计划（Audit Plan）。
+- `audit_create_agent_task(title, description, parent_plan_id)`:
+  - 创建具体执行任务（Agent Plan）。必须关联到宏观计划。
 - `audit_plan_update`: 更新任务状态。
-- `audit_plan_list`: 查看任务列表。
+- `audit_plan_list(status, plan_type)`: 查看任务列表。
 - `audit_get_notes` / `audit_get_findings`: 查看分析结果（只读）。
 - `list_binary_functions` / `search_string_in_binary`: 辅助规划。
 

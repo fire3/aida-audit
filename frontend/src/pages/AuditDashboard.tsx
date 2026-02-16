@@ -53,79 +53,81 @@ function StatusIcon({ status }: { status: string }) {
   }
 }
 
-interface PlanNode extends AuditPlan {
-  children: PlanNode[];
-}
+function PlanView({ plans }: { plans: AuditPlan[] }) {
+    const macroPlans = useMemo(() => plans.filter(p => p.plan_type === 'audit_plan'), [plans]);
+    const agentTasks = useMemo(() => plans.filter(p => p.plan_type === 'agent_plan'), [plans]);
 
-function buildPlanTree(plans: AuditPlan[]): PlanNode[] {
-  const map = new Map<number, PlanNode>();
-  const roots: PlanNode[] = [];
+    return (
+        <div className="h-full flex gap-4">
+            {/* Macro Plans (Left) */}
+            <div className="w-1/3 border-r pr-4 overflow-auto">
+                <h3 className="font-semibold mb-4 flex items-center gap-2">
+                    <ListTodo className="w-4 h-4 text-purple-500" />
+                    Audit Strategy
+                </h3>
+                <div className="space-y-4">
+                    {macroPlans.map(plan => (
+                        <div key={plan.id} className="border rounded-lg p-3 bg-purple-50/30 dark:bg-purple-900/10">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="font-medium text-sm">{plan.title}</span>
+                                <StatusIcon status={plan.status} />
+                            </div>
+                            <p className="text-xs text-muted-foreground mb-2">{plan.description}</p>
+                            
+                            {/* Associated Agent Tasks */}
+                            <div className="space-y-1 mt-3 pl-2 border-l-2 border-slate-200 dark:border-slate-800">
+                                <div className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Execution Tasks</div>
+                                {agentTasks.filter(t => t.parent_id === plan.id).map(task => (
+                                    <div key={task.id} className="flex items-center gap-2 text-xs py-1">
+                                        <StatusIcon status={task.status} />
+                                        <span className={`${task.status === 'completed' ? 'line-through text-muted-foreground' : ''}`}>
+                                            {task.title}
+                                        </span>
+                                    </div>
+                                ))}
+                                {agentTasks.filter(t => t.parent_id === plan.id).length === 0 && (
+                                    <div className="text-[10px] text-muted-foreground italic">No tasks assigned yet</div>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                    {macroPlans.length === 0 && (
+                        <div className="text-center text-muted-foreground py-8">
+                            No audit plans defined.
+                        </div>
+                    )}
+                </div>
+            </div>
 
-  // Initialize nodes
-  plans.forEach(plan => {
-    map.set(plan.id, { ...plan, children: [] });
-  });
-
-  // Build tree
-  plans.forEach(plan => {
-    const node = map.get(plan.id)!;
-    if (plan.parent_id && map.has(plan.parent_id)) {
-      map.get(plan.parent_id)!.children.push(node);
-    } else {
-      roots.push(node);
-    }
-  });
-
-  return roots;
-}
-
-function PlanItem({ plan, depth = 0 }: { plan: PlanNode, depth?: number }) {
-  const [expanded, setExpanded] = useState(true);
-  const hasChildren = plan.children.length > 0;
-
-  return (
-    <div className="flex flex-col">
-      <div 
-        className={`flex items-start gap-2 py-2 px-2 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-md transition-colors ${depth > 0 ? 'ml-6 border-l border-slate-100 dark:border-slate-800 pl-4' : ''}`}
-      >
-        <button 
-          onClick={() => setExpanded(!expanded)}
-          className={`mt-0.5 p-0.5 rounded-sm hover:bg-slate-200 dark:hover:bg-slate-700 ${!hasChildren ? 'invisible' : ''}`}
-        >
-          {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-        </button>
-        
-        <div className="mt-0.5">
-          <StatusIcon status={plan.status} />
+            {/* All Agent Tasks (Right/Detail) - or maybe just a list of recent activity? */}
+            <div className="flex-1 overflow-auto">
+                 <h3 className="font-semibold mb-4 flex items-center gap-2">
+                    <Terminal className="w-4 h-4 text-orange-500" />
+                    Task Execution Stream
+                </h3>
+                <div className="space-y-2">
+                    {agentTasks.sort((a,b) => b.updated_at - a.updated_at).map(task => (
+                         <div key={task.id} className="flex items-center gap-3 p-2 border rounded hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                            <StatusIcon status={task.status} />
+                            <div className="flex-1">
+                                <div className="text-sm font-medium">{task.title}</div>
+                                <div className="text-xs text-muted-foreground flex items-center gap-2">
+                                    <span>ID: {task.id}</span>
+                                    <span>•</span>
+                                    <span>Parent: {macroPlans.find(p => p.id === task.parent_id)?.title || 'Unknown'}</span>
+                                    <span>•</span>
+                                    <span>Updated: {new Date(task.updated_at * 1000).toLocaleString()}</span>
+                                </div>
+                            </div>
+                            <Badge variant={task.status === 'completed' ? 'default' : task.status === 'in_progress' ? 'secondary' : task.status === 'failed' ? 'destructive' : 'outline'}>
+                                {task.status}
+                            </Badge>
+                         </div>
+                    ))}
+                </div>
+            </div>
         </div>
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="font-medium text-sm truncate">{plan.title}</span>
-            {plan.plan_type && (
-                <Badge variant={plan.plan_type === 'audit_plan' ? 'purple' : 'orange'}>
-                    {plan.plan_type === 'audit_plan' ? 'AUDIT' : 'AGENT'}
-                </Badge>
-            )}
-            <Badge variant={plan.status === 'completed' ? 'default' : plan.status === 'in_progress' ? 'secondary' : plan.status === 'failed' ? 'destructive' : 'outline'}>
-              {plan.status}
-            </Badge>
-          </div>
-          {plan.description && (
-            <p className="text-xs text-muted-foreground line-clamp-2">{plan.description}</p>
-          )}
-        </div>
-      </div>
-
-      {hasChildren && expanded && (
-        <div className="flex flex-col">
-          {plan.children.map(child => (
-            <PlanItem key={child.id} plan={child} depth={depth + 1} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
+    );
 }
 
 function ToolCall({ name, args, result }: { name: string, args: any, result?: string }) {
@@ -256,20 +258,33 @@ function ChatMessage({ msg }: { msg: any }) {
 export function AuditDashboard() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'plan' | 'logs' | 'memory' | 'chat' | 'findings'>('plan');
+  const [selectedSession, setSelectedSession] = useState<string | null>(null);
   
   const { data: status } = useQuery({ queryKey: ['auditStatus'], queryFn: auditApi.getStatus, refetchInterval: 2000 });
   const { data: plans } = useQuery({ queryKey: ['auditPlans'], queryFn: () => auditApi.getPlans(), refetchInterval: 5000 });
   const { data: logs } = useQuery({ queryKey: ['auditLogs'], queryFn: () => auditApi.getLogs(), refetchInterval: 2000 });
   const { data: memory } = useQuery({ queryKey: ['auditMemory'], queryFn: auditApi.getMemory, refetchInterval: 10000 });
+  
+  const { data: sessions } = useQuery({ queryKey: ['auditSessions'], queryFn: auditApi.getSessions, refetchInterval: 10000 });
+
+  // Select latest session by default if not selected
+  useMemo(() => {
+      if (!selectedSession && sessions && sessions.length > 0) {
+          setSelectedSession(sessions[0].session_id);
+      } else if (!selectedSession && status?.current_session_id) {
+          setSelectedSession(status.current_session_id);
+      }
+  }, [sessions, status, selectedSession]);
+
   const { data: messages } = useQuery({ 
-    queryKey: ['auditMessages', status?.current_session_id], 
-    queryFn: () => auditApi.getMessages(status?.current_session_id), 
-    refetchInterval: 2000 
+    queryKey: ['auditMessages', selectedSession], 
+    queryFn: () => auditApi.getMessages(selectedSession || undefined), 
+    refetchInterval: 2000,
+    enabled: !!selectedSession
   });
+
   const { data: notes } = useQuery({ queryKey: ['auditNotes'], queryFn: () => auditApi.getNotes(), refetchInterval: 5000 });
   const { data: findings } = useQuery({ queryKey: ['auditFindings'], queryFn: () => auditApi.getFindings(), refetchInterval: 5000 });
-
-  const planTree = useMemo(() => plans ? buildPlanTree(plans) : [], [plans]);
 
   const startMutation = useMutation({
     mutationFn: auditApi.start,
@@ -359,39 +374,59 @@ export function AuditDashboard() {
         {activeTab === 'plan' && (
           <Card className="h-full flex flex-col border-0 shadow-none bg-transparent">
             <CardContent className="flex-1 overflow-auto p-0 pr-2">
-              <div className="space-y-1">
-                {planTree.length > 0 ? (
-                  planTree.map(plan => (
-                    <PlanItem key={plan.id} plan={plan} />
-                  ))
-                ) : (
+               {plans && plans.length > 0 ? (
+                   <PlanView plans={plans} />
+               ) : (
                   <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                     <ListTodo className="w-12 h-12 mb-4 opacity-20" />
                     <p>No audit plans found.</p>
                     <p className="text-xs mt-2">Start the audit to generate an analysis plan.</p>
                   </div>
-                )}
-              </div>
+               )}
             </CardContent>
           </Card>
         )}
 
         {activeTab === 'chat' && (
-          <Card className="h-full flex flex-col border-0 shadow-none bg-transparent">
-             <CardContent className="flex-1 overflow-auto p-4 bg-slate-50 dark:bg-slate-900/50 rounded-lg border">
-                 <div className="space-y-6">
-                 {messages?.map((msg) => (
-                    <ChatMessage key={msg.id} msg={msg} />
-                 ))}
-                 {!messages?.length && (
-                    <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-                        <MessageSquare className="w-12 h-12 mb-4 opacity-20" />
-                        <p>No conversation history.</p>
-                    </div>
-                 )}
-                 </div>
-              </CardContent>
-          </Card>
+          <div className="h-full flex gap-4">
+              {/* Session List */}
+              <div className="w-64 border-r pr-2 overflow-auto hidden md:block">
+                  <div className="text-xs font-semibold text-muted-foreground uppercase mb-2 px-2">Sessions</div>
+                  <div className="space-y-1">
+                      {sessions?.map((session) => (
+                          <button
+                              key={session.session_id}
+                              onClick={() => setSelectedSession(session.session_id)}
+                              className={`w-full text-left px-3 py-2 rounded-md text-xs truncate transition-colors ${selectedSession === session.session_id ? 'bg-slate-100 dark:bg-slate-800 font-medium' : 'hover:bg-slate-50 dark:hover:bg-slate-900 text-muted-foreground'}`}
+                          >
+                              <div className="flex items-center justify-between mb-1">
+                                  <span className="capitalize">{session.session_id.split('-')[0]}</span>
+                                  <span className="text-[10px] opacity-70">{session.message_count} msgs</span>
+                              </div>
+                              <div className="text-[10px] opacity-50">{new Date(session.start_time * 1000).toLocaleString()}</div>
+                          </button>
+                      ))}
+                      {!sessions?.length && <div className="text-xs text-muted-foreground px-2 italic">No sessions recorded.</div>}
+                  </div>
+              </div>
+
+              {/* Chat Area */}
+              <Card className="flex-1 flex flex-col border-0 shadow-none bg-transparent min-w-0">
+                 <CardContent className="flex-1 overflow-auto p-4 bg-slate-50 dark:bg-slate-900/50 rounded-lg border">
+                     <div className="space-y-6">
+                     {messages?.map((msg) => (
+                        <ChatMessage key={msg.id} msg={msg} />
+                     ))}
+                     {!messages?.length && (
+                        <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+                            <MessageSquare className="w-12 h-12 mb-4 opacity-20" />
+                            <p>Select a session to view history.</p>
+                        </div>
+                     )}
+                     </div>
+                  </CardContent>
+              </Card>
+          </div>
         )}
         
         {activeTab === 'findings' && (
@@ -404,20 +439,35 @@ export function AuditDashboard() {
                       {findings && findings.length > 0 ? (
                           <div className="space-y-4">
                               {findings.map(finding => (
-                                  <div key={finding.finding_id} className="border rounded-lg p-3 shadow-sm">
-                                      <div className="flex items-center justify-between mb-2">
-                                          <div className="font-semibold text-sm">{finding.category}</div>
-                                          <Badge variant={finding.severity === 'critical' ? 'destructive' : finding.severity === 'high' ? 'destructive' : finding.severity === 'medium' ? 'warning' : 'info'}>
-                                              {finding.severity}
-                                          </Badge>
-                                      </div>
-                                      <p className="text-xs text-muted-foreground mb-2">{finding.description}</p>
-                                      {finding.function_name && (
-                                          <div className="flex items-center gap-2 text-xs font-mono bg-slate-100 dark:bg-slate-800 p-1 rounded w-fit mb-2">
-                                              <Code className="w-3 h-3" />
-                                              {finding.function_name} @ {finding.address}
+                                  <div key={finding.finding_id} className="border rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow cursor-pointer">
+                                      <details className="group">
+                                          <summary className="flex items-center justify-between mb-2 list-none outline-none">
+                                             <div className="flex items-center gap-2">
+                                                 <ChevronRight className="w-4 h-4 transition-transform group-open:rotate-90 text-muted-foreground" />
+                                                 <div className="font-semibold text-sm">{finding.category}</div>
+                                             </div>
+                                             <Badge variant={finding.severity === 'critical' ? 'destructive' : finding.severity === 'high' ? 'destructive' : finding.severity === 'medium' ? 'warning' : 'info'}>
+                                                  {finding.severity}
+                                              </Badge>
+                                          </summary>
+                                          <div className="pl-6 text-sm text-muted-foreground mt-2 space-y-2">
+                                              <p>{finding.description}</p>
+                                              {finding.evidence && (
+                                                  <div className="bg-slate-100 dark:bg-slate-800 p-2 rounded text-xs font-mono whitespace-pre-wrap">
+                                                      {finding.evidence}
+                                                  </div>
+                                              )}
+                                              {finding.function_name && (
+                                                  <div className="flex items-center gap-2 text-xs font-mono bg-slate-100 dark:bg-slate-800 p-1 rounded w-fit">
+                                                      <Code className="w-3 h-3" />
+                                                      {finding.function_name} @ {finding.address}
+                                                  </div>
+                                              )}
+                                              <div className="text-[10px] text-muted-foreground pt-2 border-t mt-2">
+                                                  Found at: {new Date(finding.created_at).toLocaleString()}
+                                              </div>
                                           </div>
-                                      )}
+                                      </details>
                                   </div>
                               ))}
                           </div>
@@ -437,19 +487,26 @@ export function AuditDashboard() {
                       {notes && notes.length > 0 ? (
                           <div className="space-y-4">
                               {notes.map(note => (
-                                  <div key={note.note_id} className="border rounded-lg p-3 shadow-sm bg-yellow-50/50 dark:bg-yellow-900/10">
-                                      <div className="flex items-center justify-between mb-2">
-                                          <div className="font-semibold text-xs text-muted-foreground uppercase">{note.note_type}</div>
-                                          <span className="text-[10px] text-muted-foreground">{new Date(note.created_at).toLocaleString()}</span>
-                                      </div>
-                                      <p className="text-sm whitespace-pre-wrap">{note.content}</p>
-                                      {note.tags && note.tags.length > 0 && (
-                                          <div className="flex flex-wrap gap-1 mt-2">
-                                              {note.tags.map(tag => (
-                                                  <span key={tag} className="text-[10px] bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded text-slate-700 dark:text-slate-300">#{tag}</span>
-                                              ))}
+                                  <div key={note.note_id} className="border rounded-lg p-3 shadow-sm bg-yellow-50/50 dark:bg-yellow-900/10 hover:shadow-md transition-shadow cursor-pointer">
+                                      <details className="group">
+                                          <summary className="flex items-center justify-between mb-2 list-none outline-none">
+                                              <div className="flex items-center gap-2">
+                                                 <ChevronRight className="w-4 h-4 transition-transform group-open:rotate-90 text-muted-foreground" />
+                                                 <div className="font-semibold text-xs text-muted-foreground uppercase">{note.note_type}</div>
+                                              </div>
+                                              <span className="text-[10px] text-muted-foreground">{new Date(note.created_at).toLocaleString()}</span>
+                                          </summary>
+                                          <div className="pl-6 text-sm whitespace-pre-wrap mt-2">
+                                              {note.content}
                                           </div>
-                                      )}
+                                          {note.tags && note.tags.length > 0 && (
+                                              <div className="flex flex-wrap gap-1 mt-2 pl-6">
+                                                  {note.tags.map(tag => (
+                                                      <span key={tag} className="text-[10px] bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded text-slate-700 dark:text-slate-300">#{tag}</span>
+                                                  ))}
+                                              </div>
+                                          )}
+                                      </details>
                                   </div>
                               ))}
                           </div>

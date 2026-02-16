@@ -193,6 +193,11 @@ export const auditApi = {
     return res.data;
   },
 
+  getSessions: async () => {
+    const res = await apiClient.get<Array<{session_id: string, start_time: number, message_count: number}>>('/audit/sessions');
+    return res.data;
+  },
+
   getNotes: async (binaryName?: string, limit = 50) => {
     const params = { binary_name: binaryName, limit };
     const res = await apiClient.get<Note[]>('/audit/notes', { params });
