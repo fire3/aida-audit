@@ -4,10 +4,11 @@ import time
 from typing import List, Dict, Any, Optional
 
 class LLMClient:
-    def __init__(self, base_url: str, api_key: str, model: str):
+    def __init__(self, base_url: str, api_key: str, model: str, max_retries: int = 3):
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
         self.model = model
+        self.max_retries = max_retries
 
     def chat_completion(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         url = f"{self.base_url}/chat/completions"
@@ -26,15 +27,26 @@ class LLMClient:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
 
-        try:
-            response = requests.post(url, headers=headers, json=payload, timeout=120)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"LLM API Error: {e}")
-            if e.response:
-                print(f"Response: {e.response.text}")
-            raise
+        last_exception = None
+        for attempt in range(self.max_retries):
+            try:
+                response = requests.post(url, headers=headers, json=payload, timeout=120)
+                response.raise_for_status()
+                return response.json()
+            except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as e:
+                last_exception = e
+                if attempt < self.max_retries - 1:
+                    wait_time = 2 ** attempt
+                    print(f"LLM Call Failed (attempt {attempt + 1}/{self.max_retries}): {e}. Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    print(f"LLM Call Failed after {self.max_retries} attempts: {e}")
+            except requests.exceptions.RequestException as e:
+                print(f"LLM API Error: {e}")
+                if e.response:
+                    print(f"Response: {e.response.text}")
+                raise
+        raise last_exception
 
     def extract_content(self, response: Dict[str, Any]) -> Optional[str]:
         try:
