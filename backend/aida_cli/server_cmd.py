@@ -286,7 +286,7 @@ def get_notes(
     limit: int = 50
 ):
     try:
-        return notes_mcp_tools.get_notes(
+        return audit_mcp_tools.audit_get_notes(
             binary_name=binary_name,
             query=query,
             note_type=note_type,
@@ -299,7 +299,7 @@ def get_notes(
 @api_router.post("/notes")
 def create_note(note: NoteCreate):
     try:
-        return notes_mcp_tools.create_note(
+        return audit_mcp_tools.audit_create_note(
             binary_name=note.binary_name,
             content=note.content,
             note_type=note.note_type,
@@ -314,7 +314,7 @@ def create_note(note: NoteCreate):
 @api_router.put("/notes/{note_id}")
 def update_note(note_id: int, note: NoteUpdate):
     try:
-        return notes_mcp_tools.update_note(
+        return audit_mcp_tools.audit_update_note(
             note_id=note_id,
             content=note.content,
             tags=note.tags
@@ -325,7 +325,7 @@ def update_note(note_id: int, note: NoteUpdate):
 @api_router.delete("/notes/{note_id}")
 def delete_note(note_id: int):
     try:
-        return notes_mcp_tools.delete_note(note_id=note_id)
+        return audit_mcp_tools.audit_delete_note(note_id=note_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -338,7 +338,7 @@ def get_findings(
     category: Optional[str] = None
 ):
     try:
-        return notes_mcp_tools.get_findings(
+        return audit_mcp_tools.audit_get_findings(
             binary_name=binary_name,
             severity=severity,
             category=category
@@ -349,7 +349,7 @@ def get_findings(
 @api_router.post("/findings")
 def mark_finding(finding: FindingCreate):
     try:
-        return notes_mcp_tools.mark_finding(
+        return audit_mcp_tools.audit_mark_finding(
             binary_name=finding.binary_name,
             severity=finding.severity,
             category=finding.category,
@@ -366,7 +366,7 @@ def mark_finding(finding: FindingCreate):
 @api_router.get("/binary/{binary_name}/analysis-progress")
 def get_analysis_progress(binary_name: str):
     try:
-        return notes_mcp_tools.get_analysis_progress(binary_name)
+        return audit_mcp_tools.audit_get_analysis_progress(binary_name)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

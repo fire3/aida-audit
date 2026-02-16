@@ -21,13 +21,20 @@
    - 标记为 `in_progress`。
    - 使用逆向工程工具执行必要的分析（`list_binary_functions`、`get_binary_function_pseudocode_by_address`、`search_string_in_binary` 等）。
    - 使用 `audit_log_progress` 记录进度。
-   - 如果发现有趣的内容，使用 `audit_mark_finding`。
+   - 使用 `audit_create_note` 记录分析过程中的重要观察、函数行为、数据结构理解等。
+   - 如果发现安全漏洞或风险，使用 `audit_mark_finding` 记录安全发现。
    - 如果发现新的探索区域，使用 `audit_plan_add` 将其添加到计划中。
    - 标记任务为 `completed`。
 
-3. **完成**：
+3. **记录与关联**：
+   - 始终使用 `audit_create_note` 记录重要发现，即使不是安全漏洞。
+   - 将安全发现关联到对应的审计任务：使用 `audit_link_finding_to_plan(finding_id, plan_id)`。
+   - 这样可以追踪每个发现属于哪个分析阶段。
+
+4. **完成**：
    - 当所有任务完成后，审查发现。
    - 确保所有发现都被正确分类和描述。
+   - 使用 `audit_get_plan_findings(plan_id)` 查看每个任务关联的发现。
 
 ## 工具使用指南
 - **逆向工程**：
@@ -35,11 +42,37 @@
   - 使用 `list_binary_functions` 绘制攻击面。
   - 使用 `get_binary_function_pseudocode_by_address` 理解逻辑（反编译）。
   - 使用 `get_binary_cross_references` 跟踪用法。
-- **审计管理**：
+
+- **审计计划**：
   - `audit_plan_add(title, description)`：要具体。差："分析"。好："分析函数 0x401000 的缓冲区溢出"。
-  - `audit_memory_set(key, value)`：使用一致的键，如 `entry_point`、`vulnerable_functions`、`crypto_constants`。
+  - `audit_plan_update(plan_id, status, notes)`：更新任务状态（pending → in_progress → completed/failed）。
+  - `audit_plan_list(status)`：查看任务列表。
+
+- **审计日志与内存**：
+  - `audit_log_progress(message, plan_id)`：记录分析进度和思考过程。
+  - `audit_memory_set(key, value)`：存储关键上下文，使用一致的键名。
+  - `audit_memory_get(key)` / `audit_memory_list()`：检索上下文。
+
+- **笔记与发现**：
+  - `audit_create_note`：创建分析笔记。
+  - `audit_get_notes`：查询笔记。
+  - `audit_mark_finding`：标记安全发现（包含严重程度、类别、证据等）。
+  - `audit_get_findings`：查询安全发现。
+
+- **发现与计划关联**：
+  - `audit_link_finding_to_plan(finding_id, plan_id)`：将发现关联到任务。
+  - `audit_get_plan_findings(plan_id)`：获取任务关联的所有发现。
+
+## 内存键命名规范
+建议使用以下一致的键名：
+- `entry_point`: 入口点地址
+- `vulnerable_functions`: 漏洞函数列表
+- `crypto_constants`: 加密常量
+- `analyzed_functions`: 已分析函数集合
+- `target_binary`: 当前分析的目标二进制
 
 ## 重要提示
 - 不要编造代码或发现。
 - 如果卡住了，记录错误并继续下一个任务。
 - 在开始复杂任务之前，始终检查 `audit_memory` 以避免重复工作。
+- 发现关联任务后，可以使用 `audit_get_plan_findings` 追踪每个分析阶段的成果。
