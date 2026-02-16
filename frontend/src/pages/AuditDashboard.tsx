@@ -254,7 +254,11 @@ export function AuditDashboard() {
   const { data: plans } = useQuery({ queryKey: ['auditPlans'], queryFn: () => auditApi.getPlans(), refetchInterval: 5000 });
   const { data: logs } = useQuery({ queryKey: ['auditLogs'], queryFn: () => auditApi.getLogs(), refetchInterval: 2000 });
   const { data: memory } = useQuery({ queryKey: ['auditMemory'], queryFn: auditApi.getMemory, refetchInterval: 10000 });
-  const { data: messages } = useQuery({ queryKey: ['auditMessages'], queryFn: () => auditApi.getMessages(), refetchInterval: 2000 });
+  const { data: messages } = useQuery({ 
+    queryKey: ['auditMessages', status?.current_session_id], 
+    queryFn: () => auditApi.getMessages(status?.current_session_id), 
+    refetchInterval: 2000 
+  });
   const { data: notes } = useQuery({ queryKey: ['auditNotes'], queryFn: () => auditApi.getNotes(), refetchInterval: 5000 });
   const { data: findings } = useQuery({ queryKey: ['auditFindings'], queryFn: () => auditApi.getFindings(), refetchInterval: 5000 });
 
@@ -288,6 +292,13 @@ export function AuditDashboard() {
                 <span className="text-xs text-muted-foreground uppercase font-bold tracking-wider">Status</span>
                 <div className={`w-2 h-2 rounded-full ${status?.status === 'running' ? 'bg-green-500 animate-pulse' : status?.status === 'failed' ? 'bg-red-500' : 'bg-slate-300'}`} />
                 <span className="text-sm font-medium">{status?.status?.toUpperCase() || 'UNKNOWN'}</span>
+                {status?.current_agent && (
+                    <>
+                        <div className="w-px h-3 bg-border mx-1" />
+                        <span className="text-xs text-muted-foreground">Agent:</span>
+                        <span className="text-sm font-medium text-blue-600 dark:text-blue-400">{status.current_agent}</span>
+                    </>
+                )}
             </div>
             
             {status?.status === 'running' ? (

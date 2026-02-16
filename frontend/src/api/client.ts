@@ -137,6 +137,8 @@ export interface AuditMemory {
 export interface AuditStatus {
   status: 'idle' | 'running' | 'completed' | 'failed' | 'not_initialized';
   error?: string;
+  current_session_id?: string;
+  current_agent?: string;
 }
 
 export interface Note {

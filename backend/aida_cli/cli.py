@@ -3,7 +3,6 @@ import argparse
 from . import export_cmd
 from . import server_cmd
 from . import scan_cmd
-from . import audit_cmd
 from . import config_cmd
 from . import workspace_cmd
 
@@ -15,7 +14,6 @@ def _print_main_help():
     print("  workspace - Initialize a local workspace")
     print("  config  - Interactive LLM configuration")
     print("  scan    - Run IDA Microcode taint scan")
-    print("  audit   - Run automated code audit with OpenCode")
 
 def main():
     if len(sys.argv) < 2:
@@ -46,11 +44,9 @@ def main():
         workspace_cmd.main()
     elif command == "scan":
         scan_cmd.main()
-    elif command == "audit":
-        audit_cmd.main()
     else:
         print(f"Unknown command: {command}")
-        print("Available commands: export, serve, config, workspace, audit, scan")
+        print("Available commands: export, serve, config, workspace, scan")
         sys.exit(1)
 
 if __name__ == "__main__":
