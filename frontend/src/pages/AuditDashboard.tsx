@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { auditApi, type AuditPlan } from '../api/client';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { 
   CheckCircle2, 
   Circle, 
@@ -267,17 +267,20 @@ export function AuditDashboard() {
   
   const { data: sessions } = useQuery({ queryKey: ['auditSessions'], queryFn: auditApi.getSessions, refetchInterval: 10000 });
 
-  // Select latest session by default if not selected
-  useMemo(() => {
-      if (!selectedSession && sessions && sessions.length > 0) {
-          setSelectedSession(sessions[0].session_id);
+  // Select latest session by default if not selected, or switch to new sessions
+  useEffect(() => {
+      if (sessions && sessions.length > 0) {
+          const latestSession = sessions[0].session_id;
+          if (!selectedSession || (status?.current_session_id && selectedSession !== latestSession)) {
+              setSelectedSession(latestSession);
+          }
       } else if (!selectedSession && status?.current_session_id) {
           setSelectedSession(status.current_session_id);
       }
   }, [sessions, status, selectedSession]);
 
   const { data: messages } = useQuery({ 
-    queryKey: ['auditMessages', selectedSession], 
+    queryKey: ['auditMessages', selectedSession, status?.current_session_id], 
     queryFn: () => auditApi.getMessages(selectedSession || undefined), 
     refetchInterval: 2000,
     enabled: !!selectedSession
