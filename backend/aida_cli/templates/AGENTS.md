@@ -63,16 +63,9 @@
   - `audit_link_finding_to_plan(finding_id, plan_id)`：将发现关联到任务。
   - `audit_get_plan_findings(plan_id)`：获取任务关联的所有发现。
 
-## 内存键命名规范
-建议使用以下一致的键名：
-- `entry_point`: 入口点地址
-- `vulnerable_functions`: 漏洞函数列表
-- `crypto_constants`: 加密常量
-- `analyzed_functions`: 已分析函数集合
-- `target_binary`: 当前分析的目标二进制
-
 ## 重要提示
 - 不要编造代码或发现。
-- 如果卡住了，记录错误并继续下一个任务。
+- 如果卡住了，结束对话。
 - 在开始复杂任务之前，始终检查 `audit_memory` 以避免重复工作。
 - 发现关联任务后，可以使用 `audit_get_plan_findings` 追踪每个分析阶段的成果。
+- 使用中文记录计划、笔记、发现等。

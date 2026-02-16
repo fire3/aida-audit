@@ -88,91 +88,98 @@ def run_audit_loop(project_path: str, config: Config):
     system_prompt = load_agent_prompt()
     initial_context = f"PROJECT_PATH: {os.path.abspath(project_path)}"
     
-    messages = [
-        {"role": "system", "content": f"{initial_context}\n\n{system_prompt}"},
-        {"role": "user", "content": "Please start the audit by checking the audit plan."}
-    ]
-    
-    session_id = f"audit-{int(time.time())}"
-    print(f"Starting audit session: {session_id}")
-
     # 5. Main Loop
-    turn_count = 0
-    max_turns = 100 # Safety limit
+    max_turns = 200 # Safety limit
 
     try:
-        while turn_count < max_turns:
-            turn_count += 1
-            print(f"\n--- Turn {turn_count} ---")
+        while True:
+            messages = [
+                {"role": "system", "content": f"{initial_context}\n\n{system_prompt}"},
+                {"role": "user", "content": "Please start the audit by checking the audit plan."}
+            ]
             
-            # Call LLM
-            try:
-                response = llm_client.chat_completion(messages, tools=tools)
-            except Exception as e:
-                print(f"LLM Call Failed: {e}")
-                time.sleep(5)
-                continue
-
-            message = response["choices"][0]["message"]
-            messages.append(message)
+            session_id = f"audit-{int(time.time())}"
+            print(f"Starting audit session: {session_id}")
             
-            content = message.get("content")
-            tool_calls = message.get("tool_calls")
+            turn_count = 0
+            while turn_count < max_turns:
+                turn_count += 1
+                print(f"\n--- Turn {turn_count} ---")
+                
+                # Call LLM
+                try:
+                    response = llm_client.chat_completion(messages, tools=tools)
+                except Exception as e:
+                    print(f"LLM Call Failed: {e}")
+                    time.sleep(5)
+                    continue
 
-            # Log content
-            if content:
-                print(f"[Assistant]: {content}")
-                audit_db.add_message(session_id, "assistant", content)
+                message = response["choices"][0]["message"]
+                messages.append(message)
+                
+                content = message.get("content")
+                tool_calls = message.get("tool_calls")
 
-            if not tool_calls:
-                # If no tools called, maybe we are done or waiting for user?
-                # For automated audit, we usually expect continuous action until 'done'.
-                # But let's just wait a bit to avoid rapid loops if it hallucinates.
-                # Or prompts user input?
-                # For now, let's just break if it says "I am done" or similar, but simpler to just pause.
-                if content and "audit complete" in content.lower():
-                    print("Audit appears complete.")
-                    break
-                # If just talking, maybe continue?
-                # If it stops calling tools, we might need to prompt it to continue?
-                # Let's add a "continue" user message if it stops?
-                # But risky. Let's just pause.
-                pass
-
-            # Handle Tool Calls
-            if tool_calls:
-                for tool_call in tool_calls:
-                    func_name = tool_call["function"]["name"]
-                    args_str = tool_call["function"]["arguments"]
-                    call_id = tool_call["id"]
-                    
-                    print(f"[Tool Call] {func_name}({args_str})")
-                    
-                    try:
-                        args = json.loads(args_str)
-                        result = mcp_client.call_tool(func_name, args)
-                        
-                        # Format result
-                        if isinstance(result, (dict, list)):
-                            result_str = json.dumps(result, ensure_ascii=False)
-                        else:
-                            result_str = str(result)
-                            
-                        # Truncate if too long
-                        if len(result_str) > 5000:
-                            result_str = result_str[:5000] + "... (truncated)"
-                            
-                    except Exception as e:
-                        print(f"[Tool Error] {e}")
-                        result_str = f"Error: {str(e)}"
-
-                    # Append result
+                if not content and not tool_calls:
+                    print("[Warning] LLM returned empty response, continuing conversation...")
                     messages.append({
-                        "role": "tool",
-                        "tool_call_id": call_id,
-                        "content": result_str
+                        "role": "user",
+                        "content": "Please continue with the audit. If you need more information, use the available tools to query the database."
                     })
-                    print(f"[Tool Result] Length: {len(result_str)}")
+                    continue
+                
+                # Log content
+                if content:
+                    print(f"[Assistant]: {content}")
+                    audit_db.add_message(session_id, "assistant", content)
+
+                if not tool_calls:
+                    if content and "audit complete" in content.lower():
+                        print("Audit appears complete.")
+                        break
+                    if content:
+                        messages.append({
+                            "role": "user",
+                            "content": "Please continue with the audit. Check the audit plan and proceed with the next analysis task."
+                        })
+
+                # Handle Tool Calls
+                if tool_calls:
+                    for tool_call in tool_calls:
+                        func_name = tool_call["function"]["name"]
+                        args_str = tool_call["function"]["arguments"]
+                        call_id = tool_call["id"]
+                        
+                        print(f"[Tool Call] {func_name}({args_str})")
+                        
+                        try:
+                            args = json.loads(args_str)
+                            result = mcp_client.call_tool(func_name, args)
+                            
+                            # Format result
+                            if isinstance(result, (dict, list)):
+                                result_str = json.dumps(result, ensure_ascii=False)
+                            else:
+                                result_str = str(result)
+                                
+                            # Truncate if too long
+                            if len(result_str) > 5000:
+                                result_str = result_str[:5000] + "... (truncated)"
+                                
+                        except Exception as e:
+                            print(f"[Tool Error] {e}")
+                            result_str = f"Error: {str(e)}"
+
+                        # Append result
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": call_id,
+                            "content": result_str
+                        })
+                        print(f"[Tool Result] Length: {len(result_str)}")
+            
+            print("Audit session ended. Restarting in 5 seconds...")
+            time.sleep(5)
 
     except KeyboardInterrupt:
         print("\nAudit stopped by user.")
