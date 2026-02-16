@@ -123,7 +123,7 @@ export interface AuditLog {
 export interface AuditMessage {
   id: number;
   session_id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant' | 'system' | 'tool_call' | 'tool_result';
   content: string;
   timestamp: number;
 }
@@ -139,36 +139,81 @@ export interface AuditStatus {
   error?: string;
 }
 
+export interface Note {
+  note_id: number;
+  binary_name: string;
+  function_name?: string | null;
+  address?: number | null;
+  note_type: string;
+  content: string;
+  confidence: string;
+  tags?: string[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Finding {
+  finding_id: number;
+  note_id: number;
+  binary_name: string;
+  function_name?: string | null;
+  address?: number | null;
+  severity: string;
+  category: string;
+  description: string;
+  evidence?: string | null;
+  cvss?: number | null;
+  exploitability?: string | null;
+  created_at: string;
+}
+
 export const auditApi = {
   getPlans: async (status?: string) => {
     const params = status ? { status } : {};
     const res = await apiClient.get<AuditPlan[]>('/audit/plans', { params });
     return res.data;
   },
-  getLogs: async (limit: number = 50) => {
+  
+  getLogs: async (limit = 50) => {
     const res = await apiClient.get<AuditLog[]>('/audit/logs', { params: { limit } });
     return res.data;
   },
+  
   getMemory: async () => {
     const res = await apiClient.get<Record<string, any>>('/audit/memory');
     return res.data;
   },
-  getMessages: async (sessionId?: string, limit: number = 100) => {
-    const params: any = { limit };
-    if (sessionId) params.session_id = sessionId;
+  
+  getMessages: async (sessionId?: string, limit = 100) => {
+    const params = { session_id: sessionId, limit };
     const res = await apiClient.get<AuditMessage[]>('/audit/messages', { params });
     return res.data;
   },
+
+  getNotes: async (binaryName?: string, limit = 50) => {
+    const params = { binary_name: binaryName, limit };
+    const res = await apiClient.get<Note[]>('/audit/notes', { params });
+    return res.data;
+  },
+
+  getFindings: async (binaryName?: string, severity?: string) => {
+    const params = { binary_name: binaryName, severity };
+    const res = await apiClient.get<Finding[]>('/audit/findings', { params });
+    return res.data;
+  },
+
   getStatus: async () => {
     const res = await apiClient.get<AuditStatus>('/audit/status');
     return res.data;
   },
+  
   start: async () => {
-    const res = await apiClient.post<{status: string}>('/audit/start');
+    const res = await apiClient.post('/audit/start');
     return res.data;
   },
+  
   stop: async () => {
-    const res = await apiClient.post<{status: string}>('/audit/stop');
+    const res = await apiClient.post('/audit/stop');
     return res.data;
   }
 };
@@ -258,19 +303,6 @@ export interface McpTool {
   };
 }
 
-export interface Note {
-  note_id: number;
-  binary_name: string;
-  function_name?: string | null;
-  address?: number | null;
-  note_type: string;
-  content: string;
-  confidence: string;
-  tags?: string[] | null;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface NoteCreate {
   binary_name: string;
   content: string;
@@ -284,21 +316,6 @@ export interface NoteCreate {
 export interface NoteUpdate {
   content?: string | null;
   tags?: string | null;
-}
-
-export interface Finding {
-  finding_id: number;
-  note_id: number;
-  binary_name: string;
-  function_name?: string | null;
-  address?: number | null;
-  severity: string;
-  category: string;
-  description: string;
-  evidence?: string | null;
-  cvss?: number | null;
-  exploitability?: string | null;
-  created_at: string;
 }
 
 export interface FindingCreate {

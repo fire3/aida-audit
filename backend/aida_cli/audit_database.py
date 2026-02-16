@@ -207,6 +207,7 @@ class AuditDatabase:
             cursor.execute("ALTER TABLE audit_plans ADD COLUMN parent_id INTEGER REFERENCES audit_plans(id)")
 
     def _ensure_tags(self, cursor=None):
+        pass  # Placeholder to ensure non-identity replacement if needed, though logically identical context
         if cursor is None:
             cursor = self.conn.cursor()
         for tag in PREDEFINED_TAGS:
@@ -239,12 +240,12 @@ class AuditDatabase:
         return tag_ids
 
     # ========== Plan Operations ==========
-    def add_plan(self, title: str, description: str) -> int:
+    def add_plan(self, title: str, description: str, parent_id: Optional[int] = None) -> int:
         timestamp = int(time.time())
         cursor = self.conn.cursor()
         cursor.execute(
-            "INSERT INTO audit_plans (title, description, status, created_at, updated_at) VALUES (?, ?, 'pending', ?, ?)",
-            (title, description, timestamp, timestamp)
+            "INSERT INTO audit_plans (title, description, status, created_at, updated_at, parent_id) VALUES (?, ?, 'pending', ?, ?, ?)",
+            (title, description, timestamp, timestamp, parent_id)
         )
         self.commit()
         return cursor.lastrowid
@@ -266,7 +267,7 @@ class AuditDatabase:
         return cursor.rowcount > 0
 
     def get_plans(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
-        query = "SELECT id, title, description, status, created_at, updated_at FROM audit_plans"
+        query = "SELECT id, parent_id, title, description, status, created_at, updated_at FROM audit_plans"
         params = []
         if status:
             query += " WHERE status = ?"

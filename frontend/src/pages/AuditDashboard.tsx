@@ -15,15 +15,24 @@ import {
   Database, 
   ListTodo,
   Play,
-  Square
+  Square,
+  StickyNote,
+  AlertTriangle,
+  Code
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 function Badge({ children, variant }: { children: React.ReactNode, variant: string }) {
     const colors = {
         default: "bg-green-100 text-green-800 border border-green-200",
         secondary: "bg-blue-100 text-blue-800 border border-blue-200",
         outline: "bg-gray-100 text-gray-800 border border-gray-200",
-        destructive: "bg-red-100 text-red-800 border border-red-200"
+        destructive: "bg-red-100 text-red-800 border border-red-200",
+        warning: "bg-yellow-100 text-yellow-800 border border-yellow-200",
+        info: "bg-sky-100 text-sky-800 border border-sky-200"
     };
     const style = colors[variant as keyof typeof colors] || colors.outline;
     return (
@@ -112,15 +121,142 @@ function PlanItem({ plan, depth = 0 }: { plan: PlanNode, depth?: number }) {
   );
 }
 
+function ToolCall({ name, args, result }: { name: string, args: any, result?: string }) {
+    const [expanded, setExpanded] = useState(false);
+
+    return (
+        <div className="my-2 border rounded-md overflow-hidden bg-slate-50 dark:bg-slate-900/50">
+            <div 
+                className="flex items-center gap-2 p-2 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-xs font-mono"
+                onClick={() => setExpanded(!expanded)}
+            >
+                {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                <span className="text-purple-600 dark:text-purple-400 font-semibold">Tool Call:</span>
+                <span className="font-bold">{name}</span>
+                <span className="text-muted-foreground truncate max-w-[300px]">
+                    {JSON.stringify(args)}
+                </span>
+            </div>
+            
+            {expanded && (
+                <div className="p-2 border-t bg-white dark:bg-slate-950 text-xs font-mono overflow-auto max-h-60">
+                    <div className="mb-2">
+                        <div className="text-muted-foreground mb-1">Arguments:</div>
+                        <pre className="bg-slate-100 dark:bg-slate-900 p-2 rounded text-blue-600 dark:text-blue-400 whitespace-pre-wrap">
+                            {JSON.stringify(args, null, 2)}
+                        </pre>
+                    </div>
+                    {result && (
+                         <div>
+                            <div className="text-muted-foreground mb-1">Result:</div>
+                            <pre className="bg-slate-100 dark:bg-slate-900 p-2 rounded text-green-600 dark:text-green-400 whitespace-pre-wrap">
+                                {result}
+                            </pre>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function ChatMessage({ msg }: { msg: any }) {
+    // Check if message content contains <think> tags
+    const thinkMatch = msg.content && typeof msg.content === 'string' ? msg.content.match(/<think>([\s\S]*?)<\/think>/) : null;
+    let thinkContent = thinkMatch ? thinkMatch[1] : null;
+    let mainContent = msg.content && typeof msg.content === 'string' ? msg.content.replace(/<think>[\s\S]*?<\/think>/, '') : msg.content;
+
+    // Check if it's a tool call message (we stored JSON in content for tool_call role)
+    if (msg.role === 'tool_call') {
+        let toolCallData;
+        try {
+            toolCallData = JSON.parse(msg.content);
+        } catch {
+            toolCallData = { name: 'unknown', arguments: msg.content };
+        }
+        // We render it differently, but here we don't have the result easily paired unless we look ahead/behind.
+        // For simplicity, we just render the call.
+        // Ideally we should group them in the parent list.
+        return <ToolCall key={msg.id} name={toolCallData.name} args={toolCallData.arguments} />;
+    }
+    
+    if (msg.role === 'tool_result') {
+        // This should ideally be nested inside the tool call, but for flat list:
+        return (
+            <div className="ml-6 mb-2 text-xs font-mono text-muted-foreground border-l-2 pl-2">
+                <div className="font-semibold text-[10px] uppercase mb-1">Tool Result</div>
+                <div className="line-clamp-3 hover:line-clamp-none cursor-pointer bg-slate-50 p-1 rounded">
+                    {msg.content}
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
+             <div className={`flex flex-col max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+               <span className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider font-semibold ml-1">{msg.role}</span>
+               
+               <div className={`rounded-lg p-3 shadow-sm ${
+                  msg.role === 'user' 
+                      ? 'bg-blue-600 text-white' 
+                      : msg.role === 'system'
+                      ? 'bg-gray-200 text-gray-800 text-xs font-mono border'
+                      : 'bg-white dark:bg-slate-800 border'
+               }`}>
+                 {thinkContent && (
+                     <div className="mb-3 p-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-100 dark:border-yellow-900/50 rounded text-xs text-muted-foreground italic">
+                         <div className="font-semibold not-italic mb-1 flex items-center gap-1">
+                             <span className="w-2 h-2 rounded-full bg-yellow-400"></span>
+                             Thinking Process
+                         </div>
+                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{thinkContent}</ReactMarkdown>
+                     </div>
+                 )}
+                 <div className="prose prose-sm dark:prose-invert max-w-none">
+                    <ReactMarkdown 
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                            code({node, inline, className, children, ...props}: any) {
+                                const match = /language-(\w+)/.exec(className || '')
+                                return !inline && match ? (
+                                    <SyntaxHighlighter
+                                        style={oneDark}
+                                        language={match[1]}
+                                        PreTag="div"
+                                        {...props}
+                                    >
+                                        {String(children).replace(/\n$/, '')}
+                                    </SyntaxHighlighter>
+                                ) : (
+                                    <code className={className} {...props}>
+                                        {children}
+                                    </code>
+                                )
+                            }
+                        }}
+                    >
+                        {mainContent}
+                    </ReactMarkdown>
+                 </div>
+               </div>
+               <span className="text-[10px] text-muted-foreground mt-1 mr-1">{new Date(msg.timestamp * 1000).toLocaleTimeString()}</span>
+             </div>
+        </div>
+    );
+}
+
 export function AuditDashboard() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'plan' | 'logs' | 'memory' | 'chat'>('plan');
+  const [activeTab, setActiveTab] = useState<'plan' | 'logs' | 'memory' | 'chat' | 'findings'>('plan');
   
   const { data: status } = useQuery({ queryKey: ['auditStatus'], queryFn: auditApi.getStatus, refetchInterval: 2000 });
   const { data: plans } = useQuery({ queryKey: ['auditPlans'], queryFn: () => auditApi.getPlans(), refetchInterval: 5000 });
   const { data: logs } = useQuery({ queryKey: ['auditLogs'], queryFn: () => auditApi.getLogs(), refetchInterval: 2000 });
   const { data: memory } = useQuery({ queryKey: ['auditMemory'], queryFn: auditApi.getMemory, refetchInterval: 10000 });
   const { data: messages } = useQuery({ queryKey: ['auditMessages'], queryFn: () => auditApi.getMessages(), refetchInterval: 2000 });
+  const { data: notes } = useQuery({ queryKey: ['auditNotes'], queryFn: () => auditApi.getNotes(), refetchInterval: 5000 });
+  const { data: findings } = useQuery({ queryKey: ['auditFindings'], queryFn: () => auditApi.getFindings(), refetchInterval: 5000 });
 
   const planTree = useMemo(() => plans ? buildPlanTree(plans) : [], [plans]);
 
@@ -167,28 +303,34 @@ export function AuditDashboard() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 border-b mb-4 shrink-0">
+      <div className="flex items-center gap-1 border-b mb-4 shrink-0 overflow-x-auto">
         <button 
           onClick={() => setActiveTab('plan')}
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'plan' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'plan' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
           <ListTodo className="w-4 h-4" /> Plan
         </button>
         <button 
           onClick={() => setActiveTab('chat')}
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'chat' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'chat' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
           <MessageSquare className="w-4 h-4" /> Chat History
         </button>
         <button 
+          onClick={() => setActiveTab('findings')}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'findings' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+        >
+          <AlertTriangle className="w-4 h-4" /> Findings & Notes
+        </button>
+        <button 
           onClick={() => setActiveTab('logs')}
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'logs' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'logs' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
           <Terminal className="w-4 h-4" /> Live Logs
         </button>
         <button 
           onClick={() => setActiveTab('memory')}
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'memory' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'memory' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
           <Database className="w-4 h-4" /> Memory
         </button>
@@ -221,21 +363,7 @@ export function AuditDashboard() {
              <CardContent className="flex-1 overflow-auto p-4 bg-slate-50 dark:bg-slate-900/50 rounded-lg border">
                  <div className="space-y-6">
                  {messages?.map((msg) => (
-                   <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                     <div className={`flex flex-col max-w-[85%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                       <span className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider font-semibold ml-1">{msg.role}</span>
-                       <div className={`rounded-lg p-3 shadow-sm ${
-                          msg.role === 'user' 
-                              ? 'bg-blue-600 text-white' 
-                              : msg.role === 'system'
-                              ? 'bg-gray-200 text-gray-800 text-xs font-mono border'
-                              : 'bg-white dark:bg-slate-800 border'
-                       }`}>
-                         <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
-                       </div>
-                       <span className="text-[10px] text-muted-foreground mt-1 mr-1">{new Date(msg.timestamp * 1000).toLocaleTimeString()}</span>
-                     </div>
-                   </div>
+                    <ChatMessage key={msg.id} msg={msg} />
                  ))}
                  {!messages?.length && (
                     <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
@@ -246,6 +374,75 @@ export function AuditDashboard() {
                  </div>
               </CardContent>
           </Card>
+        )}
+        
+        {activeTab === 'findings' && (
+          <div className="h-full grid grid-cols-1 md:grid-cols-2 gap-4 overflow-hidden">
+              <Card className="h-full flex flex-col">
+                  <div className="p-4 border-b bg-slate-50 dark:bg-slate-900/50 font-semibold flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-red-500" /> Security Findings
+                  </div>
+                  <CardContent className="flex-1 overflow-auto p-4">
+                      {findings && findings.length > 0 ? (
+                          <div className="space-y-4">
+                              {findings.map(finding => (
+                                  <div key={finding.finding_id} className="border rounded-lg p-3 shadow-sm">
+                                      <div className="flex items-center justify-between mb-2">
+                                          <div className="font-semibold text-sm">{finding.category}</div>
+                                          <Badge variant={finding.severity === 'critical' ? 'destructive' : finding.severity === 'high' ? 'destructive' : finding.severity === 'medium' ? 'warning' : 'info'}>
+                                              {finding.severity}
+                                          </Badge>
+                                      </div>
+                                      <p className="text-xs text-muted-foreground mb-2">{finding.description}</p>
+                                      {finding.function_name && (
+                                          <div className="flex items-center gap-2 text-xs font-mono bg-slate-100 dark:bg-slate-800 p-1 rounded w-fit mb-2">
+                                              <Code className="w-3 h-3" />
+                                              {finding.function_name} @ {finding.address}
+                                          </div>
+                                      )}
+                                  </div>
+                              ))}
+                          </div>
+                      ) : (
+                          <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                              <p>No security findings yet.</p>
+                          </div>
+                      )}
+                  </CardContent>
+              </Card>
+              
+              <Card className="h-full flex flex-col">
+                  <div className="p-4 border-b bg-slate-50 dark:bg-slate-900/50 font-semibold flex items-center gap-2">
+                      <StickyNote className="w-4 h-4 text-blue-500" /> Analysis Notes
+                  </div>
+                  <CardContent className="flex-1 overflow-auto p-4">
+                      {notes && notes.length > 0 ? (
+                          <div className="space-y-4">
+                              {notes.map(note => (
+                                  <div key={note.note_id} className="border rounded-lg p-3 shadow-sm bg-yellow-50/50 dark:bg-yellow-900/10">
+                                      <div className="flex items-center justify-between mb-2">
+                                          <div className="font-semibold text-xs text-muted-foreground uppercase">{note.note_type}</div>
+                                          <span className="text-[10px] text-muted-foreground">{new Date(note.created_at).toLocaleString()}</span>
+                                      </div>
+                                      <p className="text-sm whitespace-pre-wrap">{note.content}</p>
+                                      {note.tags && note.tags.length > 0 && (
+                                          <div className="flex flex-wrap gap-1 mt-2">
+                                              {note.tags.map(tag => (
+                                                  <span key={tag} className="text-[10px] bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded text-slate-700 dark:text-slate-300">#{tag}</span>
+                                              ))}
+                                          </div>
+                                      )}
+                                  </div>
+                              ))}
+                          </div>
+                      ) : (
+                          <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                              <p>No analysis notes yet.</p>
+                          </div>
+                      )}
+                  </CardContent>
+              </Card>
+          </div>
         )}
 
         {activeTab === 'logs' && (

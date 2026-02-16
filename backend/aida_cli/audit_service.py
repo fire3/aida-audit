@@ -170,6 +170,16 @@ class AuditService:
                         args_str = tool_call["function"]["arguments"]
                         call_id = tool_call["id"]
                         
+                        # Log tool call
+                        try:
+                            tool_call_json = json.dumps({
+                                "name": func_name,
+                                "arguments": json.loads(args_str)
+                            })
+                            self.audit_db.add_message(session_id, "tool_call", tool_call_json)
+                        except:
+                            self.audit_db.add_message(session_id, "tool_call", f"{func_name}({args_str})")
+                        
                         try:
                             args = json.loads(args_str)
                             result = mcp_client.call_tool(func_name, args)
@@ -183,6 +193,9 @@ class AuditService:
                             # Truncate if too long
                             if len(result_str) > 5000:
                                 result_str = result_str[:5000] + "... (truncated)"
+                            
+                            # Log tool result
+                            self.audit_db.add_message(session_id, "tool_result", result_str)
                                 
                         except Exception as e:
                             result_str = f"Error: {str(e)}"

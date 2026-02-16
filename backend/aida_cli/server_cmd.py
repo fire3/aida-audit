@@ -560,6 +560,24 @@ def get_audit_messages(session_id: Optional[str] = None, limit: int = 100):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.get("/audit/notes")
+def get_audit_notes(binary_name: Optional[str] = None, limit: int = 50):
+    if not audit_db:
+         return []
+    try:
+        return audit_mcp_tools.audit_get_notes(binary_name=binary_name, limit=limit)
+    except Exception as e:
+         raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/audit/findings")
+def get_audit_findings(binary_name: Optional[str] = None, severity: Optional[str] = None):
+    if not audit_db:
+         return []
+    try:
+        return audit_mcp_tools.audit_get_findings(binary_name=binary_name, severity=severity)
+    except Exception as e:
+         raise HTTPException(status_code=500, detail=str(e))
+
 @api_router.get("/audit/status")
 def get_audit_status():
     if not audit_service:
