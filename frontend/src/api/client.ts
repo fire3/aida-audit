@@ -109,6 +109,7 @@ export interface AuditPlan {
   title: string;
   description: string;
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  plan_type?: string;
   created_at: number;
   updated_at: number;
 }

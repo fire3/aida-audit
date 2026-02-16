@@ -32,7 +32,9 @@ function Badge({ children, variant }: { children: React.ReactNode, variant: stri
         outline: "bg-gray-100 text-gray-800 border border-gray-200",
         destructive: "bg-red-100 text-red-800 border border-red-200",
         warning: "bg-yellow-100 text-yellow-800 border border-yellow-200",
-        info: "bg-sky-100 text-sky-800 border border-sky-200"
+        info: "bg-sky-100 text-sky-800 border border-sky-200",
+        purple: "bg-purple-100 text-purple-800 border border-purple-200",
+        orange: "bg-orange-100 text-orange-800 border border-orange-200"
     };
     const style = colors[variant as keyof typeof colors] || colors.outline;
     return (
@@ -100,6 +102,11 @@ function PlanItem({ plan, depth = 0 }: { plan: PlanNode, depth?: number }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <span className="font-medium text-sm truncate">{plan.title}</span>
+            {plan.plan_type && (
+                <Badge variant={plan.plan_type === 'audit_plan' ? 'purple' : 'orange'}>
+                    {plan.plan_type === 'audit_plan' ? 'AUDIT' : 'AGENT'}
+                </Badge>
+            )}
             <Badge variant={plan.status === 'completed' ? 'default' : plan.status === 'in_progress' ? 'secondary' : plan.status === 'failed' ? 'destructive' : 'outline'}>
               {plan.status}
             </Badge>

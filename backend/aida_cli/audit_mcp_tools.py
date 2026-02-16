@@ -24,14 +24,16 @@ def _parse_address(addr: Optional[Union[str, int]]) -> Optional[int]:
 
 # ========== Plan Operations ==========
 
-def audit_plan_add(title: str, description: str, parent_id: Optional[int] = None) -> Dict[str, Any]:
+def audit_plan_add(title: str, description: str, parent_id: Optional[int] = None, plan_type: str = 'agent_plan') -> Dict[str, Any]:
     db = get_audit_db()
-    plan_id = db.add_plan(title, description, parent_id)
+    if plan_type not in ['audit_plan', 'agent_plan']:
+        plan_type = 'agent_plan'
+    plan_id = db.add_plan(title, description, parent_id, plan_type)
     return {"plan_id": plan_id, "status": "success"}
 
-def audit_plan_list(status: Optional[str] = None) -> List[Dict[str, Any]]:
+def audit_plan_list(status: Optional[str] = None, plan_type: Optional[str] = None) -> List[Dict[str, Any]]:
     db = get_audit_db()
-    return db.get_plans(status)
+    return db.get_plans(status, plan_type)
 
 def audit_plan_update(plan_id: int, status: str, notes: Optional[str] = None) -> Dict[str, Any]:
     db = get_audit_db()

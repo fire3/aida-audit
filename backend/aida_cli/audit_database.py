@@ -205,6 +205,10 @@ class AuditDatabase:
         if "parent_id" not in columns:
             self.log("Migrating schema: Adding parent_id to audit_plans")
             cursor.execute("ALTER TABLE audit_plans ADD COLUMN parent_id INTEGER REFERENCES audit_plans(id)")
+        
+        if "plan_type" not in columns:
+            self.log("Migrating schema: Adding plan_type to audit_plans")
+            cursor.execute("ALTER TABLE audit_plans ADD COLUMN plan_type TEXT DEFAULT 'agent_plan'")
 
     def _ensure_tags(self, cursor=None):
         pass  # Placeholder to ensure non-identity replacement if needed, though logically identical context
@@ -240,12 +244,12 @@ class AuditDatabase:
         return tag_ids
 
     # ========== Plan Operations ==========
-    def add_plan(self, title: str, description: str, parent_id: Optional[int] = None) -> int:
+    def add_plan(self, title: str, description: str, parent_id: Optional[int] = None, plan_type: str = 'agent_plan') -> int:
         timestamp = int(time.time())
         cursor = self.conn.cursor()
         cursor.execute(
-            "INSERT INTO audit_plans (title, description, status, created_at, updated_at, parent_id) VALUES (?, ?, 'pending', ?, ?, ?)",
-            (title, description, timestamp, timestamp, parent_id)
+            "INSERT INTO audit_plans (title, description, status, created_at, updated_at, parent_id, plan_type) VALUES (?, ?, 'pending', ?, ?, ?, ?)",
+            (title, description, timestamp, timestamp, parent_id, plan_type)
         )
         self.commit()
         return cursor.lastrowid
@@ -266,12 +270,21 @@ class AuditDatabase:
         self.commit()
         return cursor.rowcount > 0
 
-    def get_plans(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
-        query = "SELECT id, parent_id, title, description, status, created_at, updated_at FROM audit_plans"
+    def get_plans(self, status: Optional[str] = None, plan_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        query = "SELECT id, parent_id, title, description, status, created_at, updated_at, plan_type FROM audit_plans"
+        conditions = []
         params = []
+        
         if status:
-            query += " WHERE status = ?"
+            conditions.append("status = ?")
             params.append(status)
+        
+        if plan_type:
+            conditions.append("plan_type = ?")
+            params.append(plan_type)
+            
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
         
         cursor = self.conn.cursor()
         cursor.execute(query, params)

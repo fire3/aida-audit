@@ -119,7 +119,32 @@ class AuditService:
 
                 # Step 2: Run Audit Agent
                 self.audit_db.log_progress("Starting Execution Phase...")
-                self._run_session("AUDIT_AGENT", llm_client, tools, mcp_client)
+                
+                # Fetch pending agent plans
+                pending_tasks = self.audit_db.get_plans(status="pending", plan_type="agent_plan")
+                if not pending_tasks:
+                     self.audit_db.log_progress("No pending agent tasks found. Skipping Execution Phase.")
+                else:
+                    # Pick one task (or iterate? Let's iterate over all pending tasks for now, or just one per cycle?)
+                    # User said: "audit agent should get unfinished tasks from agent plan list via prompt"
+                    # Let's do one task per cycle to allow re-planning in between if needed.
+                    task = pending_tasks[0]
+                    self.audit_db.log_progress(f"Assigning task to Audit Agent: {task['title']} (ID: {task['id']})")
+                    
+                    # Filter tools for Audit Agent
+                    # Remove 'audit_plan_list' and maybe others?
+                    # User: "audit plan tools should be removed... only retain an interface for it to add new tasks for itself"
+                    # So we keep audit_plan_add, audit_plan_update. Remove audit_plan_list.
+                    # Also keep all other tools (notes, memory, reverse engineering).
+                    # Actually, user said "remove notes findings these interfaces" from PLAN AGENT.
+                    # And "audit plan tools should be removed" from AUDIT AGENT.
+                    
+                    audit_tools = [
+                        t for t in tools 
+                        if t['function']['name'] not in ['audit_plan_list']
+                    ]
+                    
+                    self._run_session("AUDIT_AGENT", llm_client, audit_tools, mcp_client, specific_task=task)
 
                 # Optional: Sleep briefly between sessions
                 time.sleep(2)
@@ -143,14 +168,35 @@ class AuditService:
                  else:
                      self.status = "completed"
 
-    def _run_session(self, agent_name: str, llm_client: LLMClient, tools: List[Dict], mcp_client: McpClient):
+    def _run_session(self, agent_name: str, llm_client: LLMClient, tools: List[Dict], mcp_client: McpClient, specific_task: Optional[Dict] = None):
         # Load Prompt
         system_prompt = load_agent_prompt(agent_name)
         initial_context = f"PROJECT_PATH: {os.path.abspath(self.project_path)}"
         
+        # Filter tools for Plan Agent as requested
+        # User: "need plan agent to remove notes findings these interfaces, focus on creating two plans"
+        if agent_name == "PLAN_AGENT":
+             tools = [
+                 t for t in tools
+                 if not t['function']['name'].startswith('audit_mark_finding')
+                 and not t['function']['name'].startswith('audit_create_note')
+                 # Keep audit_get_notes/findings for context?
+                 # User said "remove notes findings these interfaces". 
+                 # Usually planning needs to see findings. 
+                 # "remove notes findings these interfaces" likely means creation interfaces.
+                 # Let's assume read-only is fine, but maybe user wants strict separation.
+                 # "focus on two plan creation".
+                 # Let's remove write operations: create_note, mark_finding, update_note, delete_note.
+                 # Keep get_notes, get_findings.
+             ]
+
+        content = "Please start your session."
+        if specific_task:
+            content = f"Your assigned task is:\nTitle: {specific_task['title']}\nDescription: {specific_task['description']}\nID: {specific_task['id']}\n\nPlease execute this task immediately."
+
         messages = [
             {"role": "system", "content": f"{initial_context}\n\n{system_prompt}"},
-            {"role": "user", "content": "Please start your session."}
+            {"role": "user", "content": content}
         ]
         
         session_id = f"{agent_name.lower()}-{int(time.time())}"
