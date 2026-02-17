@@ -128,6 +128,7 @@ class BaseAgent:
             
             # Call LLM with streaming
             accumulated_content = ""
+            accumulated_reasoning = ""
             tool_calls_buffer = []
             
             try:
@@ -147,6 +148,10 @@ class BaseAgent:
                     # Accumulate content
                     if delta.get("content"):
                         accumulated_content += delta["content"]
+                    if delta.get("reasoning"):
+                        accumulated_reasoning += delta["reasoning"]
+                    if delta.get("reasoning_content"):
+                        accumulated_reasoning += delta["reasoning_content"]
                     
                     # Handle tool calls in streaming
                     if delta.get("tool_calls"):
@@ -178,8 +183,12 @@ class BaseAgent:
 
             # Build message for history
             message = {"role": "assistant"}
-            if accumulated_content:
-                message["content"] = accumulated_content
+            final_content = accumulated_content
+            if accumulated_reasoning:
+                if "<think>" not in final_content:
+                    final_content = f"<think>{accumulated_reasoning}</think>\n\n{final_content}".strip()
+            if final_content:
+                message["content"] = final_content
             
             # Build proper tool_calls structure
             valid_tool_calls = []
