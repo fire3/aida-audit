@@ -150,8 +150,10 @@ class BaseAgent:
                         accumulated_content += delta["content"]
                     if delta.get("reasoning"):
                         accumulated_reasoning += delta["reasoning"]
+                        self.audit_db.log_progress(f"[{self.name}] 收到reasoning内容: {delta['reasoning']}")
                     if delta.get("reasoning_content"):
                         accumulated_reasoning += delta["reasoning_content"]
+                        self.audit_db.log_progress(f"[{self.name}] 收到reasoning_content内容: {delta['reasoning']}")
                     
                     # Handle tool calls in streaming
                     if delta.get("tool_calls"):
@@ -183,15 +185,8 @@ class BaseAgent:
 
             # Build message for history
             message = {"role": "assistant"}
-            final_content = accumulated_content
-            if accumulated_reasoning:
-                # Strip any existing thinking tags from content to avoid duplication/mismatch
-                cleaned_content = accumulated_content
-                for tag in ["<think>", "</think>"]:
-                    cleaned_content = cleaned_content.replace(tag, "")
-                final_content = f"<think>{accumulated_reasoning}</think>\n\n{cleaned_content}".strip()
-            if final_content:
-                message["content"] = final_content
+            if accumulated_content:
+                message["content"] = accumulated_content
             
             # Build proper tool_calls structure
             valid_tool_calls = []
