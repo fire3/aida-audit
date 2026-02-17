@@ -292,7 +292,7 @@ PLAN_AGENT_EXCLUDE = {
     'audit_mark_finding', 'audit_get_findings', 'audit_get_analysis_progress',
     'audit_link_finding_to_plan', 'audit_unlink_finding_from_plan',
     'audit_get_plan_findings', 'audit_get_finding_plans',
-    'audit_log_progress'
+    'audit_log_progress', 'audit_progress_log'
 }
 
 
@@ -311,7 +311,15 @@ class PlanAgent(BaseAgent):
     
     @property
     def name(self) -> str:
-        return "PLAN_AGENT"
+        try:
+            plans = self.audit_db.get_plans(plan_type='audit_plan')
+            if not plans:
+                return "Initial Plan Agent"
+            else:
+                return "Review Plan Agent"
+        except Exception as e:
+            print(f"Error checking plans: {e}")
+            return "Initial Plan Agent"
     
     def get_system_prompt(self) -> str:
         try:
