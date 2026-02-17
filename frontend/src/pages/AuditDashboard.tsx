@@ -453,22 +453,82 @@ export function AuditDashboard() {
                   </div>
               </div>
 
-              {/* Chat Area */}
-              <Card className="flex-1 flex flex-col border-0 shadow-none bg-transparent min-w-0">
-                 <CardContent className="flex-1 overflow-auto p-4 bg-slate-50 dark:bg-slate-900/50 rounded-lg border">
-                     <div className="space-y-6">
-                     {messages?.map((msg) => (
-                        <ChatMessage key={msg.id} msg={msg} />
-                     ))}
-                     {!messages?.length && (
-                        <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-                            <MessageSquare className="w-12 h-12 mb-4 opacity-20" />
-                            <p>Select a session to view history.</p>
-                        </div>
-                     )}
-                     </div>
-                  </CardContent>
-              </Card>
+              {/* OpenCode-style Terminal Output */}
+              <div className="flex-1 min-h-0">
+                  <div className="h-full bg-black rounded-lg overflow-hidden border border-slate-800 font-mono text-sm">
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-800 bg-slate-900/50">
+                          <div className="w-3 h-3 rounded-full bg-red-500/80" />
+                          <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
+                          <div className="w-3 h-3 rounded-full bg-green-500/80" />
+                          <span className="ml-2 text-xs text-slate-500">Audit Output</span>
+                      </div>
+                      <div className="h-[calc(100%-40px)] overflow-auto p-4 text-slate-300">
+                          {messages?.filter(m => m.role === 'assistant' || m.role === 'tool_call' || m.role === 'tool_result').map((msg, idx) => {
+                              if (msg.role === 'tool_call') {
+                                  let toolCallData;
+                                  try {
+                                      toolCallData = JSON.parse(msg.content);
+                                  } catch {
+                                      toolCallData = { name: 'unknown', arguments: msg.content };
+                                  }
+                                  return (
+                                      <div key={msg.id} className="mb-3">
+                                          <div className="flex items-center gap-2 text-cyan-400">
+                                              <span className="text-purple-400">➜</span>
+                                              <span className="text-cyan-400 font-semibold">{toolCallData.name}</span>
+                                          </div>
+                                          <div className="ml-4 mt-1 text-slate-500 text-xs">
+                                              <pre className="whitespace-pre-wrap">{JSON.stringify(toolCallData.arguments, null, 2)}</pre>
+                                          </div>
+                                      </div>
+                                  );
+                              }
+                              if (msg.role === 'tool_result') {
+                                  return (
+                                      <details key={msg.id} className="mb-3 ml-4 pl-3 border-l border-slate-700">
+                                          <summary className="cursor-pointer text-[10px] text-green-500/70 mb-1 select-none hover:text-green-500">
+                                              ← Result (click to expand)
+                                          </summary>
+                                          <div className="text-slate-400 text-xs max-h-32 overflow-auto mt-1">
+                                              <pre className="whitespace-pre-wrap">{msg.content}</pre>
+                                          </div>
+                                      </details>
+                                  );
+                              }
+                              // assistant message
+                              const thinkMatch = msg.content && typeof msg.content === 'string' ? msg.content.match(/<think>([\s\S]*?)<\/think>/) : null;
+                              let thinkContent = thinkMatch ? thinkMatch[1] : null;
+                              let mainContent = msg.content && typeof msg.content === 'string' ? msg.content.replace(/<think>[\s\S]*?<\/think>/, '') : msg.content;
+                              
+                              return (
+                                  <div key={msg.id} className="mb-4">
+                                      {thinkContent && (
+                                          <details className="mb-2" open>
+                                              <summary className="cursor-pointer text-slate-500 text-xs hover:text-slate-400 mb-1 select-none">
+                                                  ⟪ thinking
+                                              </summary>
+                                              <div className="pl-3 text-slate-500 text-xs whitespace-pre-wrap">
+                                                  {thinkContent}
+                                              </div>
+                                          </details>
+                                      )}
+                                      {mainContent && mainContent.trim() && (
+                                          <div className="whitespace-pre-wrap leading-relaxed">
+                                              {mainContent}
+                                          </div>
+                                      )}
+                                  </div>
+                              );
+                          })}
+                          {(!messages?.filter(m => m.role === 'assistant' || m.role === 'tool_call' || m.role === 'tool_result').length) && (
+                              <div className="flex flex-col items-center justify-center h-full text-slate-600">
+                                  <Terminal className="w-12 h-12 mb-4 opacity-20" />
+                                  <p>No model output yet.</p>
+                              </div>
+                          )}
+                      </div>
+                  </div>
+              </div>
           </div>
         )}
         
