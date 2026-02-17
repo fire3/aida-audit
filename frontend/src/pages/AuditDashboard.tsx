@@ -139,8 +139,8 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
 
 export function AuditDashboard() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'plan' | 'logs' | 'chat' | 'findings' | 'notes'>('plan');
-  const [selectedSession, setSelectedSession] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'plan' | 'live' | 'logs' | 'chat' | 'findings' | 'notes'>('plan');
+  const [manualSessionId, setManualSessionId] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [streamMessages, setStreamMessages] = useState<AuditMessage[]>([]);
   const streamRef = useRef<{ close: () => void } | null>(null);
@@ -151,28 +151,25 @@ export function AuditDashboard() {
   
   const { data: sessions } = useQuery({ queryKey: ['auditSessions'], queryFn: auditApi.getSessions, refetchInterval: autoRefresh ? 3000 : false });
 
-  // Determine if selected session is active (current running session)
-  const isCurrentSession = status?.current_session_id === selectedSession && status?.status === 'running';
-
-  // Select latest session only if none selected
-  useEffect(() => {
-      if (sessions && sessions.length > 0 && !selectedSession) {
-          const latestSession = sessions[0].session_id;
-          setSelectedSession(latestSession);
-      }
-  }, [sessions, selectedSession]);
+  const currentSessionId = status?.status === 'running' ? status.current_session_id : null;
+  const historySessions = sessions?.filter(session => session.session_id !== currentSessionId) || [];
+  const defaultHistorySessionId = historySessions.length > 0 ? historySessions[0].session_id : null;
+  const effectiveSessionId = activeTab === 'live'
+    ? currentSessionId
+    : (manualSessionId && manualSessionId !== currentSessionId ? manualSessionId : defaultHistorySessionId);
+  const isCurrentSession = status?.current_session_id === effectiveSessionId && status?.status === 'running';
 
   // Load historical messages for completed sessions
   const { data: historicalMessages } = useQuery({ 
-    queryKey: ['auditMessages', selectedSession], 
-    queryFn: () => auditApi.getMessages(selectedSession || undefined), 
-    enabled: !!selectedSession && !isCurrentSession,
+    queryKey: ['auditMessages', effectiveSessionId], 
+    queryFn: () => auditApi.getMessages(effectiveSessionId || undefined), 
+    enabled: !!effectiveSessionId && !isCurrentSession,
     staleTime: 0
   });
 
   // Setup SSE streaming for current session only if user selected the active session
   useEffect(() => {
-    if (isCurrentSession && selectedSession) {
+    if (isCurrentSession && effectiveSessionId) {
       // Clear previous stream messages
       setStreamMessages([]);
       
@@ -183,13 +180,13 @@ export function AuditDashboard() {
       
       // Start new stream
       streamRef.current = auditApi.streamMessages(
-        selectedSession,
+        effectiveSessionId,
         (msg) => {
           console.log('SSE received:', msg);
           // Add new message to stream
           const newMsg: AuditMessage = {
             id: Date.now(),
-            session_id: selectedSession,
+            session_id: effectiveSessionId,
             role: msg.role as AuditMessage['role'],
             content: msg.content,
             timestamp: Date.now() / 1000
@@ -219,10 +216,10 @@ export function AuditDashboard() {
         streamRef.current.close();
       }
     };
-  }, [isCurrentSession, selectedSession, queryClient]);
+  }, [isCurrentSession, effectiveSessionId, queryClient]);
 
-  // Use historical messages for completed sessions, stream messages for current
-  const messages = isCurrentSession ? streamMessages : historicalMessages;
+  const liveMessages = isCurrentSession ? streamMessages : [];
+  const historyMessages = !isCurrentSession ? historicalMessages : [];
 
   const { data: notes } = useQuery({ queryKey: ['auditNotes'], queryFn: () => auditApi.getNotes(), refetchInterval: autoRefresh ? 5000 : false });
   const { data: findings } = useQuery({ queryKey: ['auditFindings'], queryFn: () => auditApi.getFindings(), refetchInterval: autoRefresh ? 5000 : false });
@@ -240,6 +237,129 @@ export function AuditDashboard() {
       queryClient.invalidateQueries({ queryKey: ['auditStatus'] });
     }
   });
+
+  const splitThinkContent = (content: string) => {
+    if (typeof content !== 'string') {
+      return { thinkContent: null as string | null, mainContent: String(content ?? '') };
+    }
+    const openTag = '<think>';
+    const closeTag = '</think>';
+    let cursor = 0;
+    const mainParts: string[] = [];
+    const thinkParts: string[] = [];
+    while (cursor < content.length) {
+      const openIndex = content.indexOf(openTag, cursor);
+      if (openIndex === -1) {
+        mainParts.push(content.slice(cursor));
+        break;
+      }
+      mainParts.push(content.slice(cursor, openIndex));
+      const closeIndex = content.indexOf(closeTag, openIndex + openTag.length);
+      if (closeIndex === -1) {
+        mainParts.push(content.slice(openIndex + openTag.length));
+        break;
+      }
+      thinkParts.push(content.slice(openIndex + openTag.length, closeIndex));
+      cursor = closeIndex + closeTag.length;
+    }
+    const mainContent = mainParts.join('').replaceAll(openTag, '').replaceAll(closeTag, '');
+    const thinkContent = thinkParts.length ? thinkParts.join('\n\n') : null;
+    return { thinkContent, mainContent };
+  };
+
+  const renderOutput = (messageList: AuditMessage[] | undefined, title: string) => {
+    const visibleMessages = (messageList || []).filter(m => m.role === 'assistant' || m.role === 'tool_call' || m.role === 'tool_result');
+    return (
+      <div className="h-full bg-black rounded-lg overflow-hidden border border-slate-800 font-mono text-sm">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-800 bg-slate-900/50">
+          <div className="w-3 h-3 rounded-full bg-red-500/80" />
+          <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
+          <div className="w-3 h-3 rounded-full bg-green-500/80" />
+          <span className="ml-2 text-xs text-slate-500">{title}</span>
+        </div>
+        <div className="h-[calc(100%-40px)] overflow-auto p-4 text-slate-300">
+          {visibleMessages.map((msg) => {
+            if (msg.role === 'tool_call') {
+              let toolCallData;
+              try {
+                toolCallData = JSON.parse(msg.content);
+              } catch {
+                toolCallData = { name: 'unknown', arguments: msg.content };
+              }
+              let args: Record<string, unknown> = {};
+              if (typeof toolCallData.arguments === 'string') {
+                try {
+                  args = JSON.parse(toolCallData.arguments);
+                } catch {
+                  args = { _raw: toolCallData.arguments };
+                }
+              } else if (typeof toolCallData.arguments === 'object' && toolCallData.arguments !== null) {
+                args = toolCallData.arguments as Record<string, unknown>;
+              }
+              const formatValue = (val: unknown): string => {
+                if (val === null || val === undefined) return 'null';
+                if (typeof val === 'object') {
+                  const str = JSON.stringify(val);
+                  return str.length > 50 ? str.slice(0, 50) + '...' : str;
+                }
+                const str = String(val);
+                return str.length > 50 ? str.slice(0, 50) + '...' : str;
+              };
+              const argStr = Object.entries(args)
+                .map(([k, v]) => `${k}=${formatValue(v)}`)
+                .join(', ');
+              return (
+                <div key={msg.id} className="mb-3">
+                  <div className="flex items-center gap-2 text-cyan-400">
+                    <span className="text-purple-400">➜</span>
+                    <span className="text-cyan-400 font-semibold">{toolCallData.name}({argStr})</span>
+                  </div>
+                </div>
+              );
+            }
+            if (msg.role === 'tool_result') {
+              return (
+                <details key={msg.id} className="mb-3 ml-4 pl-3 border-l border-slate-700">
+                  <summary className="cursor-pointer text-[10px] text-green-500/70 mb-1 select-none hover:text-green-500">
+                    ← Result (click to expand)
+                  </summary>
+                  <div className="text-slate-400 text-xs max-h-32 overflow-auto mt-1">
+                    <pre className="whitespace-pre-wrap">{msg.content}</pre>
+                  </div>
+                </details>
+              );
+            }
+            const { thinkContent, mainContent } = splitThinkContent(msg.content);
+            return (
+              <div key={msg.id} className="mb-4">
+                {thinkContent && (
+                  <details className="mb-2" open>
+                    <summary className="cursor-pointer text-slate-500 text-xs hover:text-slate-400 mb-1 select-none">
+                      ⟪ thinking
+                    </summary>
+                    <div className="pl-3 text-slate-500 text-xs whitespace-pre-wrap">
+                      {thinkContent}
+                    </div>
+                  </details>
+                )}
+                {mainContent && mainContent.trim() && (
+                  <div className="whitespace-pre-wrap leading-relaxed">
+                    {mainContent}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {visibleMessages.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full text-slate-600">
+              <Terminal className="w-12 h-12 mb-4 opacity-20" />
+              <p>No model output yet.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="container mx-auto p-4 md:p-6 h-[calc(100vh-60px)] flex flex-col">
@@ -294,6 +414,12 @@ export function AuditDashboard() {
           <ListTodo className="w-4 h-4" /> Plan
         </button>
         <button 
+          onClick={() => setActiveTab('live')}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'live' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+        >
+          <Circle className="w-4 h-4" /> Live Stream
+        </button>
+        <button 
           onClick={() => setActiveTab('chat')}
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'chat' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
@@ -337,43 +463,31 @@ export function AuditDashboard() {
           </Card>
         )}
 
+        {activeTab === 'live' && (
+          <div className="h-full">
+            {status?.status === 'running' && status?.current_session_id ? (
+              renderOutput(liveMessages, 'Live Stream')
+            ) : (
+              <div className="h-full flex items-center justify-center text-muted-foreground">
+                <div className="text-center">
+                  <Terminal className="w-12 h-12 mb-4 opacity-20 mx-auto" />
+                  <p>No live session running.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {activeTab === 'chat' && (
           <div className="h-full flex gap-4">
-              {/* Session List */}
               <div className="w-64 border-r pr-2 overflow-auto hidden md:block">
-                  {/* Live Stream Section */}
-                  {status?.status === 'running' && status?.current_session_id && (
-                      <>
-                          <div className="text-xs font-semibold text-blue-500 uppercase mb-2 px-2 flex items-center gap-1">
-                              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                              Live Stream
-                          </div>
-                          <div className="space-y-1 mb-4">
-                              <button
-                                  onClick={() => setSelectedSession(status.current_session_id!)}
-                                  className={`w-full text-left px-3 py-2 rounded-md text-xs truncate transition-colors border border-blue-300 dark:border-blue-700 ${selectedSession === status.current_session_id ? 'bg-blue-100 dark:bg-blue-900/30 font-medium' : 'bg-blue-50 dark:bg-blue-900/10 hover:bg-blue-100 dark:hover:bg-blue-900/20 text-blue-700 dark:text-blue-400'}`}
-                              >
-                                  <div className="flex items-center justify-between mb-1">
-                                      <span className="capitalize">
-                                          {status.current_session_id.split('-')[0]}
-                                      </span>
-                                      <span className="text-[10px] opacity-70">LIVE</span>
-                                  </div>
-                                  <div className="text-[10px] opacity-50">Real-time tracking</div>
-                              </button>
-                          </div>
-                      </>
-                  )}
-                  
-                  {/* History Section */}
                   <div className="text-xs font-semibold text-muted-foreground uppercase mb-2 px-2">History</div>
                   <div className="space-y-1">
-                      {/* Hide current session from history if it's running */}
-                      {sessions?.filter(s => s.session_id !== status?.current_session_id || status?.status !== 'running').map((session) => (
+                      {historySessions.map((session) => (
                           <button
                               key={session.session_id}
-                              onClick={() => setSelectedSession(session.session_id)}
-                              className={`w-full text-left px-3 py-2 rounded-md text-xs truncate transition-colors ${selectedSession === session.session_id ? 'bg-slate-100 dark:bg-slate-800 font-medium' : 'hover:bg-slate-50 dark:hover:bg-slate-900 text-muted-foreground'}`}
+                              onClick={() => setManualSessionId(session.session_id)}
+                              className={`w-full text-left px-3 py-2 rounded-md text-xs truncate transition-colors ${effectiveSessionId === session.session_id ? 'bg-slate-100 dark:bg-slate-800 font-medium' : 'hover:bg-slate-50 dark:hover:bg-slate-900 text-muted-foreground'}`}
                           >
                               <div className="flex items-center justify-between mb-1">
                                   <span className="capitalize">{session.session_id.split('-')[0]}</span>
@@ -382,7 +496,7 @@ export function AuditDashboard() {
                               <div className="text-[10px] opacity-50">{new Date(session.start_time * 1000).toLocaleString()}</div>
                           </button>
                       ))}
-                      {(!sessions?.length || sessions?.filter(s => s.session_id !== status?.current_session_id || status?.status !== 'running').length === 0) && (
+                      {(!sessions?.length || historySessions.length === 0) && (
                           <div className="text-xs text-muted-foreground px-2 italic">
                               {status?.status === 'running' ? 'Live session in progress' : 'No completed sessions'}
                           </div>
@@ -390,106 +504,8 @@ export function AuditDashboard() {
                   </div>
               </div>
 
-              {/* OpenCode-style Terminal Output */}
               <div className="flex-1 min-h-0">
-                  <div className="h-full bg-black rounded-lg overflow-hidden border border-slate-800 font-mono text-sm">
-                      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-800 bg-slate-900/50">
-                          <div className="w-3 h-3 rounded-full bg-red-500/80" />
-                          <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
-                          <div className="w-3 h-3 rounded-full bg-green-500/80" />
-                          <span className="ml-2 text-xs text-slate-500">Audit Output</span>
-                      </div>
-                      <div className="h-[calc(100%-40px)] overflow-auto p-4 text-slate-300">
-                          {messages?.filter(m => m.role === 'assistant' || m.role === 'tool_call' || m.role === 'tool_result').map((msg) => {
-                              if (msg.role === 'tool_call') {
-                                  let toolCallData;
-                                  try {
-                                      toolCallData = JSON.parse(msg.content);
-                                  } catch {
-                                      toolCallData = { name: 'unknown', arguments: msg.content };
-                                  }
-                                  let args: Record<string, unknown> = {};
-                                  if (typeof toolCallData.arguments === 'string') {
-                                      try {
-                                          args = JSON.parse(toolCallData.arguments);
-                                      } catch {
-                                          args = { _raw: toolCallData.arguments };
-                                      }
-                                  } else if (typeof toolCallData.arguments === 'object' && toolCallData.arguments !== null) {
-                                      args = toolCallData.arguments as Record<string, unknown>;
-                                  }
-                                  const formatValue = (val: unknown): string => {
-                                      if (val === null || val === undefined) return 'null';
-                                      if (typeof val === 'object') {
-                                          const str = JSON.stringify(val);
-                                          return str.length > 50 ? str.slice(0, 50) + '...' : str;
-                                      }
-                                      const str = String(val);
-                                      return str.length > 50 ? str.slice(0, 50) + '...' : str;
-                                  };
-                                  const argStr = Object.entries(args)
-                                      .map(([k, v]) => `${k}=${formatValue(v)}`)
-                                      .join(', ');
-                                  return (
-                                      <div key={msg.id} className="mb-3">
-                                          <div className="flex items-center gap-2 text-cyan-400">
-                                              <span className="text-purple-400">➜</span>
-                                              <span className="text-cyan-400 font-semibold">{toolCallData.name}({argStr})</span>
-                                          </div>
-                                      </div>
-                                  );
-                              }
-                              if (msg.role === 'tool_result') {
-                                  return (
-                                      <details key={msg.id} className="mb-3 ml-4 pl-3 border-l border-slate-700">
-                                          <summary className="cursor-pointer text-[10px] text-green-500/70 mb-1 select-none hover:text-green-500">
-                                              ← Result (click to expand)
-                                          </summary>
-                                          <div className="text-slate-400 text-xs max-h-32 overflow-auto mt-1">
-                                              <pre className="whitespace-pre-wrap">{msg.content}</pre>
-                                          </div>
-                                      </details>
-                                  );
-                              }
-                              // assistant message
-                              const thinkMatch = msg.content && typeof msg.content === 'string' ? msg.content.match(/<think>([\s\S]*?)<\/think>/) : null;
-                              let thinkContent = thinkMatch ? thinkMatch[1] : null;
-                              let mainContent = msg.content && typeof msg.content === 'string' ? msg.content.replace(/<think>[\s\S]*?<\/think>/g, '') : msg.content;
-
-                              if (!thinkContent) {
-                                const thinkMatch2 = msg.content && typeof msg.content === 'string' ? msg.content.match(/<think>([\s\S]*?)<\/think>/) : null;
-                                thinkContent = thinkMatch2 ? thinkMatch2[1] : null;
-                                mainContent = msg.content && typeof msg.content === 'string' ? msg.content.replace(/<think>[\s\S]*?<\/think>/g, '') : msg.content;
-                              }
-                              
-                              return (
-                                  <div key={msg.id} className="mb-4">
-                                      {thinkContent && (
-                                          <details className="mb-2" open>
-                                              <summary className="cursor-pointer text-slate-500 text-xs hover:text-slate-400 mb-1 select-none">
-                                                  ⟪ thinking
-                                              </summary>
-                                              <div className="pl-3 text-slate-500 text-xs whitespace-pre-wrap">
-                                                  {thinkContent}
-                                              </div>
-                                          </details>
-                                      )}
-                                      {mainContent && mainContent.trim() && (
-                                          <div className="whitespace-pre-wrap leading-relaxed">
-                                              {mainContent}
-                                          </div>
-                                      )}
-                                  </div>
-                              );
-                          })}
-                          {(!messages?.filter(m => m.role === 'assistant' || m.role === 'tool_call' || m.role === 'tool_result').length) && (
-                              <div className="flex flex-col items-center justify-center h-full text-slate-600">
-                                  <Terminal className="w-12 h-12 mb-4 opacity-20" />
-                                  <p>No model output yet.</p>
-                              </div>
-                          )}
-                      </div>
-                  </div>
+                {renderOutput(historyMessages, 'Chat History')}
               </div>
           </div>
         )}
