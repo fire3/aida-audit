@@ -147,7 +147,7 @@ export function AuditDashboard() {
   const { data: plans } = useQuery({ queryKey: ['auditPlans'], queryFn: () => auditApi.getPlans(), refetchInterval: autoRefresh ? 5000 : false });
   const { data: logs } = useQuery({ queryKey: ['auditLogs'], queryFn: () => auditApi.getLogs(), refetchInterval: autoRefresh ? 2000 : false });
   
-  const { data: sessions } = useQuery({ queryKey: ['auditSessions'], queryFn: auditApi.getSessions, refetchInterval: autoRefresh ? 10000 : false });
+  const { data: sessions } = useQuery({ queryKey: ['auditSessions'], queryFn: auditApi.getSessions, refetchInterval: autoRefresh ? 3000 : false });
 
   // Select latest session only if none selected
   useEffect(() => {
@@ -158,10 +158,11 @@ export function AuditDashboard() {
   }, [sessions, selectedSession]);
 
   const { data: messages } = useQuery({ 
-    queryKey: ['auditMessages', selectedSession, status?.current_session_id], 
+    queryKey: ['auditMessages', selectedSession], 
     queryFn: () => auditApi.getMessages(selectedSession || undefined), 
     refetchInterval: autoRefresh ? 2000 : false,
-    enabled: !!selectedSession
+    enabled: !!selectedSession,
+    staleTime: 0
   });
 
   const { data: notes } = useQuery({ queryKey: ['auditNotes'], queryFn: () => auditApi.getNotes(), refetchInterval: autoRefresh ? 5000 : false });
