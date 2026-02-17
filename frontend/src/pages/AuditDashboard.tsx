@@ -310,7 +310,7 @@ export function AuditDashboard() {
   const [manualSessionId, setManualSessionId] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [streamMessages, setStreamMessages] = useState<AuditMessage[]>([]);
-  const [liveChunkContent, setLiveChunkContent] = useState<{ reasoning: string; content: string; inThinking: boolean }>({ reasoning: '', content: '', inThinking: false });
+  const [liveChunkContent, setLiveChunkContent] = useState<{ reasoning: string; content: string; inThinking: boolean; pending: string }>({ reasoning: '', content: '', inThinking: false, pending: '' });
   const streamRef = useRef<{ close: () => void } | null>(null);
   
   const { data: status } = useQuery({ queryKey: ['auditStatus'], queryFn: auditApi.getStatus, refetchInterval: autoRefresh ? 2000 : false });
@@ -361,42 +361,111 @@ export function AuditDashboard() {
           
           // Handle raw chunk for real-time display
           if (msg.type === 'chunk') {
-            const chunkType = msg.chunk_type;
             const chunkContent = msg.content || '';
             
             setLiveChunkContent(prev => {
               let newReasoning = prev.reasoning;
               let newContent = prev.content;
               let inThinking = prev.inThinking;
+              let pending = prev.pending + chunkContent;
               
-              // Check for think tags in the new chunk
-              if (chunkType === 'reasoning') {
-                // Process think tag state
-                if (chunkContent.includes('<think>')) {
-                  inThinking = true;
+              const TAGS = {
+                OPEN: ['<think>', '&lt;think&gt;'],
+                CLOSE: ['</think>', '&lt;/think&gt;']
+              };
+
+              // Helper to find first occurrence of any tag in list
+              const findFirstTag = (str: string, tags: string[]) => {
+                let firstIdx = -1;
+                let foundTag = '';
+                for (const tag of tags) {
+                  const idx = str.indexOf(tag);
+                  if (idx !== -1 && (firstIdx === -1 || idx < firstIdx)) {
+                    firstIdx = idx;
+                    foundTag = tag;
+                  }
                 }
-                if (chunkContent.includes('</think>')) {
-                  inThinking = false;
+                return { index: firstIdx, tag: foundTag };
+              };
+
+              // Helper to check for partial match at end of string
+              const getPartialMatchLength = (str: string, tags: string[]) => {
+                let maxLen = 0;
+                for (const tag of tags) {
+                  for (let i = 1; i < tag.length; i++) {
+                    const partial = tag.slice(0, i);
+                    if (str.endsWith(partial)) {
+                      maxLen = Math.max(maxLen, i);
+                    }
+                  }
                 }
-                newReasoning += chunkContent;
-              } else {
-                // Check for think tags in content chunk too
-                if (chunkContent.includes('<think>')) {
-                  inThinking = true;
+                return maxLen;
+              };
+              
+              // Process buffer loop
+              while (true) {
+                if (inThinking) {
+                  // In thinking mode: look for closing tag
+                  const { index: closeIdx, tag: closeTag } = findFirstTag(pending, TAGS.CLOSE);
+                  
+                  if (closeIdx !== -1) {
+                    // Found closing tag
+                    newReasoning += pending.slice(0, closeIdx);
+                    pending = pending.slice(closeIdx + closeTag.length);
+                    inThinking = false;
+                    // Continue loop to process remaining buffer
+                  } else {
+                    // No closing tag found yet
+                    // Check for partial closing tag at the end to avoid splitting it
+                    const partialLen = getPartialMatchLength(pending, TAGS.CLOSE);
+                    
+                    if (partialLen > 0) {
+                      // Append safe part to reasoning, keep partial match in pending
+                      newReasoning += pending.slice(0, pending.length - partialLen);
+                      pending = pending.slice(pending.length - partialLen);
+                    } else {
+                      // No partial match, safe to append all
+                      newReasoning += pending;
+                      pending = '';
+                    }
+                    break; // Wait for more data
+                  }
+                } else {
+                  // Not in thinking mode: look for opening tag
+                  const { index: openIdx, tag: openTag } = findFirstTag(pending, TAGS.OPEN);
+                  
+                  if (openIdx !== -1) {
+                    // Found opening tag
+                    newContent += pending.slice(0, openIdx);
+                    pending = pending.slice(openIdx + openTag.length);
+                    inThinking = true;
+                    // Continue loop
+                  } else {
+                    // No opening tag found yet
+                    // Check for partial opening tag at the end
+                    const partialLen = getPartialMatchLength(pending, TAGS.OPEN);
+                    
+                    if (partialLen > 0) {
+                      // Append safe part to content, keep partial match in pending
+                      newContent += pending.slice(0, pending.length - partialLen);
+                      pending = pending.slice(pending.length - partialLen);
+                    } else {
+                      // No partial match, safe to append all
+                      newContent += pending;
+                      pending = '';
+                    }
+                    break; // Wait for more data
+                  }
                 }
-                if (chunkContent.includes('</think>')) {
-                  inThinking = false;
-                }
-                newContent += chunkContent;
               }
               
-              return { reasoning: newReasoning, content: newContent, inThinking };
+              return { reasoning: newReasoning, content: newContent, inThinking, pending };
             });
             return;
           }
           
           // Clear live chunk content when receiving a complete message
-          setLiveChunkContent({ reasoning: '', content: '', inThinking: false });
+          setLiveChunkContent({ reasoning: '', content: '', inThinking: false, pending: '' });
           
           // Add new message to stream
           const newMsg: AuditMessage = {
@@ -413,7 +482,7 @@ export function AuditDashboard() {
           console.log('Session stream ended');
           queryClient.invalidateQueries({ queryKey: ['auditSessions'] });
           queryClient.invalidateQueries({ queryKey: ['auditStatus'] });
-          setLiveChunkContent({ reasoning: '', content: '', inThinking: false });
+          setLiveChunkContent({ reasoning: '', content: '', inThinking: false, pending: '' });
         },
         (err) => {
           console.error('Stream error:', err);
@@ -426,7 +495,7 @@ export function AuditDashboard() {
         streamRef.current = null;
       }
       setStreamMessages([]);
-      setLiveChunkContent({ reasoning: '', content: '', inThinking: false });
+      setLiveChunkContent({ reasoning: '', content: '', inThinking: false, pending: '' });
     }
     
     return () => {
@@ -639,7 +708,7 @@ export function AuditDashboard() {
           {hasLiveChunk && (
             <div className="mb-4">
               {(liveChunk.reasoning || liveChunk.inThinking) && (
-                <details className="mb-2 rounded border border-slate-800/70 bg-slate-900/40 px-2 py-1" open={liveChunk.inThinking || liveChunk.reasoning.includes('<think>')}>
+                <details className="mb-2 rounded border border-slate-800/70 bg-slate-900/40 px-2 py-1" open={true}>
                   <summary className="cursor-pointer text-slate-400 text-xs hover:text-slate-300 mb-1 select-none">
                     ⟪ thinking {liveChunk.inThinking ? '(streaming...)' : ''}
                   </summary>
