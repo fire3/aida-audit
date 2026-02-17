@@ -121,7 +121,6 @@ class BaseAgent:
         while turn_count < max_turns:
             if stop_event.is_set():
                 self.audit_db.log_progress(f"[{self.name}] 会话结束: 用户停止 (第 {turn_count} 轮)")
-                self._session_messages = []  # Discard messages on stop
                 break
 
             turn_count += 1
@@ -136,7 +135,6 @@ class BaseAgent:
                     # Check stop event during streaming
                     if stop_event.is_set():
                         self.audit_db.log_progress(f"[{self.name}] 会话中断: 用户停止 (第 {turn_count} 轮)")
-                        self._session_messages = []  # Discard messages on stop
                         break
                     
                     # Handle non-choice chunks (log, heartbeat, etc.)
@@ -272,15 +270,15 @@ class BaseAgent:
                         "content": result_str
                     })
         
-        # Log session end reason and flush messages to DB only on normal end
+        # Log session end reason and flush messages to DB
         # Normal end means: completed without being stopped (either normal completion or max turns reached)
         session_ended_normally = turn_count > 0 and not stop_event.is_set()
         
         if turn_count >= max_turns:
             self.audit_db.log_progress(f"[{self.name}] 会话结束: 达到最大轮数 ({max_turns})")
         
-        if session_ended_normally:
-            # Normal end: write messages to database
+        # Always flush messages to DB (so session appears in history even when stopped)
+        if turn_count > 0:
             self._flush_messages_to_db()
         
         # Notify session end (always notify)
@@ -503,8 +501,11 @@ class AuditService:
                     )
                     audit_agent.run(self._stop_event)
                     
-                    # Mark task as completed (assuming success if it returns)
-                    self.audit_db.update_plan_status(task['id'], "completed")
+                    # Only mark task as completed if NOT stopped by user
+                    if not self._stop_event.is_set():
+                        self.audit_db.update_plan_status(task['id'], "completed")
+                    else:
+                        self.audit_db.log_progress(f"任务 '{task['title']}' 被用户停止，未标记为完成")
 
                 # Optional: Sleep briefly between sessions
                 time.sleep(2)
