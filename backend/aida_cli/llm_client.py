@@ -1,39 +1,119 @@
-import requests
+import anthropic
 import json
 import time
-from typing import List, Dict, Any, Optional, Callable, Iterator
+import re
+from typing import List, Dict, Any, Optional, Callable, Iterator, Union
 
 class LLMClient:
     def __init__(self, base_url: str, api_key: str, model: str, max_retries: int = 3):
-        self.base_url = base_url.rstrip('/')
-        self.api_key = api_key
+        self.client = anthropic.Anthropic(
+            api_key=api_key,
+            base_url=base_url.replace("v1", "")
+        )
         self.model = model
         self.max_retries = max_retries
 
-    def chat_completion(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
-        url = f"{self.base_url}/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}"
-        }
+    def _convert_messages(self, messages: List[Dict[str, Any]]) -> tuple[str, List[Dict[str, Any]]]:
+        """Convert OpenAI-style messages to Anthropic format."""
+        system_prompt = ""
+        anthropic_msgs = []
         
-        payload = {
+        for msg in messages:
+            role = msg["role"]
+            content = msg["content"]
+            
+            if role == "system":
+                system_prompt += content + "\n\n"
+            elif role == "tool":
+                # Convert OpenAI tool response to Anthropic tool_result
+                anthropic_msgs.append({
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": msg.get("tool_call_id"),
+                        "content": content
+                    }]
+                })
+            elif role == "assistant":
+                new_content = []
+                
+                # Extract thinking from content if present (DeepSeek style <think>...</think>)
+                thinking_match = re.search(r'<think>(.*?)</think>', content, re.DOTALL) if content else None
+                if thinking_match:
+                    thinking_text = thinking_match.group(1)
+                    new_content.append({"type": "thinking", "thinking": thinking_text})
+                    # Remove thinking from content for the text block
+                    text_content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+                    if text_content:
+                        new_content.append({"type": "text", "text": text_content})
+                elif content:
+                    new_content.append({"type": "text", "text": content})
+                
+                tool_calls = msg.get("tool_calls")
+                if tool_calls:
+                    for tc in tool_calls:
+                        func = tc["function"]
+                        try:
+                            args = json.loads(func["arguments"]) if isinstance(func["arguments"], str) else func["arguments"]
+                        except:
+                            args = {}
+                        new_content.append({
+                            "type": "tool_use",
+                            "id": tc["id"],
+                            "name": func["name"],
+                            "input": args
+                        })
+                
+                anthropic_msgs.append({
+                    "role": "assistant",
+                    "content": new_content
+                })
+            else: # user
+                anthropic_msgs.append({
+                    "role": "user",
+                    "content": content
+                })
+                
+        return system_prompt.strip(), anthropic_msgs
+
+    def _convert_tools(self, tools: Optional[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
+        """Convert OpenAI-style tools to Anthropic format."""
+        if not tools:
+            return None
+            
+        anthropic_tools = []
+        for tool in tools:
+            if tool.get("type") == "function":
+                func = tool["function"]
+                anthropic_tools.append({
+                    "name": func["name"],
+                    "description": func.get("description", ""),
+                    "input_schema": func.get("parameters", {})
+                })
+        return anthropic_tools
+
+    def chat_completion(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None) -> Any:
+        system_prompt, anthropic_msgs = self._convert_messages(messages)
+        anthropic_tools = self._convert_tools(tools)
+        
+        kwargs = {
             "model": self.model,
-            "messages": messages,
-            "temperature": 0.0 # Deterministic for audit
+            "messages": anthropic_msgs,
+            "max_tokens": 8192,
+            "temperature": 0.0,
         }
         
-        if tools:
-            payload["tools"] = tools
-            payload["tool_choice"] = "auto"
+        if system_prompt:
+            kwargs["system"] = system_prompt
+        if anthropic_tools:
+            kwargs["tools"] = anthropic_tools
 
         last_exception = None
         for attempt in range(self.max_retries):
             try:
-                response = requests.post(url, headers=headers, json=payload, timeout=120)
-                response.raise_for_status()
-                return response.json()
-            except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as e:
+                response = self.client.messages.create(**kwargs)
+                return response
+            except Exception as e:
                 last_exception = e
                 if attempt < self.max_retries - 1:
                     wait_time = 2 ** attempt
@@ -41,11 +121,7 @@ class LLMClient:
                     time.sleep(wait_time)
                 else:
                     print(f"LLM Call Failed after {self.max_retries} attempts: {e}")
-            except requests.exceptions.RequestException as e:
-                print(f"LLM API Error: {e}")
-                if e.response:
-                    print(f"Response: {e.response.text}")
-                raise
+        
         if last_exception:
             raise last_exception
         raise Exception("LLM call failed without exception info")
@@ -55,48 +131,37 @@ class LLMClient:
         messages: List[Dict[str, Any]], 
         tools: Optional[List[Dict[str, Any]]] = None,
         on_chunk: Optional[Callable[[Dict[str, Any]], None]] = None
-    ) -> Iterator[Dict[str, Any]]:
+    ) -> Iterator[Any]:
         """Stream chat completion responses."""
-        url = f"{self.base_url}/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
-            "Accept": "text/event-stream"
-        }
+        system_prompt, anthropic_msgs = self._convert_messages(messages)
+        anthropic_tools = self._convert_tools(tools)
         
-        payload = {
+        kwargs = {
             "model": self.model,
-            "messages": messages,
+            "messages": anthropic_msgs,
+            "max_tokens": 8192,
             "temperature": 0.0,
             "stream": True
         }
         
-        if tools:
-            payload["tools"] = tools
-            payload["tool_choice"] = "auto"
+        if system_prompt:
+            kwargs["system"] = system_prompt
+        if anthropic_tools:
+            kwargs["tools"] = anthropic_tools
 
         last_exception = None
         for attempt in range(self.max_retries):
             try:
-                response = requests.post(url, headers=headers, json=payload, timeout=120, stream=True)
-                response.raise_for_status()
-                
-                for line in response.iter_lines():
-                    if line:
-                        line = line.decode('utf-8')
-                        if line.startswith('data: '):
-                            data = line[6:]
-                            if data == '[DONE]':
-                                return
-                            try:
-                                chunk = json.loads(data)
-                                if on_chunk:
-                                    on_chunk(chunk)
-                                yield chunk
-                            except json.JSONDecodeError:
-                                continue
+                with self.client.messages.create(**kwargs) as stream:
+                    for chunk in stream:
+                        if on_chunk:
+                            # Convert Anthropic chunk to a dict for callback if needed, 
+                            # or just pass the raw chunk if consumer handles it.
+                            # For compatibility, let's pass a dict representation
+                            on_chunk(chunk)
+                        yield chunk
                 return
-            except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as e:
+            except Exception as e:
                 last_exception = e
                 if attempt < self.max_retries - 1:
                     wait_time = 2 ** attempt
@@ -104,38 +169,38 @@ class LLMClient:
                     time.sleep(wait_time)
                 else:
                     print(f"LLM Stream Failed after {self.max_retries} attempts: {e}")
-            except requests.exceptions.RequestException as e:
-                print(f"LLM Stream API Error: {e}")
-                if e.response:
-                    print(f"Response: {e.response.text}")
-                raise
+        
         if last_exception:
             raise last_exception
         raise Exception("LLM call failed without exception info")
 
-    def extract_content(self, response: Dict[str, Any]) -> Optional[str]:
-        try:
-            return response["choices"][0]["message"].get("content")
-        except (KeyError, IndexError):
-            return None
+    def extract_content(self, response: Any) -> Optional[str]:
+        # Handle Anthropic Message object
+        if hasattr(response, 'content'):
+            text_blocks = [block.text for block in response.content if block.type == 'text']
+            return "".join(text_blocks) if text_blocks else None
+        return None
 
-    def extract_tool_calls(self, response: Dict[str, Any]) -> List[Dict[str, Any]]:
-        try:
-            message = response["choices"][0]["message"]
-            return message.get("tool_calls", [])
-        except (KeyError, IndexError):
-            return []
+    def extract_tool_calls(self, response: Any) -> List[Dict[str, Any]]:
+        # Handle Anthropic Message object
+        if hasattr(response, 'content'):
+            tool_uses = [block for block in response.content if block.type == 'tool_use']
+            return [{
+                "id": tu.id,
+                "function": {
+                    "name": tu.name,
+                    "arguments": json.dumps(tu.input)
+                },
+                "type": "function"
+            } for tu in tool_uses]
+        return []
 
     def list_models(self) -> List[str]:
-        url = f"{self.base_url}/models"
-        headers = {
-            "Authorization": f"Bearer {self.api_key}"
-        }
-        try:
-            response = requests.get(url, headers=headers, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            return [model["id"] for model in data.get("data", [])]
-        except Exception as e:
-            print(f"Warning: Failed to fetch models: {e}")
-            return []
+        # MiniMax supported models
+        return [
+            "MiniMax-M2.5",
+            "MiniMax-M2.5-highspeed", 
+            "MiniMax-M2.1",
+            "MiniMax-M2.1-highspeed",
+            "MiniMax-M2"
+        ]

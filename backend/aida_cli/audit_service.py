@@ -130,7 +130,7 @@ class BaseAgent:
             # Call LLM with streaming
             accumulated_content = ""
             accumulated_reasoning = ""
-            tool_calls_buffer = []
+            tool_calls_buffer = {}  # Map index to dict
             
             try:
                 for chunk in self.llm_client.chat_completion_stream(messages, tools=tools):
@@ -139,48 +139,34 @@ class BaseAgent:
                         self.audit_db.log_progress(f"[{self.name}] 会话中断: 用户停止 (第 {turn_count} 轮)")
                         break
                     
-                    # Handle non-choice chunks (log, heartbeat, etc.)
-                    if "choices" not in chunk or not chunk["choices"]:
-                        continue
-                        
-                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    chunk_type = chunk.type
                     
-                    # Send chunk immediately for real-time display
-                    if self.on_chunk:
-                        if delta.get("content"):
-                            self.on_chunk(self.session_id, "content", delta["content"])
-                        if delta.get("reasoning"):
-                            self.on_chunk(self.session_id, "reasoning", delta["reasoning"])
-                        if delta.get("reasoning_content"):
-                            self.on_chunk(self.session_id, "reasoning", delta["reasoning_content"])
-                    
-                    # Accumulate content
-                    if delta.get("content"):
-                        accumulated_content += delta["content"]
-                    if delta.get("reasoning"):
-                        accumulated_reasoning += delta["reasoning"]
-                        self.audit_db.log_progress(f"[{self.name}] 收到reasoning内容: {delta['reasoning']}")
-                    if delta.get("reasoning_content"):
-                        accumulated_reasoning += delta["reasoning_content"]
-                        self.audit_db.log_progress(f"[{self.name}] 收到reasoning_content内容: {delta['reasoning_content']}")
-                    
-                    # Handle tool calls in streaming
-                    if delta.get("tool_calls"):
-                        for tc in delta["tool_calls"]:
-                            if "index" in tc:
-                                idx = tc["index"]
-                                while len(tool_calls_buffer) <= idx:
-                                    tool_calls_buffer.append({"function": {"arguments": ""}})
-                                if tc.get("function"):
-                                    if "name" in tc["function"]:
-                                        tool_calls_buffer[idx]["function"]["name"] = tc["function"]["name"]
-                                    if "arguments" in tc["function"]:
-                                        tool_calls_buffer[idx]["function"]["arguments"] += tc["function"]["arguments"]
-                            elif "id" in tc:
-                                idx = len(tool_calls_buffer) - 1
-                                if idx >= 0:
-                                    tool_calls_buffer[idx]["id"] = tc["id"]
-                                    
+                    if chunk_type == 'content_block_start':
+                        idx = chunk.index
+                        block = chunk.content_block
+                        if block.type == 'tool_use':
+                            tool_calls_buffer[idx] = {
+                                "id": block.id,
+                                "name": block.name,
+                                "arguments": ""
+                            }
+                    elif chunk_type == 'content_block_delta':
+                        idx = chunk.index
+                        delta = chunk.delta
+                        if delta.type == 'text_delta':
+                            text = delta.text
+                            accumulated_content += text
+                            if self.on_chunk:
+                                self.on_chunk(self.session_id, "content", text)
+                        elif delta.type == 'thinking_delta':
+                            thinking = delta.thinking
+                            accumulated_reasoning += thinking
+                            if self.on_chunk:
+                                self.on_chunk(self.session_id, "reasoning", thinking)
+                        elif delta.type == 'input_json_delta':
+                            if idx in tool_calls_buffer:
+                                tool_calls_buffer[idx]["arguments"] += delta.partial_json
+
                 # Check if we broke due to stop event
                 if stop_event.is_set():
                     self._session_messages = []  # Discard messages
@@ -194,21 +180,27 @@ class BaseAgent:
 
             # Build message for history
             message = {"role": "assistant"}
-            if accumulated_content:
-                message["content"] = accumulated_content
+            full_content = ""
+            if accumulated_reasoning:
+                full_content += f"<think>{accumulated_reasoning}</think>\n"
+            full_content += accumulated_content
+            
+            if full_content:
+                message["content"] = full_content
             
             # Build proper tool_calls structure
             valid_tool_calls = []
-            for tc in tool_calls_buffer:
-                if tc.get("function", {}).get("name") and tc.get("function", {}).get("arguments"):
+            for idx in sorted(tool_calls_buffer.keys()):
+                tc = tool_calls_buffer[idx]
+                if tc.get("name") and tc.get("arguments"):
                     try:
                         # Ensure arguments is valid JSON
-                        args = json.loads(tc["function"]["arguments"])
+                        args = json.loads(tc["arguments"])
                         valid_tool_calls.append({
                             "id": tc.get("id", f"call_{int(time.time() * 1000)}"),
                             "type": "function",
                             "function": {
-                                "name": tc["function"]["name"],
+                                "name": tc["name"],
                                 "arguments": json.dumps(args)
                             }
                         })
