@@ -454,7 +454,13 @@ export function AuditDashboard() {
                               // assistant message
                               const thinkMatch = msg.content && typeof msg.content === 'string' ? msg.content.match(/<think>([\s\S]*?)<\/think>/) : null;
                               let thinkContent = thinkMatch ? thinkMatch[1] : null;
-                              let mainContent = msg.content && typeof msg.content === 'string' ? msg.content.replace(/<think>[\s\S]*?<\/think>/, '') : msg.content;
+                              let mainContent = msg.content && typeof msg.content === 'string' ? msg.content.replace(/<think>[\s\S]*?<\/think>/g, '') : msg.content;
+
+                              if (!thinkContent) {
+                                const thinkMatch2 = msg.content && typeof msg.content === 'string' ? msg.content.match(/<think>([\s\S]*?)<\/think>/) : null;
+                                thinkContent = thinkMatch2 ? thinkMatch2[1] : null;
+                                mainContent = msg.content && typeof msg.content === 'string' ? msg.content.replace(/<think>[\s\S]*?<\/think>/g, '') : msg.content;
+                              }
                               
                               return (
                                   <div key={msg.id} className="mb-4">
