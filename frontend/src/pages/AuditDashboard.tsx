@@ -9,10 +9,8 @@ import {
   Clock, 
   AlertCircle, 
   ChevronRight, 
-  ChevronDown, 
   Terminal, 
   MessageSquare, 
-  Database, 
   ListTodo,
   Play,
   Square,
@@ -22,8 +20,6 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 function Badge({ children, variant }: { children: React.ReactNode, variant: string }) {
     const colors = {
@@ -137,155 +133,6 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
                     ))}
                 </div>
             </div>
-        </div>
-    );
-}
-
-function ToolCall({ name, args, result }: { name: string, args: any, result?: string }) {
-    const [expanded, setExpanded] = useState(false);
-
-    return (
-        <div className="my-2 border rounded-md overflow-hidden bg-slate-50 dark:bg-slate-900/50">
-            <div 
-                className="flex items-center gap-2 p-2 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-xs font-mono"
-                onClick={() => setExpanded(!expanded)}
-            >
-                {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                <span className="text-purple-600 dark:text-purple-400 font-semibold">Tool Call:</span>
-                <span className="font-bold">{name}</span>
-                <span className="text-muted-foreground truncate max-w-[300px]">
-                    {JSON.stringify(args)}
-                </span>
-            </div>
-            
-            {expanded && (
-                <div className="p-2 border-t bg-white dark:bg-slate-950 text-xs font-mono overflow-auto max-h-60">
-                    <div className="mb-2">
-                        <div className="text-muted-foreground mb-1">Arguments:</div>
-                        <pre className="bg-slate-100 dark:bg-slate-900 p-2 rounded text-blue-600 dark:text-blue-400 whitespace-pre-wrap">
-                            {JSON.stringify(args, null, 2)}
-                        </pre>
-                    </div>
-                    {result && (
-                         <div>
-                            <div className="text-muted-foreground mb-1">Result:</div>
-                            <pre className="bg-slate-100 dark:bg-slate-900 p-2 rounded text-green-600 dark:text-green-400 whitespace-pre-wrap">
-                                {result}
-                            </pre>
-                        </div>
-                    )}
-                </div>
-            )}
-        </div>
-    );
-}
-
-function ChatMessage({ msg }: { msg: any }) {
-    const [systemExpanded, setSystemExpanded] = useState(false);
-
-    // Check if message content contains <think> tags
-    const thinkMatch = msg.content && typeof msg.content === 'string' ? msg.content.match(/<think>([\s\S]*?)<\/think>/) : null;
-    let thinkContent = thinkMatch ? thinkMatch[1] : null;
-    let mainContent = msg.content && typeof msg.content === 'string' ? msg.content.replace(/<think>[\s\S]*?<\/think>/, '') : msg.content;
-
-    // Check if it's a tool call message (we stored JSON in content for tool_call role)
-    if (msg.role === 'tool_call') {
-        let toolCallData;
-        try {
-            toolCallData = JSON.parse(msg.content);
-        } catch {
-            toolCallData = { name: 'unknown', arguments: msg.content };
-        }
-        // We render it differently, but here we don't have the result easily paired unless we look ahead/behind.
-        // For simplicity, we just render the call.
-        // Ideally we should group them in the parent list.
-        return <ToolCall key={msg.id} name={toolCallData.name} args={toolCallData.arguments} />;
-    }
-    
-    if (msg.role === 'tool_result') {
-        // This should ideally be nested inside the tool call, but for flat list:
-        return (
-            <div className="ml-6 mb-2 text-xs font-mono text-muted-foreground border-l-2 pl-2">
-                <div className="font-semibold text-[10px] uppercase mb-1">Tool Result</div>
-                <div className="line-clamp-3 hover:line-clamp-none cursor-pointer bg-slate-50 p-1 rounded">
-                    {msg.content}
-                </div>
-            </div>
-        );
-    }
-
-    if (msg.role === 'system') {
-        return (
-            <div className="flex justify-start mb-4">
-                <div className="flex flex-col max-w-[90%] md:max-w-[80%] items-start">
-                    <span className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider font-semibold ml-1">System</span>
-                    <div className="rounded-lg border bg-gray-50 text-gray-600 text-xs font-mono overflow-hidden w-full shadow-sm">
-                         <div 
-                            className="p-2 bg-gray-100 border-b cursor-pointer flex items-center justify-between hover:bg-gray-200 transition-colors"
-                            onClick={() => setSystemExpanded(!systemExpanded)}
-                         >
-                            <span className="font-semibold">System Prompt</span>
-                            {systemExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                         </div>
-                         {systemExpanded && (
-                             <div className="p-3 whitespace-pre-wrap max-h-[500px] overflow-auto">
-                                {mainContent}
-                             </div>
-                         )}
-                    </div>
-                </div>
-            </div>
-        )
-    }
-
-    return (
-        <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
-             <div className={`flex flex-col max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-               <span className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider font-semibold ml-1">{msg.role}</span>
-               
-               <div className={`rounded-lg p-3 shadow-sm ${
-                  msg.role === 'user' 
-                      ? 'bg-blue-50 text-slate-800 border border-blue-200 dark:bg-blue-900/20 dark:text-blue-100 dark:border-blue-800' 
-                      : 'bg-white dark:bg-slate-800 border'
-               }`}>
-                 {thinkContent && (
-                     <div className="mb-3 p-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-100 dark:border-yellow-900/50 rounded text-xs text-muted-foreground italic">
-                         <div className="font-semibold not-italic mb-1 flex items-center gap-1">
-                             <span className="w-2 h-2 rounded-full bg-yellow-400"></span>
-                             Thinking Process
-                         </div>
-                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{thinkContent}</ReactMarkdown>
-                     </div>
-                 )}
-                 <div className="prose prose-sm dark:prose-invert max-w-none">
-                    <ReactMarkdown 
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                            code({node, inline, className, children, ...props}: any) {
-                                const match = /language-(\w+)/.exec(className || '')
-                                return !inline && match ? (
-                                    <SyntaxHighlighter
-                                        style={oneDark}
-                                        language={match[1]}
-                                        PreTag="div"
-                                        {...props}
-                                    >
-                                        {String(children).replace(/\n$/, '')}
-                                    </SyntaxHighlighter>
-                                ) : (
-                                    <code className={className} {...props}>
-                                        {children}
-                                    </code>
-                                )
-                            }
-                        }}
-                    >
-                        {mainContent}
-                    </ReactMarkdown>
-                 </div>
-               </div>
-               <span className="text-[10px] text-muted-foreground mt-1 mr-1">{new Date(msg.timestamp * 1000).toLocaleTimeString()}</span>
-             </div>
         </div>
     );
 }
@@ -463,7 +310,7 @@ export function AuditDashboard() {
                           <span className="ml-2 text-xs text-slate-500">Audit Output</span>
                       </div>
                       <div className="h-[calc(100%-40px)] overflow-auto p-4 text-slate-300">
-                          {messages?.filter(m => m.role === 'assistant' || m.role === 'tool_call' || m.role === 'tool_result').map((msg, idx) => {
+                          {messages?.filter(m => m.role === 'assistant' || m.role === 'tool_call' || m.role === 'tool_result').map((msg) => {
                               if (msg.role === 'tool_call') {
                                   let toolCallData;
                                   try {
@@ -471,14 +318,24 @@ export function AuditDashboard() {
                                   } catch {
                                       toolCallData = { name: 'unknown', arguments: msg.content };
                                   }
+                                  const args = toolCallData.arguments || {};
+                                  const formatValue = (val: unknown): string => {
+                                      if (val === null || val === undefined) return 'null';
+                                      if (typeof val === 'object') {
+                                          const str = JSON.stringify(val);
+                                          return str.length > 50 ? str.slice(0, 50) + '...' : str;
+                                      }
+                                      const str = String(val);
+                                      return str.length > 50 ? str.slice(0, 50) + '...' : str;
+                                  };
+                                  const argStr = Object.entries(args)
+                                      .map(([k, v]) => `${k}=${formatValue(v)}`)
+                                      .join(', ');
                                   return (
                                       <div key={msg.id} className="mb-3">
                                           <div className="flex items-center gap-2 text-cyan-400">
                                               <span className="text-purple-400">➜</span>
-                                              <span className="text-cyan-400 font-semibold">{toolCallData.name}</span>
-                                          </div>
-                                          <div className="ml-4 mt-1 text-slate-500 text-xs">
-                                              <pre className="whitespace-pre-wrap">{JSON.stringify(toolCallData.arguments, null, 2)}</pre>
+                                              <span className="text-cyan-400 font-semibold">{toolCallData.name}({argStr})</span>
                                           </div>
                                       </div>
                                   );
