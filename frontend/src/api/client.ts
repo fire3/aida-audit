@@ -167,8 +167,10 @@ export interface Finding {
 }
 
 export const auditApi = {
-  getPlans: async (status?: string) => {
-    const params = status ? { status } : {};
+  getPlans: async (status?: string, planType?: string) => {
+    const params: Record<string, string> = {};
+    if (status) params.status = status;
+    if (planType) params.plan_type = planType;
     const res = await apiClient.get<AuditPlan[]>('/audit/plans', { params });
     return res.data;
   },

@@ -150,6 +150,13 @@ export function AuditDashboard() {
   const { data: logs } = useQuery({ queryKey: ['auditLogs'], queryFn: () => auditApi.getLogs(), refetchInterval: autoRefresh ? 2000 : false });
   
   const { data: sessions } = useQuery({ queryKey: ['auditSessions'], queryFn: auditApi.getSessions, refetchInterval: autoRefresh ? 3000 : false });
+  const isAuditAgent = status?.current_agent === 'AUDIT_AGENT';
+  const { data: inProgressAgentPlans } = useQuery({ 
+    queryKey: ['auditPlans', 'in_progress', 'agent_plan'], 
+    queryFn: () => auditApi.getPlans('in_progress', 'agent_plan'),
+    enabled: isAuditAgent,
+    refetchInterval: autoRefresh ? 5000 : false
+  });
 
   const currentSessionId = status?.status === 'running' ? status.current_session_id : null;
   const historySessions = sessions?.filter(session => session.session_id !== currentSessionId) || [];
@@ -197,6 +204,7 @@ export function AuditDashboard() {
           // Session ended
           console.log('Session stream ended');
           queryClient.invalidateQueries({ queryKey: ['auditSessions'] });
+          queryClient.invalidateQueries({ queryKey: ['auditStatus'] });
         },
         (err) => {
           console.error('Stream error:', err);
@@ -220,6 +228,29 @@ export function AuditDashboard() {
 
   const liveMessages = isCurrentSession ? streamMessages : [];
   const historyMessages = !isCurrentSession ? historicalMessages : [];
+  const activeAgentPlan = inProgressAgentPlans && inProgressAgentPlans.length > 0 ? inProgressAgentPlans[0] : null;
+  const sessionTypeLabel = status?.current_agent === 'AUDIT_AGENT'
+    ? 'Audit Agent'
+    : status?.current_agent === 'PLAN_AGENT'
+      ? 'Plan Agent'
+      : status?.current_agent;
+  const activePlanLabel = activeAgentPlan
+    ? `${activeAgentPlan.title}${activeAgentPlan.binary_name ? ` · ${activeAgentPlan.binary_name}` : ''}`
+    : null;
+  const liveHeaderMeta = (
+    <div className="ml-auto flex items-center gap-3 text-[10px] text-slate-500">
+      {sessionTypeLabel && <span>类型: {sessionTypeLabel}</span>}
+      {currentSessionId && <span>会话: {currentSessionId}</span>}
+      {activePlanLabel && <span className="text-slate-400">任务: {activePlanLabel}</span>}
+    </div>
+  );
+
+  useEffect(() => {
+    if (activeTab !== 'live') return;
+    const container = document.getElementById('live-stream-output');
+    if (!container) return;
+    container.scrollTop = container.scrollHeight;
+  }, [activeTab, liveMessages.length]);
 
   const { data: notes } = useQuery({ queryKey: ['auditNotes'], queryFn: () => auditApi.getNotes(), refetchInterval: autoRefresh ? 5000 : false });
   const { data: findings } = useQuery({ queryKey: ['auditFindings'], queryFn: () => auditApi.getFindings(), refetchInterval: autoRefresh ? 5000 : false });
@@ -256,7 +287,8 @@ export function AuditDashboard() {
       mainParts.push(content.slice(cursor, openIndex));
       const closeIndex = content.indexOf(closeTag, openIndex + openTag.length);
       if (closeIndex === -1) {
-        mainParts.push(content.slice(openIndex + openTag.length));
+        thinkParts.push(content.slice(openIndex + openTag.length));
+        cursor = content.length;
         break;
       }
       thinkParts.push(content.slice(openIndex + openTag.length, closeIndex));
@@ -267,7 +299,7 @@ export function AuditDashboard() {
     return { thinkContent, mainContent };
   };
 
-  const renderOutput = (messageList: AuditMessage[] | undefined, title: string) => {
+  const renderOutput = (messageList: AuditMessage[] | undefined, title: string, headerMeta?: React.ReactNode, scrollId?: string) => {
     const visibleMessages = (messageList || []).filter(m => m.role === 'assistant' || m.role === 'tool_call' || m.role === 'tool_result');
     return (
       <div className="h-full bg-black rounded-lg overflow-hidden border border-slate-800 font-mono text-sm">
@@ -276,8 +308,9 @@ export function AuditDashboard() {
           <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
           <div className="w-3 h-3 rounded-full bg-green-500/80" />
           <span className="ml-2 text-xs text-slate-500">{title}</span>
+          {headerMeta}
         </div>
-        <div className="h-[calc(100%-40px)] overflow-auto p-4 text-slate-300">
+        <div id={scrollId} className="h-[calc(100%-40px)] overflow-auto p-4 text-slate-300">
           {visibleMessages.map((msg) => {
             if (msg.role === 'tool_call') {
               let toolCallData;
@@ -333,11 +366,11 @@ export function AuditDashboard() {
             return (
               <div key={msg.id} className="mb-4">
                 {thinkContent && (
-                  <details className="mb-2" open>
-                    <summary className="cursor-pointer text-slate-500 text-xs hover:text-slate-400 mb-1 select-none">
+                  <details className="mb-2 rounded border border-slate-800/70 bg-slate-900/40 px-2 py-1" open>
+                    <summary className="cursor-pointer text-slate-400 text-xs hover:text-slate-300 mb-1 select-none">
                       ⟪ thinking
                     </summary>
-                    <div className="pl-3 text-slate-500 text-xs whitespace-pre-wrap">
+                    <div className="pl-2 pb-1 text-slate-400 text-xs whitespace-pre-wrap">
                       {thinkContent}
                     </div>
                   </details>
@@ -466,7 +499,7 @@ export function AuditDashboard() {
         {activeTab === 'live' && (
           <div className="h-full">
             {status?.status === 'running' && status?.current_session_id ? (
-              renderOutput(liveMessages, 'Live Stream')
+              renderOutput(liveMessages, 'Live Stream', liveHeaderMeta, 'live-stream-output')
             ) : (
               <div className="h-full flex items-center justify-center text-muted-foreground">
                 <div className="text-center">

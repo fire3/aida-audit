@@ -548,12 +548,12 @@ def get_xrefs(
 # Audit Endpoints
 
 @api_router.get("/audit/plans")
-def get_audit_plans(status: Optional[str] = None):
+def get_audit_plans(status: Optional[str] = None, plan_type: Optional[str] = None):
     try:
         # Check if DB is initialized
         if not audit_db:
              return []
-        return audit_mcp_tools.audit_plan_list(status)
+        return audit_mcp_tools.audit_plan_list(status, plan_type)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
