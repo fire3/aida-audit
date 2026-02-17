@@ -185,6 +185,7 @@ export function AuditDashboard() {
       streamRef.current = auditApi.streamMessages(
         selectedSession,
         (msg) => {
+          console.log('SSE received:', msg);
           // Add new message to stream
           const newMsg: AuditMessage = {
             id: Date.now(),
@@ -340,9 +341,35 @@ export function AuditDashboard() {
           <div className="h-full flex gap-4">
               {/* Session List */}
               <div className="w-64 border-r pr-2 overflow-auto hidden md:block">
-                  <div className="text-xs font-semibold text-muted-foreground uppercase mb-2 px-2">Sessions</div>
+                  {/* Live Stream Section */}
+                  {status?.status === 'running' && status?.current_session_id && (
+                      <>
+                          <div className="text-xs font-semibold text-blue-500 uppercase mb-2 px-2 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                              Live Stream
+                          </div>
+                          <div className="space-y-1 mb-4">
+                              <button
+                                  onClick={() => setSelectedSession(status.current_session_id!)}
+                                  className={`w-full text-left px-3 py-2 rounded-md text-xs truncate transition-colors border border-blue-300 dark:border-blue-700 ${selectedSession === status.current_session_id ? 'bg-blue-100 dark:bg-blue-900/30 font-medium' : 'bg-blue-50 dark:bg-blue-900/10 hover:bg-blue-100 dark:hover:bg-blue-900/20 text-blue-700 dark:text-blue-400'}`}
+                              >
+                                  <div className="flex items-center justify-between mb-1">
+                                      <span className="capitalize">
+                                          {status.current_session_id.split('-')[0]}
+                                      </span>
+                                      <span className="text-[10px] opacity-70">LIVE</span>
+                                  </div>
+                                  <div className="text-[10px] opacity-50">Real-time tracking</div>
+                              </button>
+                          </div>
+                      </>
+                  )}
+                  
+                  {/* History Section */}
+                  <div className="text-xs font-semibold text-muted-foreground uppercase mb-2 px-2">History</div>
                   <div className="space-y-1">
-                      {sessions?.map((session) => (
+                      {/* Hide current session from history if it's running */}
+                      {sessions?.filter(s => s.session_id !== status?.current_session_id || status?.status !== 'running').map((session) => (
                           <button
                               key={session.session_id}
                               onClick={() => setSelectedSession(session.session_id)}
@@ -355,7 +382,11 @@ export function AuditDashboard() {
                               <div className="text-[10px] opacity-50">{new Date(session.start_time * 1000).toLocaleString()}</div>
                           </button>
                       ))}
-                      {!sessions?.length && <div className="text-xs text-muted-foreground px-2 italic">No sessions recorded.</div>}
+                      {(!sessions?.length || sessions?.filter(s => s.session_id !== status?.current_session_id || status?.status !== 'running').length === 0) && (
+                          <div className="text-xs text-muted-foreground px-2 italic">
+                              {status?.status === 'running' ? 'Live session in progress' : 'No completed sessions'}
+                          </div>
+                      )}
                   </div>
               </div>
 
@@ -377,7 +408,16 @@ export function AuditDashboard() {
                                   } catch {
                                       toolCallData = { name: 'unknown', arguments: msg.content };
                                   }
-                                  const args = toolCallData.arguments || {};
+                                  let args: Record<string, unknown> = {};
+                                  if (typeof toolCallData.arguments === 'string') {
+                                      try {
+                                          args = JSON.parse(toolCallData.arguments);
+                                      } catch {
+                                          args = { _raw: toolCallData.arguments };
+                                      }
+                                  } else if (typeof toolCallData.arguments === 'object' && toolCallData.arguments !== null) {
+                                      args = toolCallData.arguments as Record<string, unknown>;
+                                  }
                                   const formatValue = (val: unknown): string => {
                                       if (val === null || val === undefined) return 'null';
                                       if (typeof val === 'object') {
