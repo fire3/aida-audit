@@ -79,12 +79,21 @@ class BaseAgent:
         return self.all_tools
 
     def _add_message(self, session_id: str, role: str, content: str):
-        """Add message to database and trigger callback."""
-        self.audit_db.add_message(session_id, role, content)
+        """Add message to memory and trigger callback for real-time display."""
+        self._session_messages.append({"role": role, "content": content})
         if self.on_message:
             self.on_message(session_id, role, content)
         
+    def _flush_messages_to_db(self):
+        """Write accumulated messages to database (only on normal end)."""
+        if not self.session_id:
+            return
+        for msg in self._session_messages:
+            self.audit_db.add_message(self.session_id, msg["role"], msg["content"])
+        
     def run(self, stop_event: threading.Event):
+        self._session_messages = []  # Reset message buffer
+        
         system_prompt = self.get_system_prompt()
         initial_context = self.get_initial_context()
         
@@ -102,7 +111,7 @@ class BaseAgent:
             
         self.audit_db.log_progress(f"开始会话: {self.session_id} ({self.name})")
 
-        # Record initial prompts
+        # Record initial prompts (in memory only)
         self._add_message(self.session_id, "system", f"{initial_context}\n\n{system_prompt}")
         self._add_message(self.session_id, "user", content)
         
@@ -112,6 +121,7 @@ class BaseAgent:
         while turn_count < max_turns:
             if stop_event.is_set():
                 self.audit_db.log_progress(f"[{self.name}] 会话结束: 用户停止 (第 {turn_count} 轮)")
+                self._session_messages = []  # Discard messages on stop
                 break
 
             turn_count += 1
@@ -122,6 +132,12 @@ class BaseAgent:
             
             try:
                 for chunk in self.llm_client.chat_completion_stream(messages, tools=tools):
+                    # Check stop event during streaming
+                    if stop_event.is_set():
+                        self.audit_db.log_progress(f"[{self.name}] 会话中断: 用户停止 (第 {turn_count} 轮)")
+                        self._session_messages = []  # Discard messages on stop
+                        break
+                        
                     delta = chunk.get("choices", [{}])[0].get("delta", {})
                     
                     # Accumulate content
@@ -145,8 +161,14 @@ class BaseAgent:
                                 if idx >= 0:
                                     tool_calls_buffer[idx]["id"] = tc["id"]
                                     
+                # Check if we broke due to stop event
+                if stop_event.is_set():
+                    self._session_messages = []  # Discard messages
+                    break
+                    
             except Exception as e:
                 self.audit_db.log_progress(f"LLM 调用失败: {e}")
+                self._session_messages = []  # Discard messages on error
                 time.sleep(5)
                 continue
 
@@ -219,12 +241,19 @@ class BaseAgent:
                         "content": result_str
                     })
         
-        # Log session end reason
+        # Log session end reason and flush messages to DB only on normal end
+        # Normal end means: completed without being stopped (either normal completion or max turns reached)
+        session_ended_normally = turn_count > 0 and not stop_event.is_set()
+        
         if turn_count >= max_turns:
             self.audit_db.log_progress(f"[{self.name}] 会话结束: 达到最大轮数 ({max_turns})")
         
-        # Notify session end
-        if self.on_session_end:
+        if session_ended_normally:
+            # Normal end: write messages to database
+            self._flush_messages_to_db()
+        
+        # Notify session end (always notify)
+        if self.on_session_end and self.session_id:
             self.on_session_end(self.session_id)
 
 PLAN_AGENT_EXCLUDE = {
