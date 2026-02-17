@@ -48,7 +48,9 @@ class BaseAgent:
                  project_path: str,
                  tools: List[Dict],
                  project_store=None,
-                 on_session_start: Optional[Callable[[str, str], None]] = None):
+                 on_session_start: Optional[Callable[[str, str], None]] = None,
+                 on_message: Optional[Callable[[str, str, str], None]] = None,
+                 on_session_end: Optional[Callable[[str], None]] = None):
         self.llm_client = llm_client
         self.mcp_client = mcp_client
         self.audit_db = audit_db
@@ -56,6 +58,8 @@ class BaseAgent:
         self.all_tools = tools
         self.project_store = project_store
         self.on_session_start = on_session_start
+        self.on_message = on_message
+        self.on_session_end = on_session_end
         self.session_id: Optional[str] = None
         
     @property
@@ -73,6 +77,12 @@ class BaseAgent:
         
     def get_tools(self) -> List[Dict]:
         return self.all_tools
+
+    def _add_message(self, session_id: str, role: str, content: str):
+        """Add message to database and trigger callback."""
+        self.audit_db.add_message(session_id, role, content)
+        if self.on_message:
+            self.on_message(session_id, role, content)
         
     def run(self, stop_event: threading.Event):
         system_prompt = self.get_system_prompt()
@@ -93,8 +103,8 @@ class BaseAgent:
         self.audit_db.log_progress(f"开始会话: {self.session_id} ({self.name})")
 
         # Record initial prompts
-        self.audit_db.add_message(self.session_id, "system", f"{initial_context}\n\n{system_prompt}")
-        self.audit_db.add_message(self.session_id, "user", content)
+        self._add_message(self.session_id, "system", f"{initial_context}\n\n{system_prompt}")
+        self._add_message(self.session_id, "user", content)
         
         turn_count = 0
         max_turns = 200
@@ -106,15 +116,47 @@ class BaseAgent:
 
             turn_count += 1
             
-            # Call LLM
+            # Call LLM with streaming
+            accumulated_content = ""
+            tool_calls_buffer = []
+            
             try:
-                response = self.llm_client.chat_completion(messages, tools=tools)
+                for chunk in self.llm_client.chat_completion_stream(messages, tools=tools):
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    
+                    # Accumulate content
+                    if delta.get("content"):
+                        accumulated_content += delta["content"]
+                    
+                    # Handle tool calls in streaming
+                    if delta.get("tool_calls"):
+                        for tc in delta["tool_calls"]:
+                            if "index" in tc:
+                                idx = tc["index"]
+                                while len(tool_calls_buffer) <= idx:
+                                    tool_calls_buffer.append({"function": {"arguments": ""}})
+                                if tc.get("function"):
+                                    if "name" in tc["function"]:
+                                        tool_calls_buffer[idx]["function"]["name"] = tc["function"]["name"]
+                                    if "arguments" in tc["function"]:
+                                        tool_calls_buffer[idx]["function"]["arguments"] += tc["function"]["arguments"]
+                            elif "id" in tc:
+                                idx = len(tool_calls_buffer) - 1
+                                if idx >= 0:
+                                    tool_calls_buffer[idx]["id"] = tc["id"]
+                                    
             except Exception as e:
                 self.audit_db.log_progress(f"LLM 调用失败: {e}")
                 time.sleep(5)
                 continue
 
-            message = response["choices"][0]["message"]
+            # Build message for history
+            message = {"role": "assistant"}
+            if accumulated_content:
+                message["content"] = accumulated_content
+            if tool_calls_buffer:
+                message["tool_calls"] = tool_calls_buffer
+                
             messages.append(message)
             
             content = message.get("content")
@@ -122,7 +164,7 @@ class BaseAgent:
 
             # Log content
             if content:
-                self.audit_db.add_message(self.session_id, "assistant", content)
+                self._add_message(self.session_id, "assistant", content)
 
             # Check for completion signal
             if not tool_calls:
@@ -141,20 +183,20 @@ class BaseAgent:
 
                     func_name = tool_call["function"]["name"]
                     args_str = tool_call["function"]["arguments"]
-                    call_id = tool_call["id"]
+                    call_id = tool_call.get("id", "")
                     
                     # Log tool call
                     try:
                         tool_call_json = json.dumps({
                             "name": func_name,
-                            "arguments": json.loads(args_str)
+                            "arguments": json.loads(args_str) if args_str else {}
                         })
-                        self.audit_db.add_message(self.session_id, "tool_call", tool_call_json)
+                        self._add_message(self.session_id, "tool_call", tool_call_json)
                     except:
-                        self.audit_db.add_message(self.session_id, "tool_call", f"{func_name}({args_str})")
+                        self._add_message(self.session_id, "tool_call", f"{func_name}({args_str})")
                     
                     try:
-                        args = json.loads(args_str)
+                        args = json.loads(args_str) if args_str else {}
                         result = self.mcp_client.call_tool(func_name, args)
                         
                         if isinstance(result, (dict, list)):
@@ -165,10 +207,11 @@ class BaseAgent:
                         if len(result_str) > 5000:
                             result_str = result_str[:5000] + "... (truncated)"
                         
-                        self.audit_db.add_message(self.session_id, "tool_result", result_str)
+                        self._add_message(self.session_id, "tool_result", result_str)
                             
                     except Exception as e:
                         result_str = f"Error: {str(e)}"
+                        self._add_message(self.session_id, "tool_result", result_str)
 
                     messages.append({
                         "role": "tool",
@@ -179,6 +222,10 @@ class BaseAgent:
         # Log session end reason
         if turn_count >= max_turns:
             self.audit_db.log_progress(f"[{self.name}] 会话结束: 达到最大轮数 ({max_turns})")
+        
+        # Notify session end
+        if self.on_session_end:
+            self.on_session_end(self.session_id)
 
 PLAN_AGENT_EXCLUDE = {
     'audit_create_note', 'audit_get_notes', 'audit_update_note', 'audit_delete_note',
@@ -190,6 +237,18 @@ PLAN_AGENT_EXCLUDE = {
 
 
 class PlanAgent(BaseAgent):
+    def __init__(self, 
+                 llm_client: LLMClient, 
+                 mcp_client: McpClient, 
+                 audit_db: AuditDatabase, 
+                 project_path: str,
+                 tools: List[Dict],
+                 project_store=None,
+                 on_session_start: Optional[Callable[[str, str], None]] = None,
+                 on_message: Optional[Callable[[str, str, str], None]] = None,
+                 on_session_end: Optional[Callable[[str], None]] = None):
+        super().__init__(llm_client, mcp_client, audit_db, project_path, tools, project_store, on_session_start, on_message, on_session_end)
+    
     @property
     def name(self) -> str:
         return "PLAN_AGENT"
@@ -225,8 +284,11 @@ class AuditAgent(BaseAgent):
                  project_path: str,
                  tools: List[Dict],
                  specific_task: Optional[Dict] = None,
-                 on_session_start: Optional[Callable[[str, str], None]] = None):
-        super().__init__(llm_client, mcp_client, audit_db, project_path, tools, on_session_start)
+                 project_store=None,
+                 on_session_start: Optional[Callable[[str, str], None]] = None,
+                 on_message: Optional[Callable[[str, str, str], None]] = None,
+                 on_session_end: Optional[Callable[[str], None]] = None):
+        super().__init__(llm_client, mcp_client, audit_db, project_path, tools, project_store, on_session_start, on_message, on_session_end)
         self.specific_task = specific_task
         
     @property
@@ -249,9 +311,11 @@ class AuditAgent(BaseAgent):
         return "开始你的工作。"
 
 class AuditService:
-    def __init__(self, project_path: str, audit_db: AuditDatabase):
+    def __init__(self, project_path: str, audit_db: AuditDatabase, on_message: Optional[Callable[[str, str, str], None]] = None, on_session_end: Optional[Callable[[str], None]] = None):
         self.project_path = project_path
         self.audit_db = audit_db
+        self.on_message = on_message
+        self.on_session_end = on_session_end
         self.status = "idle"  # idle, running, completed, failed
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -335,7 +399,9 @@ class AuditService:
                     self.audit_db, 
                     self.project_path, 
                     tools,
-                    on_session_start=self._update_session_info
+                    on_session_start=self._update_session_info,
+                    on_message=self.on_message,
+                    on_session_end=self.on_session_end
                 )
                 plan_agent.run(self._stop_event)
                 
@@ -363,7 +429,9 @@ class AuditService:
                         self.project_path,
                         tools,
                         specific_task=task,
-                        on_session_start=self._update_session_info
+                        on_session_start=self._update_session_info,
+                        on_message=self.on_message,
+                        on_session_end=self.on_session_end
                     )
                     audit_agent.run(self._stop_event)
                     

@@ -189,6 +189,37 @@ export const auditApi = {
     return res.data;
   },
 
+  streamMessages: (sessionId: string, onMessage: (msg: { role: string; content: string }) => void, onEnd?: () => void, onError?: (err: Error) => void) => {
+    const baseUrl = API_BASE_URL.replace('/api/v1', '');
+    const url = `${baseUrl}/api/v1/audit/stream/${sessionId}`;
+    
+    const eventSource = new EventSource(url);
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'session_end') {
+          onEnd?.();
+          eventSource.close();
+        } else {
+          onMessage(data);
+        }
+      } catch (e) {
+        console.error('Failed to parse SSE message:', e);
+      }
+    };
+    
+    eventSource.onerror = (err) => {
+      console.error('SSE error:', err);
+      onError?.(new Error('Connection lost'));
+      eventSource.close();
+    };
+    
+    return {
+      close: () => eventSource.close()
+    };
+  },
+
   getNotes: async (binaryName?: string, limit = 50) => {
     const params = { binary_name: binaryName, limit };
     const res = await apiClient.get<Note[]>('/audit/notes', { params });

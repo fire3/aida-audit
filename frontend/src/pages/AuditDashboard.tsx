@@ -1,8 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { auditApi, type AuditPlan } from '../api/client';
+import { auditApi, type AuditPlan, type AuditMessage } from '../api/client';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   CheckCircle2, 
   Circle, 
@@ -142,12 +142,17 @@ export function AuditDashboard() {
   const [activeTab, setActiveTab] = useState<'plan' | 'logs' | 'chat' | 'findings' | 'notes'>('plan');
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [streamMessages, setStreamMessages] = useState<AuditMessage[]>([]);
+  const streamRef = useRef<{ close: () => void } | null>(null);
   
   const { data: status } = useQuery({ queryKey: ['auditStatus'], queryFn: auditApi.getStatus, refetchInterval: autoRefresh ? 2000 : false });
   const { data: plans } = useQuery({ queryKey: ['auditPlans'], queryFn: () => auditApi.getPlans(), refetchInterval: autoRefresh ? 5000 : false });
   const { data: logs } = useQuery({ queryKey: ['auditLogs'], queryFn: () => auditApi.getLogs(), refetchInterval: autoRefresh ? 2000 : false });
   
   const { data: sessions } = useQuery({ queryKey: ['auditSessions'], queryFn: auditApi.getSessions, refetchInterval: autoRefresh ? 3000 : false });
+
+  // Determine if selected session is active (current running session)
+  const isCurrentSession = status?.current_session_id === selectedSession && status?.status === 'running';
 
   // Select latest session only if none selected
   useEffect(() => {
@@ -157,13 +162,66 @@ export function AuditDashboard() {
       }
   }, [sessions, selectedSession]);
 
-  const { data: messages } = useQuery({ 
+  // Load historical messages for completed sessions
+  const { data: historicalMessages } = useQuery({ 
     queryKey: ['auditMessages', selectedSession], 
     queryFn: () => auditApi.getMessages(selectedSession || undefined), 
-    refetchInterval: autoRefresh ? 2000 : false,
-    enabled: !!selectedSession,
+    enabled: !!selectedSession && !isCurrentSession,
     staleTime: 0
   });
+
+  // Setup SSE streaming for current session
+  useEffect(() => {
+    if (isCurrentSession && selectedSession) {
+      // Clear previous stream messages
+      setStreamMessages([]);
+      
+      // Close previous stream if exists
+      if (streamRef.current) {
+        streamRef.current.close();
+      }
+      
+      // Start new stream
+      streamRef.current = auditApi.streamMessages(
+        selectedSession,
+        (msg) => {
+          // Add new message to stream
+          const newMsg: AuditMessage = {
+            id: Date.now(),
+            session_id: selectedSession,
+            role: msg.role as AuditMessage['role'],
+            content: msg.content,
+            timestamp: Date.now() / 1000
+          };
+          setStreamMessages(prev => [...prev, newMsg]);
+        },
+        () => {
+          // Session ended
+          console.log('Session stream ended');
+          queryClient.invalidateQueries({ queryKey: ['auditSessions'] });
+        },
+        (err) => {
+          console.error('Stream error:', err);
+        }
+      );
+    } else {
+      // Not current session, close stream
+      if (streamRef.current) {
+        streamRef.current.close();
+        streamRef.current = null;
+      }
+      setStreamMessages([]);
+    }
+    
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.close();
+      }
+    };
+  }, [isCurrentSession, selectedSession, queryClient]);
+
+  // Use historical messages for completed sessions, stream messages for current
+  const messages = isCurrentSession ? streamMessages : historicalMessages;
 
   const { data: notes } = useQuery({ queryKey: ['auditNotes'], queryFn: () => auditApi.getNotes(), refetchInterval: autoRefresh ? 5000 : false });
   const { data: findings } = useQuery({ queryKey: ['auditFindings'], queryFn: () => auditApi.getFindings(), refetchInterval: autoRefresh ? 5000 : false });

@@ -1,7 +1,7 @@
 import requests
 import json
 import time
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable, Iterator
 
 class LLMClient:
     def __init__(self, base_url: str, api_key: str, model: str, max_retries: int = 3):
@@ -46,7 +46,72 @@ class LLMClient:
                 if e.response:
                     print(f"Response: {e.response.text}")
                 raise
-        raise last_exception
+        if last_exception:
+            raise last_exception
+        raise Exception("LLM call failed without exception info")
+
+    def chat_completion_stream(
+        self, 
+        messages: List[Dict[str, Any]], 
+        tools: Optional[List[Dict[str, Any]]] = None,
+        on_chunk: Optional[Callable[[Dict[str, Any]], None]] = None
+    ) -> Iterator[Dict[str, Any]]:
+        """Stream chat completion responses."""
+        url = f"{self.base_url}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+            "Accept": "text/event-stream"
+        }
+        
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.0,
+            "stream": True
+        }
+        
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+
+        last_exception = None
+        for attempt in range(self.max_retries):
+            try:
+                response = requests.post(url, headers=headers, json=payload, timeout=120, stream=True)
+                response.raise_for_status()
+                
+                for line in response.iter_lines():
+                    if line:
+                        line = line.decode('utf-8')
+                        if line.startswith('data: '):
+                            data = line[6:]
+                            if data == '[DONE]':
+                                return
+                            try:
+                                chunk = json.loads(data)
+                                if on_chunk:
+                                    on_chunk(chunk)
+                                yield chunk
+                            except json.JSONDecodeError:
+                                continue
+                return
+            except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as e:
+                last_exception = e
+                if attempt < self.max_retries - 1:
+                    wait_time = 2 ** attempt
+                    print(f"LLM Stream Failed (attempt {attempt + 1}/{self.max_retries}): {e}. Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    print(f"LLM Stream Failed after {self.max_retries} attempts: {e}")
+            except requests.exceptions.RequestException as e:
+                print(f"LLM Stream API Error: {e}")
+                if e.response:
+                    print(f"Response: {e.response.text}")
+                raise
+        if last_exception:
+            raise last_exception
+        raise Exception("LLM call failed without exception info")
 
     def extract_content(self, response: Dict[str, Any]) -> Optional[str]:
         try:

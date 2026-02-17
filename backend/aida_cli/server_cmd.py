@@ -4,10 +4,12 @@ import logging
 import os
 import sys
 import uvicorn
+import asyncio
 from contextlib import asynccontextmanager
 from typing import Optional, List, Union, Dict, Any
+from collections import defaultdict
 from fastapi import FastAPI, Request, Response, APIRouter, HTTPException, Query, Path, Body
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -29,6 +31,28 @@ project_store = None
 audit_db = None
 audit_service = None
 
+message_queue: Dict[str, asyncio.Queue] = defaultdict(asyncio.Queue)
+completed_sessions: set = set()
+
+def on_message_callback(session_id: str, role: str, content: str):
+    """Callback to push messages to SSE clients."""
+    queue = message_queue.get(session_id)
+    if queue:
+        try:
+            queue.put_nowait({"role": role, "content": content})
+        except Exception:
+            pass
+
+def on_session_end_callback(session_id: str):
+    """Callback when session ends."""
+    completed_sessions.add(session_id)
+    queue = message_queue.get(session_id)
+    if queue:
+        try:
+            queue.put_nowait({"role": "system", "content": "__SESSION_END__"})
+        except Exception:
+            pass
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
@@ -47,7 +71,7 @@ async def lifespan(app: FastAPI):
             audit_mcp_tools.set_audit_db(audit_db)
             print(f"Loaded audit database: {audit_db_path}")
             
-            audit_service = AuditService(project_path, audit_db)
+            audit_service = AuditService(project_path, audit_db, on_message_callback, on_session_end_callback)
             print(f"Audit Service initialized")
 
     except Exception as e:
@@ -550,6 +574,31 @@ def get_audit_messages(session_id: Optional[str] = None, limit: int = 100):
         return audit_db.get_messages(session_id, limit)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/audit/stream/{session_id}")
+async def stream_audit_messages(session_id: str):
+    """SSE endpoint for real-time message streaming."""
+    if session_id not in message_queue:
+        message_queue[session_id]
+    
+    queue = message_queue[session_id]
+    
+    async def event_generator():
+        while True:
+            try:
+                message = await asyncio.wait_for(queue.get(), timeout=30)
+                
+                if message.get("content") == "__SESSION_END__":
+                    yield f"data: {json.dumps({'type': 'session_end'})}\n\n"
+                    break
+                    
+                yield f"data: {json.dumps(message)}\n\n"
+            except asyncio.TimeoutError:
+                yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+            except Exception:
+                break
+    
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @api_router.get("/audit/sessions")
 def get_audit_sessions():
