@@ -50,7 +50,8 @@ class BaseAgent:
                  project_store=None,
                  on_session_start: Optional[Callable[[str, str], None]] = None,
                  on_message: Optional[Callable[[str, str, str], None]] = None,
-                 on_session_end: Optional[Callable[[str], None]] = None):
+                 on_session_end: Optional[Callable[[str], None]] = None,
+                 on_chunk: Optional[Callable[[str, str, str], None]] = None):
         self.llm_client = llm_client
         self.mcp_client = mcp_client
         self.audit_db = audit_db
@@ -60,6 +61,7 @@ class BaseAgent:
         self.on_session_start = on_session_start
         self.on_message = on_message
         self.on_session_end = on_session_end
+        self.on_chunk = on_chunk
         self.session_id: Optional[str] = None
         
     @property
@@ -143,6 +145,15 @@ class BaseAgent:
                         
                     delta = chunk.get("choices", [{}])[0].get("delta", {})
                     
+                    # Send chunk immediately for real-time display
+                    if self.on_chunk:
+                        if delta.get("content"):
+                            self.on_chunk(self.session_id, "content", delta["content"])
+                        if delta.get("reasoning"):
+                            self.on_chunk(self.session_id, "reasoning", delta["reasoning"])
+                        if delta.get("reasoning_content"):
+                            self.on_chunk(self.session_id, "reasoning", delta["reasoning_content"])
+                    
                     # Accumulate content
                     if delta.get("content"):
                         accumulated_content += delta["content"]
@@ -151,7 +162,7 @@ class BaseAgent:
                         self.audit_db.log_progress(f"[{self.name}] 收到reasoning内容: {delta['reasoning']}")
                     if delta.get("reasoning_content"):
                         accumulated_reasoning += delta["reasoning_content"]
-                        self.audit_db.log_progress(f"[{self.name}] 收到reasoning_content内容: {delta['reasoning']}")
+                        self.audit_db.log_progress(f"[{self.name}] 收到reasoning_content内容: {delta['reasoning_content']}")
                     
                     # Handle tool calls in streaming
                     if delta.get("tool_calls"):
@@ -304,8 +315,9 @@ class PlanAgent(BaseAgent):
                  project_store=None,
                  on_session_start: Optional[Callable[[str, str], None]] = None,
                  on_message: Optional[Callable[[str, str, str], None]] = None,
-                 on_session_end: Optional[Callable[[str], None]] = None):
-        super().__init__(llm_client, mcp_client, audit_db, project_path, tools, project_store, on_session_start, on_message, on_session_end)
+                 on_session_end: Optional[Callable[[str], None]] = None,
+                 on_chunk: Optional[Callable[[str, str, str], None]] = None):
+        super().__init__(llm_client, mcp_client, audit_db, project_path, tools, project_store, on_session_start, on_message, on_session_end, on_chunk)
     
     @property
     def name(self) -> str:
@@ -353,8 +365,9 @@ class AuditAgent(BaseAgent):
                  project_store=None,
                  on_session_start: Optional[Callable[[str, str], None]] = None,
                  on_message: Optional[Callable[[str, str, str], None]] = None,
-                 on_session_end: Optional[Callable[[str], None]] = None):
-        super().__init__(llm_client, mcp_client, audit_db, project_path, tools, project_store, on_session_start, on_message, on_session_end)
+                 on_session_end: Optional[Callable[[str], None]] = None,
+                 on_chunk: Optional[Callable[[str, str, str], None]] = None):
+        super().__init__(llm_client, mcp_client, audit_db, project_path, tools, project_store, on_session_start, on_message, on_session_end, on_chunk)
         self.specific_task = specific_task
         
     @property
@@ -377,11 +390,12 @@ class AuditAgent(BaseAgent):
         return "开始你的工作。"
 
 class AuditService:
-    def __init__(self, project_path: str, audit_db: AuditDatabase, on_message: Optional[Callable[[str, str, str], None]] = None, on_session_end: Optional[Callable[[str], None]] = None):
+    def __init__(self, project_path: str, audit_db: AuditDatabase, on_message: Optional[Callable[[str, str, str], None]] = None, on_session_end: Optional[Callable[[str], None]] = None, on_chunk: Optional[Callable[[str, str, str], None]] = None):
         self.project_path = project_path
         self.audit_db = audit_db
         self.on_message = on_message
         self.on_session_end = on_session_end
+        self.on_chunk = on_chunk
         self.status = "idle"  # idle, running, completed, failed
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -467,7 +481,8 @@ class AuditService:
                     tools,
                     on_session_start=self._update_session_info,
                     on_message=self.on_message,
-                    on_session_end=self.on_session_end
+                    on_session_end=self.on_session_end,
+                    on_chunk=self.on_chunk
                 )
                 plan_agent.run(self._stop_event)
                 
@@ -497,7 +512,8 @@ class AuditService:
                         specific_task=task,
                         on_session_start=self._update_session_info,
                         on_message=self.on_message,
-                        on_session_end=self.on_session_end
+                        on_session_end=self.on_session_end,
+                        on_chunk=self.on_chunk
                     )
                     audit_agent.run(self._stop_event)
                     

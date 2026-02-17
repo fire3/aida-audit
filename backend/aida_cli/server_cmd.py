@@ -43,6 +43,15 @@ def on_message_callback(session_id: str, role: str, content: str):
         except Exception:
             pass
 
+def on_chunk_callback(session_id: str, chunk_type: str, content: str):
+    """Callback to push raw chunks to SSE clients for real-time display."""
+    queue = message_queue.get(session_id)
+    if queue:
+        try:
+            queue.put_nowait({"type": "chunk", "chunk_type": chunk_type, "content": content})
+        except Exception:
+            pass
+
 def on_session_end_callback(session_id: str):
     """Callback when session ends."""
     completed_sessions.add(session_id)
@@ -71,7 +80,7 @@ async def lifespan(app: FastAPI):
             audit_mcp_tools.set_audit_db(audit_db)
             print(f"Loaded audit database: {audit_db_path}")
             
-            audit_service = AuditService(project_path, audit_db, on_message_callback, on_session_end_callback)
+            audit_service = AuditService(project_path, audit_db, on_message_callback, on_session_end_callback, on_chunk_callback)
             print(f"Audit Service initialized")
 
     except Exception as e:

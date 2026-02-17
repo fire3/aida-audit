@@ -310,6 +310,7 @@ export function AuditDashboard() {
   const [manualSessionId, setManualSessionId] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [streamMessages, setStreamMessages] = useState<AuditMessage[]>([]);
+  const [liveChunkContent, setLiveChunkContent] = useState<{ reasoning: string; content: string }>({ reasoning: '', content: '' });
   const streamRef = useRef<{ close: () => void } | null>(null);
   
   const { data: status } = useQuery({ queryKey: ['auditStatus'], queryFn: auditApi.getStatus, refetchInterval: autoRefresh ? 2000 : false });
@@ -355,14 +356,29 @@ export function AuditDashboard() {
       // Start new stream
       streamRef.current = auditApi.streamMessages(
         effectiveSessionId,
-        (msg) => {
+        (msg: { role?: string; content?: string; type?: string; chunk_type?: string }) => {
           console.log('SSE received:', msg);
+          
+          // Handle raw chunk for real-time display
+          if (msg.type === 'chunk') {
+            const chunkType = msg.chunk_type;
+            const chunkContent = msg.content || '';
+            setLiveChunkContent(prev => ({
+              ...prev,
+              [chunkType as 'reasoning' | 'content']: prev[chunkType as 'reasoning' | 'content'] + chunkContent
+            }));
+            return;
+          }
+          
+          // Clear live chunk content when receiving a complete message
+          setLiveChunkContent({ reasoning: '', content: '' });
+          
           // Add new message to stream
           const newMsg: AuditMessage = {
             id: Date.now(),
             session_id: effectiveSessionId,
-            role: msg.role as AuditMessage['role'],
-            content: msg.content,
+            role: (msg.role || 'assistant') as AuditMessage['role'],
+            content: msg.content || '',
             timestamp: Date.now() / 1000
           };
           setStreamMessages(prev => [...prev, newMsg]);
@@ -372,6 +388,7 @@ export function AuditDashboard() {
           console.log('Session stream ended');
           queryClient.invalidateQueries({ queryKey: ['auditSessions'] });
           queryClient.invalidateQueries({ queryKey: ['auditStatus'] });
+          setLiveChunkContent({ reasoning: '', content: '' });
         },
         (err) => {
           console.error('Stream error:', err);
@@ -384,6 +401,7 @@ export function AuditDashboard() {
         streamRef.current = null;
       }
       setStreamMessages([]);
+      setLiveChunkContent({ reasoning: '', content: '' });
     }
     
     return () => {
@@ -507,8 +525,9 @@ export function AuditDashboard() {
     return { thinkContent, mainContent };
   };
 
-  const renderOutput = (messageList: AuditMessage[] | undefined, title: string, headerMeta?: React.ReactNode, scrollId?: string) => {
+  const renderOutput = (messageList: AuditMessage[] | undefined, title: string, headerMeta?: React.ReactNode, scrollId?: string, liveChunk?: { reasoning: string; content: string }) => {
     const visibleMessages = (messageList || []).filter(m => m.role === 'assistant' || m.role === 'tool_call' || m.role === 'tool_result');
+    const hasLiveChunk = liveChunk && (liveChunk.reasoning || liveChunk.content);
     return (
       <div className="h-full bg-black rounded-lg overflow-hidden border border-slate-800 font-mono text-sm">
         <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-800 bg-slate-900/50">
@@ -591,7 +610,27 @@ export function AuditDashboard() {
               </div>
             );
           })}
-          {visibleMessages.length === 0 && (
+          {/* Live chunk display - real-time streaming content */}
+          {hasLiveChunk && (
+            <div className="mb-4">
+              {liveChunk.reasoning && (
+                <details className="mb-2 rounded border border-slate-800/70 bg-slate-900/40 px-2 py-1" open>
+                  <summary className="cursor-pointer text-slate-400 text-xs hover:text-slate-300 mb-1 select-none">
+                    ⟪ thinking (streaming...)
+                  </summary>
+                  <div className="pl-2 pb-1 text-slate-400 text-xs whitespace-pre-wrap">
+                    {liveChunk.reasoning}
+                  </div>
+                </details>
+              )}
+              {liveChunk.content && (
+                <div className="whitespace-pre-wrap leading-relaxed text-amber-300">
+                  {liveChunk.content}
+                </div>
+              )}
+            </div>
+          )}
+          {visibleMessages.length === 0 && !hasLiveChunk && (
             <div className="flex flex-col items-center justify-center h-full text-slate-600">
               <Terminal className="w-12 h-12 mb-4 opacity-20" />
               <p>No model output yet.</p>
@@ -729,7 +768,7 @@ export function AuditDashboard() {
         {activeTab === 'live' && (
           <div className="h-full">
             {status?.status === 'running' && status?.current_session_id ? (
-              renderOutput(liveMessages, 'Live Stream', liveHeaderMeta, 'live-stream-output')
+              renderOutput(liveMessages, 'Live Stream', liveHeaderMeta, 'live-stream-output', liveChunkContent)
             ) : (
               <div className="h-full flex items-center justify-center text-muted-foreground">
                 <div className="text-center">
