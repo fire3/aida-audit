@@ -120,12 +120,6 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
                                     <span>•</span>
                                     <span>Updated: {new Date(task.updated_at * 1000).toLocaleString()}</span>
                                 </div>
-                                {task.summary && (
-                                    <div className="mt-2 text-xs bg-slate-100 dark:bg-slate-900 p-2 rounded text-muted-foreground border-l-2 border-green-500">
-                                        <div className="font-semibold text-[10px] uppercase mb-1 text-green-600 dark:text-green-400">Task Summary</div>
-                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{task.summary}</ReactMarkdown>
-                                    </div>
-                                )}
                             </div>
                             <Badge variant={task.status === 'completed' ? 'default' : task.status === 'in_progress' ? 'secondary' : task.status === 'failed' ? 'destructive' : 'outline'}>
                                 {task.status}
