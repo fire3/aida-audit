@@ -1123,18 +1123,3 @@ class McpService:
             dict: Contains 'success' boolean.
         """
         return audit_mcp_tools.audit_plan_update(plan_id, notes)
-
-    @mcp_tool(name="audit_log_progress")
-    def audit_log_progress(self, message: str, plan_id: int = None) -> Dict[str, Any]:
-        """Log a general progress message or a specific update for a plan item.
-        
-        Use this to record your thoughts, decisions, or intermediate results that don't fit into a specific finding.
-
-        Args:
-            message: The progress message to log.
-            plan_id: Optional plan task ID to associate this log with.
-
-        Returns:
-            dict: Contains 'log_id' of the created log entry.
-        """
-        return audit_mcp_tools.audit_log_progress(message, plan_id)
