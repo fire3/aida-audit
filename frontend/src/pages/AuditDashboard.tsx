@@ -310,7 +310,7 @@ export function AuditDashboard() {
   const [manualSessionId, setManualSessionId] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [streamMessages, setStreamMessages] = useState<AuditMessage[]>([]);
-  const [liveChunkContent, setLiveChunkContent] = useState<{ reasoning: string; content: string }>({ reasoning: '', content: '' });
+  const [liveChunkContent, setLiveChunkContent] = useState<{ reasoning: string; content: string; inThinking: boolean }>({ reasoning: '', content: '', inThinking: false });
   const streamRef = useRef<{ close: () => void } | null>(null);
   
   const { data: status } = useQuery({ queryKey: ['auditStatus'], queryFn: auditApi.getStatus, refetchInterval: autoRefresh ? 2000 : false });
@@ -363,15 +363,40 @@ export function AuditDashboard() {
           if (msg.type === 'chunk') {
             const chunkType = msg.chunk_type;
             const chunkContent = msg.content || '';
-            setLiveChunkContent(prev => ({
-              ...prev,
-              [chunkType as 'reasoning' | 'content']: prev[chunkType as 'reasoning' | 'content'] + chunkContent
-            }));
+            
+            setLiveChunkContent(prev => {
+              let newReasoning = prev.reasoning;
+              let newContent = prev.content;
+              let inThinking = prev.inThinking;
+              
+              // Check for think tags in the new chunk
+              if (chunkType === 'reasoning') {
+                // Process think tag state
+                if (chunkContent.includes('<think>')) {
+                  inThinking = true;
+                }
+                if (chunkContent.includes('</think>')) {
+                  inThinking = false;
+                }
+                newReasoning += chunkContent;
+              } else {
+                // Check for think tags in content chunk too
+                if (chunkContent.includes('<think>')) {
+                  inThinking = true;
+                }
+                if (chunkContent.includes('</think>')) {
+                  inThinking = false;
+                }
+                newContent += chunkContent;
+              }
+              
+              return { reasoning: newReasoning, content: newContent, inThinking };
+            });
             return;
           }
           
           // Clear live chunk content when receiving a complete message
-          setLiveChunkContent({ reasoning: '', content: '' });
+          setLiveChunkContent({ reasoning: '', content: '', inThinking: false });
           
           // Add new message to stream
           const newMsg: AuditMessage = {
@@ -388,7 +413,7 @@ export function AuditDashboard() {
           console.log('Session stream ended');
           queryClient.invalidateQueries({ queryKey: ['auditSessions'] });
           queryClient.invalidateQueries({ queryKey: ['auditStatus'] });
-          setLiveChunkContent({ reasoning: '', content: '' });
+          setLiveChunkContent({ reasoning: '', content: '', inThinking: false });
         },
         (err) => {
           console.error('Stream error:', err);
@@ -401,7 +426,7 @@ export function AuditDashboard() {
         streamRef.current = null;
       }
       setStreamMessages([]);
-      setLiveChunkContent({ reasoning: '', content: '' });
+      setLiveChunkContent({ reasoning: '', content: '', inThinking: false });
     }
     
     return () => {
@@ -437,7 +462,7 @@ export function AuditDashboard() {
     const container = document.getElementById('live-stream-output');
     if (!container) return;
     container.scrollTop = container.scrollHeight;
-  }, [activeTab, liveMessages.length]);
+  }, [activeTab, liveMessages.length, liveChunkContent.content, liveChunkContent.reasoning]);
 
   useEffect(() => {
     if (!lastLiveMessage) return;
@@ -525,7 +550,7 @@ export function AuditDashboard() {
     return { thinkContent, mainContent };
   };
 
-  const renderOutput = (messageList: AuditMessage[] | undefined, title: string, headerMeta?: React.ReactNode, scrollId?: string, liveChunk?: { reasoning: string; content: string }) => {
+  const renderOutput = (messageList: AuditMessage[] | undefined, title: string, headerMeta?: React.ReactNode, scrollId?: string, liveChunk?: { reasoning: string; content: string; inThinking: boolean }) => {
     const visibleMessages = (messageList || []).filter(m => m.role === 'assistant' || m.role === 'tool_call' || m.role === 'tool_result');
     const hasLiveChunk = liveChunk && (liveChunk.reasoning || liveChunk.content);
     return (
@@ -613,10 +638,10 @@ export function AuditDashboard() {
           {/* Live chunk display - real-time streaming content */}
           {hasLiveChunk && (
             <div className="mb-4">
-              {liveChunk.reasoning && (
-                <details className="mb-2 rounded border border-slate-800/70 bg-slate-900/40 px-2 py-1" open>
+              {(liveChunk.reasoning || liveChunk.inThinking) && (
+                <details className="mb-2 rounded border border-slate-800/70 bg-slate-900/40 px-2 py-1" open={liveChunk.inThinking || liveChunk.reasoning.includes('<think>')}>
                   <summary className="cursor-pointer text-slate-400 text-xs hover:text-slate-300 mb-1 select-none">
-                    ⟪ thinking (streaming...)
+                    ⟪ thinking {liveChunk.inThinking ? '(streaming...)' : ''}
                   </summary>
                   <div className="pl-2 pb-1 text-slate-400 text-xs whitespace-pre-wrap">
                     {liveChunk.reasoning}
