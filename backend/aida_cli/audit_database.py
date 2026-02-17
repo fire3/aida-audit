@@ -282,6 +282,17 @@ class AuditDatabase:
         self.commit()
         return cursor.rowcount > 0
 
+    def reset_in_progress_plans(self) -> int:
+        """Reset all in_progress plans to pending status."""
+        timestamp = int(time.time())
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE audit_plans SET status = 'pending', updated_at = ? WHERE status = 'in_progress'",
+            (timestamp,)
+        )
+        self.commit()
+        return cursor.rowcount
+
     def get_plans(self, status: Optional[str] = None, plan_type: Optional[str] = None) -> List[Dict[str, Any]]:
         query = "SELECT id, parent_id, title, description, status, created_at, updated_at, plan_type, binary_name, summary FROM audit_plans"
         conditions = []

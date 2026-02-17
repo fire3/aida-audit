@@ -403,6 +403,11 @@ class AuditService:
         if self.status == "running":
             return
         
+        # Reset any stuck in_progress plans to pending
+        count = self.audit_db.reset_in_progress_plans()
+        if count > 0:
+            self.audit_db.log_progress(f"系统启动: 重置了 {count} 个未完成的任务为 pending 状态。")
+        
         self._stop_event.clear()
         self.status = "running"
         self._error = None
