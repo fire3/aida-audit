@@ -196,17 +196,20 @@ class BaseAgent:
                     try:
                         # Ensure arguments is valid JSON
                         args = json.loads(tc["arguments"])
-                        valid_tool_calls.append({
-                            "id": tc.get("id", f"call_{int(time.time() * 1000)}"),
-                            "type": "function",
-                            "function": {
-                                "name": tc["name"],
-                                "arguments": json.dumps(args)
-                            }
-                        })
+                        # Re-dump to normalize
+                        normalized_args = json.dumps(args)
                     except json.JSONDecodeError:
-                        # Skip invalid tool calls
-                        pass
+                        # Keep original string if invalid, let downstream handle it
+                        normalized_args = tc["arguments"]
+                        
+                    valid_tool_calls.append({
+                        "id": tc.get("id", f"call_{int(time.time() * 1000)}"),
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": normalized_args
+                        }
+                    })
             
             if valid_tool_calls:
                 message["tool_calls"] = valid_tool_calls
@@ -265,6 +268,7 @@ class BaseAgent:
                             
                     except Exception as e:
                         result_str = f"Error: {str(e)}"
+                        self.audit_db.log_progress(f"[{self.name}] 工具执行失败: {func_name} - {str(e)}")
                         self._add_message(self.session_id, "tool_result", result_str)
 
                     messages.append({
@@ -513,7 +517,8 @@ class AuditService:
                     if not self._stop_event.is_set():
                         self.audit_db.update_plan_status(task['id'], "completed")
                     else:
-                        self.audit_db.log_progress(f"任务 '{task['title']}' 被用户停止，未标记为完成")
+                        self.audit_db.log_progress(f"任务 '{task['title']}' 被用户停止，重置为 pending")
+                        self.audit_db.update_plan_status(task['id'], "pending")
 
                 # Optional: Sleep briefly between sessions
                 time.sleep(2)
