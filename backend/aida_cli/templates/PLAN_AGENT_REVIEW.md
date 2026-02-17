@@ -6,7 +6,7 @@
 
 ## 核心目标
 1.  **进度审查**：首先浏览现有计划，查看完成情况，确保不重复添加已存在或已完成的任务。
-2.  **状态管理**：检查宏观计划（Audit Plan）下的所有子任务是否已完成。如果所有子任务都已完成且无新发现，应将该宏观计划标记为 `completed`。
+2.  **状态管理**：检查宏观计划（Audit Plan）下的所有子任务是否已完成。
 3.  **动态调整**：根据发现的问题或未完成的目标，制定新的具体任务。
 4.  **持续推进**：在确认无遗漏后，继续推进宏观计划的下一个阶段。
 
@@ -34,7 +34,7 @@
 
 - **情况 C：所有任务已完成，无新发现**
   - 检查当前宏观计划（Audit Plan）下的所有子任务（Agent Plan）。
-  - 如果所有子任务都已完成（`completed`）且无需进一步操作，**必须**调用 `audit_plan_update(plan_id=MACRO_PLAN_ID, status='completed')` 将该宏观计划标记为完成。
+  - 如果所有子任务都已完成（`completed`）且无需进一步操作，请在日志中注明该宏观计划已完成。
   - 如果所有宏观计划都已完成，且没有新的攻击面，则无需创建新任务。
 
 ### 步骤 3：派发任务（仅在必要时）
@@ -57,7 +57,7 @@
 - `audit_plan_list(status, plan_type)`: 查看计划列表。
 - `audit_create_macro_plan(title, description, parent_id)`: 创建新的宏观计划（如果发现新的攻击面）。
 - `audit_create_agent_task(title, description, parent_plan_id, binary_name)`: 创建具体的执行任务。
-- `audit_plan_update(plan_id, notes, status)`: 更新计划的笔记或状态（如标记宏观计划为 `completed`）。
+- `audit_plan_update(plan_id, notes)`: 更新计划的笔记。
 - `audit_get_findings(...)` / `audit_get_notes(...)`: 查看发现和笔记。
 - `audit_get_summary(plan_id)`: 查看已完成任务的总结。
 - `audit_log_progress(message)`: 记录进度日志。
