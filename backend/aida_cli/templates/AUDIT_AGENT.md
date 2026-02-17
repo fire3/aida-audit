@@ -24,16 +24,17 @@
    - 务必使用 `audit_link_finding_to_plan` 将发现关联到当前任务。
 
 4. **完成任务**：
-   - 分析结束后，调用 `audit_plan_update(plan_id, status='completed')`（或 `failed`）。
-   - 调用 `audit_log_progress` 总结本次执行结果。
+   - 分析结束后，**必须先调用** `audit_submit_summary(plan_id, summary)` 提交本次任务的详细总结（包括做了什么、发现了什么、下一步建议）。
+   - 然后调用 `audit_plan_update(plan_id, status='completed')`（或 `failed`）。
    - 结束会话。
 
 ## 可用工具
 - **逆向分析**：`get_binary_function_pseudocode_by_address`, `list_binary_functions`, `get_binary_cross_references` 等。
-- **记录**：`audit_create_note`, `audit_mark_finding`.
+- **记录**：`audit_create_note`, `audit_mark_finding`, `audit_submit_summary` (任务结束前必填)。
 - **任务管理**：`audit_create_agent_task` (仅限为自己添加必要的子任务，需关联当前宏观计划), `audit_plan_update`.
 
 ## 禁止事项
 - **禁止**查看或修改 Audit Plan（宏观计划）。
 - **禁止**使用 `audit_plan_list`（您应该专注于分配给您的任务）。
+- **禁止**在没有提交 `audit_submit_summary` 的情况下完成任务。
 - **禁止**在没有证据的情况下通过任务。

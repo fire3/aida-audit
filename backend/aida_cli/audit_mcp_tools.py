@@ -30,13 +30,28 @@ def audit_create_macro_plan(title: str, description: str, parent_id: Optional[in
     plan_id = db.add_plan(title, description, parent_id, plan_type='audit_plan')
     return {"plan_id": plan_id, "status": "success", "type": "audit_plan"}
 
-def audit_create_agent_task(title: str, description: str, parent_plan_id: int) -> Dict[str, Any]:
+def audit_create_agent_task(title: str, description: str, parent_plan_id: int, binary_name: str) -> Dict[str, Any]:
     """Create a specific executable task for an agent (Agent Plan)."""
     db = get_audit_db()
     # Verify parent exists and is an audit_plan? (Optional but good practice)
     # For now, just create it.
-    plan_id = db.add_plan(title, description, parent_id=parent_plan_id, plan_type='agent_plan')
+    plan_id = db.add_plan(title, description, parent_id=parent_plan_id, plan_type='agent_plan', binary_name=binary_name)
     return {"plan_id": plan_id, "status": "success", "type": "agent_plan"}
+
+def audit_submit_summary(plan_id: int, summary: str) -> Dict[str, Any]:
+    """Submit a summary for a completed plan task."""
+    db = get_audit_db()
+    success = db.update_plan_summary(plan_id, summary)
+    return {"success": success}
+
+def audit_get_summary(plan_id: int) -> Dict[str, Any]:
+    """Get the summary of a plan task."""
+    db = get_audit_db()
+    plans = db.get_plans() # This is inefficient but okay for prototype. Better to add get_plan_by_id
+    plan = next((p for p in plans if p['id'] == plan_id), None)
+    if plan:
+        return {"plan_id": plan_id, "summary": plan.get("summary")}
+    return {"plan_id": plan_id, "summary": None, "error": "Plan not found"}
 
 def audit_plan_update(plan_id: int, notes: Optional[str] = None) -> Dict[str, Any]:
     db = get_audit_db()

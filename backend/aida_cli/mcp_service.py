@@ -1049,7 +1049,7 @@ class McpService:
         return audit_mcp_tools.audit_create_macro_plan(title, description, parent_id)
 
     @mcp_tool(name="audit_create_agent_task")
-    def audit_create_agent_task(self, title: str, description: str, parent_plan_id: int) -> Dict[str, Any]:
+    def audit_create_agent_task(self, title: str, description: str, parent_plan_id: int, binary_name: str) -> Dict[str, Any]:
         """Create a specific executable task for the Audit Agent.
         
         Use this for assigning concrete work (e.g., 'Analyze login() function').
@@ -1059,11 +1059,40 @@ class McpService:
             title: The title of the task.
             description: Specific instructions for the agent (function name, address, goal).
             parent_plan_id: The ID of the parent Macro Plan this task belongs to.
+            binary_name: The name of the binary to analyze.
 
         Returns:
             dict: Contains 'plan_id' of the created task.
         """
-        return audit_mcp_tools.audit_create_agent_task(title, description, parent_plan_id)
+        return audit_mcp_tools.audit_create_agent_task(title, description, parent_plan_id, binary_name)
+
+    @mcp_tool(name="audit_submit_summary")
+    def audit_submit_summary(self, plan_id: int, summary: str) -> Dict[str, Any]:
+        """Submit a final summary for a completed task.
+        
+        Use this to record the final outcome, key findings, and conclusion of the task.
+        This should be called BEFORE marking the task as completed.
+
+        Args:
+            plan_id: The ID of the task.
+            summary: The summary text.
+
+        Returns:
+            dict: Contains 'success' boolean.
+        """
+        return audit_mcp_tools.audit_submit_summary(plan_id, summary)
+
+    @mcp_tool(name="audit_get_summary")
+    def audit_get_summary(self, plan_id: int) -> Dict[str, Any]:
+        """Get the summary of a plan task.
+
+        Args:
+            plan_id: The ID of the task.
+
+        Returns:
+            dict: Contains 'summary' text.
+        """
+        return audit_mcp_tools.audit_get_summary(plan_id)
 
     @mcp_tool(name="audit_plan_list")
     def audit_plan_list(self, status: str = None, plan_type: str = None) -> List[Dict[str, Any]]:

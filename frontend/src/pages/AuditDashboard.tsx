@@ -111,6 +111,11 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
                             <StatusIcon status={task.status} />
                             <div className="flex-1">
                                 <div className="text-sm font-medium">{task.title}</div>
+                                {task.binary_name && (
+                                    <div className="text-xs font-mono text-purple-600 dark:text-purple-400 mb-0.5">
+                                        Target: {task.binary_name}
+                                    </div>
+                                )}
                                 <div className="text-xs text-muted-foreground flex items-center gap-2">
                                     <span>ID: {task.id}</span>
                                     <span>•</span>
@@ -118,6 +123,12 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
                                     <span>•</span>
                                     <span>Updated: {new Date(task.updated_at * 1000).toLocaleString()}</span>
                                 </div>
+                                {task.summary && (
+                                    <div className="mt-2 text-xs bg-slate-100 dark:bg-slate-900 p-2 rounded text-muted-foreground border-l-2 border-green-500">
+                                        <div className="font-semibold text-[10px] uppercase mb-1 text-green-600 dark:text-green-400">Task Summary</div>
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{task.summary}</ReactMarkdown>
+                                    </div>
+                                )}
                             </div>
                             <Badge variant={task.status === 'completed' ? 'default' : task.status === 'in_progress' ? 'secondary' : task.status === 'failed' ? 'destructive' : 'outline'}>
                                 {task.status}
@@ -170,6 +181,8 @@ function ToolCall({ name, args, result }: { name: string, args: any, result?: st
 }
 
 function ChatMessage({ msg }: { msg: any }) {
+    const [systemExpanded, setSystemExpanded] = useState(false);
+
     // Check if message content contains <think> tags
     const thinkMatch = msg.content && typeof msg.content === 'string' ? msg.content.match(/<think>([\s\S]*?)<\/think>/) : null;
     let thinkContent = thinkMatch ? thinkMatch[1] : null;
@@ -201,6 +214,30 @@ function ChatMessage({ msg }: { msg: any }) {
         );
     }
 
+    if (msg.role === 'system') {
+        return (
+            <div className="flex justify-start mb-4">
+                <div className="flex flex-col max-w-[90%] md:max-w-[80%] items-start">
+                    <span className="text-[10px] text-muted-foreground mb-1 uppercase tracking-wider font-semibold ml-1">System</span>
+                    <div className="rounded-lg border bg-gray-50 text-gray-600 text-xs font-mono overflow-hidden w-full shadow-sm">
+                         <div 
+                            className="p-2 bg-gray-100 border-b cursor-pointer flex items-center justify-between hover:bg-gray-200 transition-colors"
+                            onClick={() => setSystemExpanded(!systemExpanded)}
+                         >
+                            <span className="font-semibold">System Prompt</span>
+                            {systemExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                         </div>
+                         {systemExpanded && (
+                             <div className="p-3 whitespace-pre-wrap max-h-[500px] overflow-auto">
+                                {mainContent}
+                             </div>
+                         )}
+                    </div>
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
              <div className={`flex flex-col max-w-[90%] md:max-w-[80%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
@@ -208,9 +245,7 @@ function ChatMessage({ msg }: { msg: any }) {
                
                <div className={`rounded-lg p-3 shadow-sm ${
                   msg.role === 'user' 
-                      ? 'bg-blue-600 text-white' 
-                      : msg.role === 'system'
-                      ? 'bg-gray-200 text-gray-800 text-xs font-mono border'
+                      ? 'bg-blue-50 text-slate-800 border border-blue-200 dark:bg-blue-900/20 dark:text-blue-100 dark:border-blue-800' 
                       : 'bg-white dark:bg-slate-800 border'
                }`}>
                  {thinkContent && (
@@ -257,7 +292,7 @@ function ChatMessage({ msg }: { msg: any }) {
 
 export function AuditDashboard() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'plan' | 'logs' | 'memory' | 'chat' | 'findings'>('plan');
+  const [activeTab, setActiveTab] = useState<'plan' | 'logs' | 'memory' | 'chat' | 'findings' | 'notes'>('plan');
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   
@@ -362,7 +397,13 @@ export function AuditDashboard() {
           onClick={() => setActiveTab('findings')}
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'findings' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
-          <AlertTriangle className="w-4 h-4" /> Findings & Notes
+          <AlertTriangle className="w-4 h-4" /> Findings
+        </button>
+        <button 
+          onClick={() => setActiveTab('notes')}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'notes' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+        >
+          <StickyNote className="w-4 h-4" /> Notes
         </button>
         <button 
           onClick={() => setActiveTab('logs')}
@@ -439,8 +480,7 @@ export function AuditDashboard() {
         )}
         
         {activeTab === 'findings' && (
-          <div className="h-full overflow-auto">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4">
+          <div className="h-full overflow-auto p-4">
               <Card className="flex flex-col h-fit">
                   <div className="p-4 border-b bg-slate-50 dark:bg-slate-900/50 font-semibold flex items-center gap-2">
                       <AlertTriangle className="w-4 h-4 text-red-500" /> Security Findings
@@ -488,7 +528,11 @@ export function AuditDashboard() {
                       )}
                   </CardContent>
               </Card>
-              
+          </div>
+        )}
+
+        {activeTab === 'notes' && (
+          <div className="h-full overflow-auto p-4">
               <Card className="flex flex-col h-fit">
                   <div className="p-4 border-b bg-slate-50 dark:bg-slate-900/50 font-semibold flex items-center gap-2">
                       <StickyNote className="w-4 h-4 text-blue-500" /> Analysis Notes
@@ -527,7 +571,6 @@ export function AuditDashboard() {
                       )}
                   </CardContent>
               </Card>
-              </div>
           </div>
         )}
 

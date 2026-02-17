@@ -205,6 +205,17 @@ class PlanAgent(BaseAgent):
     def name(self) -> str:
         return "PLAN_AGENT"
     
+    def get_system_prompt(self) -> str:
+        try:
+            plans = self.audit_db.get_plans(plan_type='audit_plan')
+            if not plans:
+                return load_agent_prompt("PLAN_AGENT_INITIAL")
+            else:
+                return load_agent_prompt("PLAN_AGENT_REVIEW")
+        except Exception as e:
+            print(f"Error checking plans: {e}")
+            return load_agent_prompt("PLAN_AGENT_INITIAL")
+
     def get_initial_context(self) -> str:
         project_path = os.path.abspath(self.project_path)
         binaries = self.project_store.get_project_binaries(detail=True) if hasattr(self, 'project_store') and self.project_store else []

@@ -210,6 +210,14 @@ class AuditDatabase:
             self.log("Migrating schema: Adding plan_type to audit_plans")
             cursor.execute("ALTER TABLE audit_plans ADD COLUMN plan_type TEXT DEFAULT 'agent_plan'")
 
+        if "binary_name" not in columns:
+            self.log("Migrating schema: Adding binary_name to audit_plans")
+            cursor.execute("ALTER TABLE audit_plans ADD COLUMN binary_name TEXT")
+
+        if "summary" not in columns:
+            self.log("Migrating schema: Adding summary to audit_plans")
+            cursor.execute("ALTER TABLE audit_plans ADD COLUMN summary TEXT")
+
     def _ensure_tags(self, cursor=None):
         pass  # Placeholder to ensure non-identity replacement if needed, though logically identical context
         if cursor is None:
@@ -244,15 +252,25 @@ class AuditDatabase:
         return tag_ids
 
     # ========== Plan Operations ==========
-    def add_plan(self, title: str, description: str, parent_id: Optional[int] = None, plan_type: str = 'agent_plan') -> int:
+    def add_plan(self, title: str, description: str, parent_id: Optional[int] = None, plan_type: str = 'agent_plan', binary_name: Optional[str] = None) -> int:
         timestamp = int(time.time())
         cursor = self.conn.cursor()
         cursor.execute(
-            "INSERT INTO audit_plans (title, description, status, created_at, updated_at, parent_id, plan_type) VALUES (?, ?, 'pending', ?, ?, ?, ?)",
-            (title, description, timestamp, timestamp, parent_id, plan_type)
+            "INSERT INTO audit_plans (title, description, status, created_at, updated_at, parent_id, plan_type, binary_name) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?)",
+            (title, description, timestamp, timestamp, parent_id, plan_type, binary_name)
         )
         self.commit()
         return cursor.lastrowid
+
+    def update_plan_summary(self, plan_id: int, summary: str) -> bool:
+        timestamp = int(time.time())
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE audit_plans SET summary = ?, updated_at = ? WHERE id = ?",
+            (summary, timestamp, plan_id)
+        )
+        self.commit()
+        return cursor.rowcount > 0
 
     def update_plan_status(self, plan_id: int, status: str, notes: Optional[str] = None) -> bool:
         timestamp = int(time.time())
@@ -271,7 +289,7 @@ class AuditDatabase:
         return cursor.rowcount > 0
 
     def get_plans(self, status: Optional[str] = None, plan_type: Optional[str] = None) -> List[Dict[str, Any]]:
-        query = "SELECT id, parent_id, title, description, status, created_at, updated_at, plan_type FROM audit_plans"
+        query = "SELECT id, parent_id, title, description, status, created_at, updated_at, plan_type, binary_name, summary FROM audit_plans"
         conditions = []
         params = []
         
