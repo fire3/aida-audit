@@ -19,7 +19,7 @@ def load_agent_prompt(agent_name: str) -> str:
             return f.read()
     except FileNotFoundError:
         print(f"Warning: {filename} not found, using default prompt.")
-        return "You are a helpful security auditor."
+        return "你是一位专业的安全审计专家。"
 
 def get_tools_for_llm(mcp_client: McpClient) -> List[Dict[str, Any]]:
     """Fetch tools from MCP and convert to OpenAI tool format."""
@@ -69,7 +69,7 @@ class BaseAgent:
         return ""
     
     def get_initial_context(self) -> str:
-        return f"PROJECT_PATH: {os.path.abspath(self.project_path)}"
+        return ""
         
     def get_tools(self) -> List[Dict]:
         return self.all_tools
@@ -90,7 +90,7 @@ class BaseAgent:
         if self.on_session_start:
             self.on_session_start(self.session_id, self.name)
             
-        self.audit_db.log_progress(f"Starting session: {self.session_id} ({self.name})")
+        self.audit_db.log_progress(f"开始会话: {self.session_id} ({self.name})")
 
         # Record initial prompts
         self.audit_db.add_message(self.session_id, "system", f"{initial_context}\n\n{system_prompt}")
@@ -101,7 +101,7 @@ class BaseAgent:
 
         while turn_count < max_turns:
             if stop_event.is_set():
-                self.audit_db.log_progress(f"[{self.name}] Session ended: stopped by user (turn {turn_count})")
+                self.audit_db.log_progress(f"[{self.name}] 会话结束: 用户停止 (第 {turn_count} 轮)")
                 break
 
             turn_count += 1
@@ -110,7 +110,7 @@ class BaseAgent:
             try:
                 response = self.llm_client.chat_completion(messages, tools=tools)
             except Exception as e:
-                self.audit_db.log_progress(f"LLM Call Failed: {e}")
+                self.audit_db.log_progress(f"LLM 调用失败: {e}")
                 time.sleep(5)
                 continue
 
@@ -127,16 +127,16 @@ class BaseAgent:
             # Check for completion signal
             if not tool_calls:
                 if content:
-                    self.audit_db.log_progress(f"[{self.name}] Session ended: normal completion (turn {turn_count})")
+                    self.audit_db.log_progress(f"[{self.name}] 会话结束: 正常完成 (第 {turn_count} 轮)")
                 else:
-                    self.audit_db.log_progress(f"[{self.name}] Session ended: no response (turn {turn_count})")
+                    self.audit_db.log_progress(f"[{self.name}] 会话结束: 无响应 (第 {turn_count} 轮)")
                 break
 
             # Handle Tool Calls
             if tool_calls:
                 for tool_call in tool_calls:
                     if stop_event.is_set():
-                        self.audit_db.log_progress(f"[{self.name}] Session ended: stopped during tool execution (turn {turn_count})")
+                        self.audit_db.log_progress(f"[{self.name}] 会话结束: 工具执行中停止 (第 {turn_count} 轮)")
                         break
 
                     func_name = tool_call["function"]["name"]
@@ -178,18 +178,9 @@ class BaseAgent:
         
         # Log session end reason
         if turn_count >= max_turns:
-            self.audit_db.log_progress(f"[{self.name}] Session ended: max turns reached ({max_turns})")
+            self.audit_db.log_progress(f"[{self.name}] 会话结束: 达到最大轮数 ({max_turns})")
 
 PLAN_AGENT_EXCLUDE = {
-    'audit_create_note', 'audit_get_notes', 'audit_update_note', 'audit_delete_note',
-    'audit_mark_finding', 'audit_get_findings', 'audit_get_analysis_progress',
-    'audit_link_finding_to_plan', 'audit_unlink_finding_from_plan',
-    'audit_get_plan_findings', 'audit_get_finding_plans',
-    'audit_log_progress'
-}
-
-AUDIT_AGENT_EXCLUDE = {
-    'audit_create_macro_plan', 'audit_plan_update', 'audit_plan_list',
     'audit_create_note', 'audit_get_notes', 'audit_update_note', 'audit_delete_note',
     'audit_mark_finding', 'audit_get_findings', 'audit_get_analysis_progress',
     'audit_link_finding_to_plan', 'audit_unlink_finding_from_plan',
@@ -215,25 +206,15 @@ class PlanAgent(BaseAgent):
             return load_agent_prompt("PLAN_AGENT_INITIAL")
 
     def get_initial_context(self) -> str:
-        project_path = os.path.abspath(self.project_path)
-        binaries = self.project_store.get_project_binaries(detail=True) if hasattr(self, 'project_store') and self.project_store else []
-        binary_info = []
-        for b in binaries[:10]:
-            binary_info.append(f"- {b.get('name', 'unknown')}: {b.get('architecture', '?')}, {b.get('file_type', '?')}")
-        binaries_desc = "\n".join(binary_info) if binary_info else "No binaries found"
-        return f"""PROJECT_PATH: {project_path}
-
-AVAILABLE BINARIES:
-{binaries_desc}
-
-Please create audit plans for security analysis of these binaries."""
+        return f"""
+请为这些二进制文件创建安全审计计划。"""
         
     def get_tools(self) -> List[Dict]:
         tools = [
             t for t in self.all_tools
             if t['function']['name'] not in PLAN_AGENT_EXCLUDE
         ]
-        self.audit_db.log_progress(f"PlanAgent: Using {len(tools)} tools (excluded: {len(self.all_tools) - len(tools)})")
+        self.audit_db.log_progress(f"计划代理: 使用 {len(tools)} 个工具 (排除: {len(self.all_tools) - len(tools)})")
         return tools
 
 class AuditAgent(BaseAgent):
@@ -259,7 +240,7 @@ class AuditAgent(BaseAgent):
             t for t in self.all_tools 
             if t['function']['name'] in {keep_tool} or t['function']['name'] not in plan_tools
         ]
-        self.audit_db.log_progress(f"AuditAgent: Using {len(tools)} tools (excluded: {len(self.all_tools) - len(tools)})")
+        self.audit_db.log_progress(f"审计代理: 使用 {len(tools)} 个工具 (排除: {len(self.all_tools) - len(tools)})")
         return tools
 
     def get_initial_message(self) -> str:
@@ -315,7 +296,7 @@ class AuditService:
             # 1. Check LLM Config
             api_key = config.get_llm_api_key()
             if not api_key:
-                raise ValueError("LLM API Key not found. Please configure it via CLI or settings.")
+                raise ValueError("未找到 LLM API Key，请通过 CLI 或设置进行配置。")
 
             # 2. Initialize MCP Client
             mcp_transport = config.mcp.get("transport", "http")
@@ -333,9 +314,9 @@ class AuditService:
                 mcp_client.initialize()
                 tools = get_tools_for_llm(mcp_client)
                 tool_names = [t["function"]["name"] for t in tools]
-                self.audit_db.log_progress(f"Audit Service: Connected to MCP, loaded {len(tools)} tools: {tool_names}")
+                self.audit_db.log_progress(f"审计服务: 已连接到 MCP，加载了 {len(tools)} 个工具: {tool_names}")
             except Exception as e:
-                raise RuntimeError(f"Failed to initialize MCP: {e}")
+                raise RuntimeError(f"MCP 初始化失败: {e}")
 
             # 3. Initialize LLM Client
             llm_client = LLMClient(
@@ -347,7 +328,7 @@ class AuditService:
             # 4. Alternating Loop
             while not self._stop_event.is_set():
                 # Step 1: Run Plan Agent
-                self.audit_db.log_progress("Starting Planning Phase...")
+                self.audit_db.log_progress("开始规划阶段...")
                 plan_agent = PlanAgent(
                     llm_client, 
                     mcp_client, 
@@ -362,15 +343,15 @@ class AuditService:
                     break
 
                 # Step 2: Run Audit Agent
-                self.audit_db.log_progress("Starting Execution Phase...")
+                self.audit_db.log_progress("开始执行阶段...")
                 
                 # Fetch pending agent plans
                 pending_tasks = self.audit_db.get_plans(status="pending", plan_type="agent_plan")
                 if not pending_tasks:
-                     self.audit_db.log_progress("No pending agent tasks found. Skipping Execution Phase.")
+                     self.audit_db.log_progress("没有待执行的 Agent 任务，跳过执行阶段。")
                 else:
                     task = pending_tasks[0]
-                    self.audit_db.log_progress(f"Assigning task to Audit Agent: {task['title']} (ID: {task['id']})")
+                    self.audit_db.log_progress(f"正在分配任务给审计代理: {task['title']} (ID: {task['id']})")
                     
                     # Mark task as in_progress
                     self.audit_db.update_plan_status(task['id'], "in_progress")
@@ -398,7 +379,7 @@ class AuditService:
             traceback.print_exc()
             if self.audit_db:
                 try:
-                    self.audit_db.log_progress(f"Audit Service Failed: {e}")
+                    self.audit_db.log_progress(f"审计服务失败: {e}")
                 except:
                     pass
         finally:
