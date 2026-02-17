@@ -137,6 +137,10 @@ class BaseAgent:
                         self.audit_db.log_progress(f"[{self.name}] 会话中断: 用户停止 (第 {turn_count} 轮)")
                         self._session_messages = []  # Discard messages on stop
                         break
+                    
+                    # Handle non-choice chunks (log, heartbeat, etc.)
+                    if "choices" not in chunk or not chunk["choices"]:
+                        continue
                         
                     delta = chunk.get("choices", [{}])[0].get("delta", {})
                     
@@ -176,8 +180,28 @@ class BaseAgent:
             message = {"role": "assistant"}
             if accumulated_content:
                 message["content"] = accumulated_content
-            if tool_calls_buffer:
-                message["tool_calls"] = tool_calls_buffer
+            
+            # Build proper tool_calls structure
+            valid_tool_calls = []
+            for tc in tool_calls_buffer:
+                if tc.get("function", {}).get("name") and tc.get("function", {}).get("arguments"):
+                    try:
+                        # Ensure arguments is valid JSON
+                        args = json.loads(tc["function"]["arguments"])
+                        valid_tool_calls.append({
+                            "id": tc.get("id", f"call_{int(time.time() * 1000)}"),
+                            "type": "function",
+                            "function": {
+                                "name": tc["function"]["name"],
+                                "arguments": json.dumps(args)
+                            }
+                        })
+                    except json.JSONDecodeError:
+                        # Skip invalid tool calls
+                        pass
+            
+            if valid_tool_calls:
+                message["tool_calls"] = valid_tool_calls
                 
             messages.append(message)
             

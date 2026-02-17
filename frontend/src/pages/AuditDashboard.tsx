@@ -170,7 +170,7 @@ export function AuditDashboard() {
     staleTime: 0
   });
 
-  // Setup SSE streaming for current session
+  // Setup SSE streaming for current session only if user selected the active session
   useEffect(() => {
     if (isCurrentSession && selectedSession) {
       // Clear previous stream messages
