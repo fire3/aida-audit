@@ -292,14 +292,13 @@ function ChatMessage({ msg }: { msg: any }) {
 
 export function AuditDashboard() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'plan' | 'logs' | 'memory' | 'chat' | 'findings' | 'notes'>('plan');
+  const [activeTab, setActiveTab] = useState<'plan' | 'logs' | 'chat' | 'findings' | 'notes'>('plan');
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   
   const { data: status } = useQuery({ queryKey: ['auditStatus'], queryFn: auditApi.getStatus, refetchInterval: autoRefresh ? 2000 : false });
   const { data: plans } = useQuery({ queryKey: ['auditPlans'], queryFn: () => auditApi.getPlans(), refetchInterval: autoRefresh ? 5000 : false });
   const { data: logs } = useQuery({ queryKey: ['auditLogs'], queryFn: () => auditApi.getLogs(), refetchInterval: autoRefresh ? 2000 : false });
-  const { data: memory } = useQuery({ queryKey: ['auditMemory'], queryFn: auditApi.getMemory, refetchInterval: autoRefresh ? 10000 : false });
   
   const { data: sessions } = useQuery({ queryKey: ['auditSessions'], queryFn: auditApi.getSessions, refetchInterval: autoRefresh ? 10000 : false });
 
@@ -410,12 +409,6 @@ export function AuditDashboard() {
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'logs' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
           <Terminal className="w-4 h-4" /> Live Logs
-        </button>
-        <button 
-          onClick={() => setActiveTab('memory')}
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'memory' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-        >
-          <Database className="w-4 h-4" /> Memory
         </button>
       </div>
 
@@ -592,34 +585,7 @@ export function AuditDashboard() {
                )}
                </div>
             </CardContent>
-          </Card>
-        )}
-
-        {activeTab === 'memory' && (
-          <Card className="h-full flex flex-col border-0 shadow-none bg-transparent">
-            <CardContent className="flex-1 overflow-auto p-0">
-              {memory && Object.keys(memory).length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {Object.entries(memory).map(([key, value]) => (
-                          <div key={key} className="bg-card border p-4 rounded-lg shadow-sm">
-                              <div className="flex items-center gap-2 mb-2 pb-2 border-b">
-                                  <Database className="w-3 h-3 text-muted-foreground" />
-                                  <div className="font-semibold text-sm text-primary truncate" title={key}>{key}</div>
-                              </div>
-                              <pre className="text-xs whitespace-pre-wrap text-muted-foreground font-mono bg-slate-50 dark:bg-slate-900 p-2 rounded max-h-40 overflow-auto">
-                                  {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
-                              </pre>
-                          </div>
-                      ))}
-                  </div>
-              ) : (
-                  <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-                      <Database className="w-12 h-12 mb-4 opacity-20" />
-                      <p>Memory is empty.</p>
-                  </div>
-              )}
-            </CardContent>
-          </Card>
+           </Card>
         )}
       </div>
     </div>

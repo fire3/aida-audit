@@ -158,13 +158,7 @@ class AuditDatabase:
             )
         """)
 
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS audit_memory (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
-                updated_at INTEGER
-            )
-        """)
+
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS audit_messages (
@@ -333,33 +327,6 @@ class AuditDatabase:
         for row in cursor.fetchall():
             results.append(dict(zip(columns, row)))
         return results
-
-    # ========== Memory Operations ==========
-    def set_memory(self, key: str, value: Any):
-        timestamp = int(time.time())
-        json_value = json.dumps(value)
-        cursor = self.conn.cursor()
-        cursor.execute(
-            "INSERT INTO audit_memory (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
-            (key, json_value, timestamp)
-        )
-        self.commit()
-
-    def get_memory(self, key: str) -> Optional[Any]:
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT value FROM audit_memory WHERE key = ?", (key,))
-        row = cursor.fetchone()
-        if row:
-            return json.loads(row[0])
-        return None
-
-    def get_all_memories(self) -> Dict[str, Any]:
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT key, value FROM audit_memory")
-        result = {}
-        for row in cursor.fetchall():
-            result[row[0]] = json.loads(row[1])
-        return result
 
     # ========== Message Operations ==========
     def add_message(self, session_id: str, role: str, content: str):

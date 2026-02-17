@@ -542,15 +542,6 @@ def get_audit_logs(limit: int = 50):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.get("/audit/memory")
-def get_audit_memory():
-    if not audit_db:
-         return {}
-    try:
-        return audit_mcp_tools.audit_memory_list()
-    except Exception as e:
-         raise HTTPException(status_code=500, detail=str(e))
-
 @api_router.get("/audit/messages")
 def get_audit_messages(session_id: Optional[str] = None, limit: int = 100):
     if not audit_db:

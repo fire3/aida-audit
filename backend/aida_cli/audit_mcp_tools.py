@@ -86,22 +86,6 @@ def audit_log_progress(message: str, plan_id: Optional[int] = None) -> Dict[str,
     db.log_progress(message, plan_id)
     return {"status": "success"}
 
-# ========== Memory Operations ==========
-
-def audit_memory_set(key: str, value: Any) -> Dict[str, Any]:
-    db = get_audit_db()
-    db.set_memory(key, value)
-    return {"status": "success"}
-
-def audit_memory_get(key: str) -> Dict[str, Any]:
-    db = get_audit_db()
-    value = db.get_memory(key)
-    return {"key": key, "value": value}
-
-def audit_memory_list() -> Dict[str, Any]:
-    db = get_audit_db()
-    return db.get_all_memories()
-
 # ========== Note Operations ==========
 
 def audit_create_note(

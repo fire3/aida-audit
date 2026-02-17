@@ -131,12 +131,6 @@ export interface AuditMessage {
   timestamp: number;
 }
 
-export interface AuditMemory {
-  key: string;
-  value: any;
-  updated_at: number;
-}
-
 export interface AuditStatus {
   status: 'idle' | 'running' | 'completed' | 'failed' | 'not_initialized';
   error?: string;
@@ -181,11 +175,6 @@ export const auditApi = {
   
   getLogs: async (limit = 50) => {
     const res = await apiClient.get<AuditLog[]>('/audit/logs', { params: { limit } });
-    return res.data;
-  },
-  
-  getMemory: async () => {
-    const res = await apiClient.get<Record<string, any>>('/audit/memory');
     return res.data;
   },
   

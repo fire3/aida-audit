@@ -181,7 +181,6 @@ class BaseAgent:
             self.audit_db.log_progress(f"[{self.name}] Session ended: max turns reached ({max_turns})")
 
 PLAN_AGENT_EXCLUDE = {
-    'audit_memory_set', 'audit_memory_get', 'audit_memory_list',
     'audit_create_note', 'audit_get_notes', 'audit_update_note', 'audit_delete_note',
     'audit_mark_finding', 'audit_get_findings', 'audit_get_analysis_progress',
     'audit_link_finding_to_plan', 'audit_unlink_finding_from_plan',
@@ -191,7 +190,6 @@ PLAN_AGENT_EXCLUDE = {
 
 AUDIT_AGENT_EXCLUDE = {
     'audit_create_macro_plan', 'audit_plan_update', 'audit_plan_list',
-    'audit_memory_set', 'audit_memory_get', 'audit_memory_list',
     'audit_create_note', 'audit_get_notes', 'audit_update_note', 'audit_delete_note',
     'audit_mark_finding', 'audit_get_findings', 'audit_get_analysis_progress',
     'audit_link_finding_to_plan', 'audit_unlink_finding_from_plan',
