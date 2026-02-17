@@ -228,6 +228,8 @@ export function AuditDashboard() {
 
   const liveMessages = isCurrentSession ? streamMessages : [];
   const historyMessages = !isCurrentSession ? historicalMessages : [];
+  const lastLiveMessage = liveMessages.length ? liveMessages[liveMessages.length - 1] : null;
+  const lastHistoryMessage = historyMessages && historyMessages.length ? historyMessages[historyMessages.length - 1] : null;
   const activeAgentPlan = inProgressAgentPlans && inProgressAgentPlans.length > 0 ? inProgressAgentPlans[0] : null;
   const sessionTypeLabel = status?.current_agent === 'AUDIT_AGENT'
     ? 'Audit Agent'
@@ -252,6 +254,34 @@ export function AuditDashboard() {
     container.scrollTop = container.scrollHeight;
   }, [activeTab, liveMessages.length]);
 
+  useEffect(() => {
+    if (!lastLiveMessage) return;
+    const content = typeof lastLiveMessage.content === 'string' ? lastLiveMessage.content : String(lastLiveMessage.content ?? '');
+    const hasThinkTag = /<think\s*>/i.test(content) || /<\/think\s*>/i.test(content);
+    const hasEscapedThink = /&lt;think&gt;/i.test(content) || /&lt;\/think&gt;/i.test(content);
+    console.log('LiveStream think check:', {
+      sessionId: lastLiveMessage.session_id,
+      role: lastLiveMessage.role,
+      hasThinkTag,
+      hasEscapedThink,
+      preview: content.slice(0, 200)
+    });
+  }, [lastLiveMessage]);
+
+  useEffect(() => {
+    if (!lastHistoryMessage) return;
+    const content = typeof lastHistoryMessage.content === 'string' ? lastHistoryMessage.content : String(lastHistoryMessage.content ?? '');
+    const hasThinkTag = /<think\s*>/i.test(content) || /<\/think\s*>/i.test(content);
+    const hasEscapedThink = /&lt;think&gt;/i.test(content) || /&lt;\/think&gt;/i.test(content);
+    console.log('ChatHistory think check:', {
+      sessionId: lastHistoryMessage.session_id,
+      role: lastHistoryMessage.role,
+      hasThinkTag,
+      hasEscapedThink,
+      preview: content.slice(0, 200)
+    });
+  }, [lastHistoryMessage]);
+
   const { data: notes } = useQuery({ queryKey: ['auditNotes'], queryFn: () => auditApi.getNotes(), refetchInterval: autoRefresh ? 5000 : false });
   const { data: findings } = useQuery({ queryKey: ['auditFindings'], queryFn: () => auditApi.getFindings(), refetchInterval: autoRefresh ? 5000 : false });
 
@@ -273,28 +303,39 @@ export function AuditDashboard() {
     if (typeof content !== 'string') {
       return { thinkContent: null as string | null, mainContent: String(content ?? '') };
     }
-    const openTag = '<think>';
-    const closeTag = '</think>';
+    let normalized = content
+      .replaceAll('&lt;think&gt;', '<think>')
+      .replaceAll('&lt;/think&gt;', '</think>');
+    const openRegex = /<think\s*>/gi;
+    const closeRegex = /<\/think\s*>/gi;
+    const openCount = normalized.match(openRegex)?.length ?? 0;
+    const closeCount = normalized.match(closeRegex)?.length ?? 0;
+    if (closeCount > openCount) {
+      normalized = `${'<think>'.repeat(closeCount - openCount)}${normalized}`;
+    }
     let cursor = 0;
     const mainParts: string[] = [];
     const thinkParts: string[] = [];
-    while (cursor < content.length) {
-      const openIndex = content.indexOf(openTag, cursor);
-      if (openIndex === -1) {
-        mainParts.push(content.slice(cursor));
+    while (cursor < normalized.length) {
+      openRegex.lastIndex = cursor;
+      const openMatch = openRegex.exec(normalized);
+      if (!openMatch) {
+        mainParts.push(normalized.slice(cursor));
         break;
       }
-      mainParts.push(content.slice(cursor, openIndex));
-      const closeIndex = content.indexOf(closeTag, openIndex + openTag.length);
-      if (closeIndex === -1) {
-        thinkParts.push(content.slice(openIndex + openTag.length));
-        cursor = content.length;
+      const openIndex = openMatch.index;
+      mainParts.push(normalized.slice(cursor, openIndex));
+      closeRegex.lastIndex = openIndex + openMatch[0].length;
+      const closeMatch = closeRegex.exec(normalized);
+      if (!closeMatch) {
+        thinkParts.push(normalized.slice(openIndex + openMatch[0].length));
+        cursor = normalized.length;
         break;
       }
-      thinkParts.push(content.slice(openIndex + openTag.length, closeIndex));
-      cursor = closeIndex + closeTag.length;
+      thinkParts.push(normalized.slice(openIndex + openMatch[0].length, closeMatch.index));
+      cursor = closeMatch.index + closeMatch[0].length;
     }
-    const mainContent = mainParts.join('').replaceAll(openTag, '').replaceAll(closeTag, '');
+    const mainContent = mainParts.join('');
     const thinkContent = thinkParts.length ? thinkParts.join('\n\n') : null;
     return { thinkContent, mainContent };
   };

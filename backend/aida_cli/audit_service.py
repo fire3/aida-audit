@@ -185,8 +185,11 @@ class BaseAgent:
             message = {"role": "assistant"}
             final_content = accumulated_content
             if accumulated_reasoning:
-                if "<think>" not in final_content:
-                    final_content = f"<think>{accumulated_reasoning}</think>\n\n{final_content}".strip()
+                # Strip any existing thinking tags from content to avoid duplication/mismatch
+                cleaned_content = accumulated_content
+                for tag in ["<think>", "</think>"]:
+                    cleaned_content = cleaned_content.replace(tag, "")
+                final_content = f"<think>{accumulated_reasoning}</think>\n\n{cleaned_content}".strip()
             if final_content:
                 message["content"] = final_content
             
