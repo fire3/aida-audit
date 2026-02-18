@@ -8,7 +8,6 @@ import {
   Circle, 
   Clock, 
   AlertCircle, 
-  ChevronRight, 
   Terminal, 
   MessageSquare, 
   ListTodo,
