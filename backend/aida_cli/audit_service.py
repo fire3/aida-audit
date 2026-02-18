@@ -606,14 +606,16 @@ class AuditService:
                     if self._stop_event.is_set():
                         break
 
-                    # 重新获取任务列表，因为 Plan Agent 可能生成了新任务
-                    pending_verifications = self.audit_db.get_plans(status="pending", plan_type="verification_plan")
-                    pending_audits = self.audit_db.get_plans(status="pending", plan_type="agent_plan")
                 else:
                     self.audit_db.log_progress(f"当前待处理任务较多 ({total_pending} > {PENDING_TASK_THRESHOLD})，跳过规划阶段，优先执行任务。")
 
                 # Step 2: Run Audit Agent or Verification Agent
                 self.audit_db.log_progress("开始执行阶段...")
+
+                # 重新从数据库获取最新的 Pending 任务列表，确保任务数据最新
+                # (注意：LLM agent 执行过程中可能会添加新的 plan，因此每轮都需重新获取)
+                pending_verifications = self.audit_db.get_plans(status="pending", plan_type="verification_plan")
+                pending_audits = self.audit_db.get_plans(status="pending", plan_type="agent_plan")
                 
                 task = None
                 AgentClass = None
