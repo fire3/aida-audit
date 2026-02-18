@@ -15,7 +15,7 @@ def load_agent_prompt(agent_name: str) -> str:
     filename = f"{agent_name}.md"
     template_path = os.path.join(os.path.dirname(__file__), "templates", filename)
     try:
-        with open(template_path, 'r') as f:
+        with open(template_path, 'r', encoding='utf-8') as f:
             return f.read()
     except FileNotFoundError:
         print(f"Warning: {filename} not found, using default prompt.")
