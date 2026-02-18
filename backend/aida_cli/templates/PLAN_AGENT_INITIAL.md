@@ -35,13 +35,11 @@
      - `binary_name`: 目标二进制文件名
 
 4. **结束会话**：
-   - 确保至少创建了一个 Audit Plan 和一个关联的 Agent Plan。
-   - 调用 `audit_log_progress` 总结初始规划。
+   - 确保至少创建了若干个 Audit Plan 和若干个关联的 Agent Plan。
 
 ## 可用工具
 - `audit_create_macro_plan(title, description, parent_id=None)`
 - `audit_create_agent_task(title, description, parent_plan_id, binary_name)`
-- `audit_log_progress(message)`
 
 ## 禁止事项
 - **禁止**深入分析代码细节（这是 Audit Agent 的工作）。

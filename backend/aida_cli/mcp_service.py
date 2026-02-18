@@ -1107,7 +1107,6 @@ class McpService:
         """
         return audit_mcp_tools.audit_plan_list(status, plan_type)
 
-    @mcp_tool(name="audit_plan_update")
     def audit_plan_update(self, plan_id: int, notes: str = None) -> Dict[str, Any]:
         """Update the notes of a plan task.
         

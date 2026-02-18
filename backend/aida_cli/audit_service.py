@@ -293,11 +293,8 @@ class BaseAgent:
             self.on_session_end(self.session_id)
 
 PLAN_AGENT_EXCLUDE = {
-    'audit_create_note', 'audit_get_notes', 'audit_update_note', 'audit_delete_note',
-    'audit_mark_finding', 'audit_get_findings', 'audit_get_analysis_progress',
-    'audit_link_finding_to_plan', 'audit_unlink_finding_from_plan',
-    'audit_get_plan_findings', 'audit_get_finding_plans',
-    'audit_log_progress', 'audit_progress_log'
+    'audit_create_note', 'audit_update_note', 'audit_delete_note',
+    'audit_mark_finding',
 }
 
 
@@ -371,18 +368,23 @@ class AuditAgent(BaseAgent):
         return "AUDIT_AGENT"
         
     def get_tools(self) -> List[Dict]:
-        plan_tools = {'audit_create_macro_plan', 'audit_plan_update', 'audit_plan_list'}
-        keep_tool = 'audit_create_agent_task'
+        exclude_tools = {'audit_create_macro_plan', 'audit_plan_update', 'audit_plan_list'}
         tools = [
             t for t in self.all_tools 
-            if t['function']['name'] in {keep_tool} or t['function']['name'] not in plan_tools
+            if t['function']['name'] not in exclude_tools
         ]
         self.audit_db.log_progress(f"审计代理: 使用 {len(tools)} 个工具 (排除: {len(self.all_tools) - len(tools)})")
         return tools
 
     def get_initial_message(self) -> str:
         if self.specific_task:
-            return f"你的工作是:\n标题: {self.specific_task['title']}\n描述: {self.specific_task['description']}\nID: {self.specific_task['id']}\n\n现在请开始你的工作。"
+            return f"""
+你的工作是:
+任务标题: {self.specific_task['title']}
+任务描述: {self.specific_task['description']}
+任务ID: {self.specific_task['id']}
+
+现在请开始你的工作。"""
         return "开始你的工作。"
 
 class AuditService:
