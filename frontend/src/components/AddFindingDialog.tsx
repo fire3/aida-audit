@@ -52,6 +52,7 @@ export function AddFindingDialog({
 }: AddFindingDialogProps) {
     const queryClient = useQueryClient();
     const [binaryName, setBinaryName] = useState(initialBinaryName || '');
+    const [title, setTitle] = useState('');
     const [severity, setSeverity] = useState('medium');
     const [category, setCategory] = useState('vulnerability');
     const [description, setDescription] = useState('');
@@ -72,6 +73,7 @@ export function AddFindingDialog({
     useEffect(() => {
         if (isOpen) {
             setBinaryName(initialBinaryName || '');
+            setTitle('');
             setFunctionName(initialFunctionName || '');
             setAddress(initialAddress || '');
             setSeverity('medium');
@@ -110,8 +112,14 @@ export function AddFindingDialog({
             return;
         }
 
+        if (!title.trim()) {
+            setError('Title is required');
+            return;
+        }
+
         createFindingMutation.mutate({
             binary_name: binaryName,
+            title: title,
             severity: severity,
             category: category,
             description: description,
@@ -131,6 +139,15 @@ export function AddFindingDialog({
                         {error}
                     </div>
                 )}
+
+                <div className="space-y-2">
+                    <label className="text-sm font-medium">Title</label>
+                    <Input 
+                        value={title} 
+                        onChange={(e) => setTitle(e.target.value)} 
+                        placeholder="Short title for the finding"
+                    />
+                </div>
 
                 <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">

@@ -17,8 +17,7 @@ import {
   StickyNote,
   AlertTriangle,
   Code,
-  Archive,
-  Hash
+  Archive
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
