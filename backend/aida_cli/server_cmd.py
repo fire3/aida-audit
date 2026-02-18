@@ -112,6 +112,7 @@ class NoteCreate(BaseModel):
     binary_name: str
     content: str
     note_type: str
+    title: Optional[str] = None
     function_name: Optional[str] = None
     address: Optional[Union[str, int]] = None
     tags: Optional[str] = None
@@ -119,12 +120,14 @@ class NoteCreate(BaseModel):
 
 class NoteUpdate(BaseModel):
     content: Optional[str] = None
+    title: Optional[str] = None
     tags: Optional[str] = None
 
 class FindingCreate(BaseModel):
     binary_name: str
     severity: str
     category: str
+    title: str
     description: str
     function_name: Optional[str] = None
     address: Optional[Union[str, int]] = None
@@ -343,6 +346,7 @@ def create_note(note: NoteCreate):
             binary_name=note.binary_name,
             content=note.content,
             note_type=note.note_type,
+            title=note.title,
             function_name=note.function_name,
             address=note.address,
             tags=note.tags,
@@ -357,6 +361,7 @@ def update_note(note_id: int, note: NoteUpdate):
         return audit_mcp_tools.audit_update_note(
             note_id=note_id,
             content=note.content,
+            title=note.title,
             tags=note.tags
         )
     except Exception as e:
@@ -393,6 +398,7 @@ def mark_finding(finding: FindingCreate):
             binary_name=finding.binary_name,
             severity=finding.severity,
             category=finding.category,
+            title=finding.title,
             description=finding.description,
             function_name=finding.function_name,
             address=finding.address,

@@ -856,7 +856,7 @@ class McpService:
 
     @mcp_tool(name="audit_create_note")
     def audit_create_note(self, binary_name: str, content: str, note_type: str,
-                          function_name: str = None, address = None,
+                          title: str = None, function_name: str = None, address = None,
                           tags: str = None, confidence: str = "medium") -> Dict[str, Any]:
         """Create a new analysis note.
 
@@ -865,6 +865,7 @@ class McpService:
             content: The note content (analysis findings, observations, etc.).
             note_type: Type of note. Options: vulnerability, behavior, function_summary,
                        data_structure, control_flow, crypto_usage, obfuscation, io_operation, general.
+            title: Optional title for the note.
             function_name: Optional function name to associate with this note.
             address: Optional virtual address (hex or int) to associate with this note.
             tags: Optional comma-separated list of tags.
@@ -877,6 +878,7 @@ class McpService:
             binary_name=binary_name,
             content=content,
             note_type=note_type,
+            title=title,
             function_name=function_name,
             address=address,
             tags=tags,
@@ -908,12 +910,13 @@ class McpService:
         )
 
     @mcp_tool(name="audit_update_note")
-    def audit_update_note(self, note_id: int, content: str = None, tags: str = None) -> Dict[str, Any]:
+    def audit_update_note(self, note_id: int, content: str = None, title: str = None, tags: str = None) -> Dict[str, Any]:
         """Update an existing note's content or tags.
 
         Args:
             note_id: The ID of the note to update.
             content: Optional new content for the note.
+            title: Optional new title for the note.
             tags: Optional comma-separated list of new tags.
 
         Returns:
@@ -922,6 +925,7 @@ class McpService:
         return audit_mcp_tools.audit_update_note(
             note_id=note_id,
             content=content,
+            title=title,
             tags=tags
         )
 
@@ -938,7 +942,7 @@ class McpService:
         return audit_mcp_tools.audit_delete_note(note_id=note_id)
 
     @mcp_tool(name="audit_mark_finding")
-    def audit_mark_finding(self, binary_name: str, severity: str, category: str, description: str,
+    def audit_mark_finding(self, binary_name: str, severity: str, category: str, title: str, description: str,
                            function_name: str = None, address = None,
                            evidence: str = None, cvss: float = None,
                            exploitability: str = None) -> Dict[str, Any]:
@@ -951,6 +955,7 @@ class McpService:
                       use_after_free, double_free, memory_disclosure, crypto_weak, hardcoded_secret,
                       injection, path_traversal, authentication, authorization, anti_debug, anti_vm,
                       packing, other.
+            title: Short title for the finding.
             description: Description of the security finding.
             function_name: Optional function name associated with this finding.
             address: Optional virtual address (hex or int) associated with this finding.
@@ -965,6 +970,7 @@ class McpService:
             binary_name=binary_name,
             severity=severity,
             category=category,
+            title=title,
             description=description,
             function_name=function_name,
             address=address,

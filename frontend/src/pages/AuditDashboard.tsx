@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { auditApi, type AuditPlan, type AuditMessage } from '../api/client';
+import { auditApi, type AuditPlan, type AuditMessage, type Finding } from '../api/client';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { useState, useMemo, useEffect, useRef } from 'react';
@@ -17,7 +17,8 @@ import {
   StickyNote,
   AlertTriangle,
   Code,
-  Archive
+  Archive,
+  Hash
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -53,7 +54,7 @@ function StatusIcon({ status }: { status: string }) {
 function PlanView({ plans }: { plans: AuditPlan[] }) {
     const macroPlans = useMemo(() => plans.filter(p => p.plan_type === 'audit_plan'), [plans]);
     const agentTasks = useMemo(() => 
-        plans.filter(p => p.plan_type === 'agent_plan').sort((a, b) => b.updated_at - a.updated_at), 
+        plans.filter(p => p.plan_type === 'agent_plan').sort((a, b) => b.id - a.id), 
         [plans]
     );
 
@@ -102,30 +103,67 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
                     <Terminal className="w-4 h-4 text-orange-500" />
                     Task Execution Stream
                 </h3>
-                <div className="space-y-2">
-                    {agentTasks.map(task => (
-                         <div key={task.id} className="flex items-center gap-3 p-2 border rounded hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                            <StatusIcon status={task.status} />
-                            <div className="flex-1">
-                                <div className="text-sm font-medium">{task.title}</div>
-                                {task.binary_name && (
-                                    <div className="text-xs font-mono text-purple-600 dark:text-purple-400 mb-0.5">
-                                        Target: {task.binary_name}
+                <div className="space-y-3">
+                    {agentTasks.map(task => {
+                        const parentPlan = macroPlans.find(p => p.id === task.parent_id);
+                        return (
+                         <div key={task.id} className="group relative border rounded-lg p-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all hover:shadow-sm bg-white dark:bg-slate-900">
+                            {/* Header Row: ID, Title, Status */}
+                            <div className="flex items-center justify-between gap-3 mb-2">
+                                <div className="flex items-center gap-2 overflow-hidden">
+                                    <div className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 shrink-0 border border-slate-200 dark:border-slate-700">
+                                        <span className="text-[10px] font-mono font-bold">#{task.id}</span>
                                     </div>
-                                )}
-                                <div className="text-xs text-muted-foreground flex items-center gap-2">
-                                    <span>ID: {task.id}</span>
-                                    <span>•</span>
-                                    <span>Parent: {macroPlans.find(p => p.id === task.parent_id)?.title || 'Unknown'}</span>
-                                    <span>•</span>
-                                    <span>Updated: {new Date(task.updated_at * 1000).toLocaleString()}</span>
+                                    <h4 className="font-semibold text-sm truncate text-slate-800 dark:text-slate-200" title={task.title}>
+                                        {task.title}
+                                    </h4>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                     <StatusIcon status={task.status} />
+                                     <Badge variant={task.status === 'completed' ? 'default' : task.status === 'in_progress' ? 'secondary' : task.status === 'failed' ? 'destructive' : 'outline'}>
+                                        {task.status}
+                                    </Badge>
                                 </div>
                             </div>
-                            <Badge variant={task.status === 'completed' ? 'default' : task.status === 'in_progress' ? 'secondary' : task.status === 'failed' ? 'destructive' : 'outline'}>
-                                {task.status}
-                            </Badge>
+
+                            {/* Description Area - Fixed Height */}
+                            <div className="bg-slate-50 dark:bg-slate-950/50 rounded-md p-2.5 mb-2 border border-slate-100 dark:border-slate-800 h-24 overflow-y-auto custom-scrollbar">
+                                <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed font-mono">
+                                    {task.description || "No description provided."}
+                                </p>
+                            </div>
+
+                            {/* Footer Metadata Row */}
+                            <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-2 pt-2 border-t border-dashed border-slate-100 dark:border-slate-800">
+                                <div className="flex items-center gap-3 overflow-hidden">
+                                    {/* Parent Plan */}
+                                    {parentPlan && (
+                                        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border border-purple-100 dark:border-purple-800/30 shrink-0 max-w-[200px]">
+                                            <ListTodo className="w-3 h-3 shrink-0" />
+                                            <span className="font-medium truncate" title={parentPlan.title}>
+                                                Parent: {parentPlan.title}
+                                            </span>
+                                        </div>
+                                    )}
+                                    
+                                    {/* Binary Target */}
+                                    {task.binary_name && (
+                                        <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 shrink-0">
+                                            <Code className="w-3 h-3" />
+                                            <span className="font-mono">{task.binary_name}</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Timestamp */}
+                                <div className="flex items-center gap-1 opacity-70 shrink-0 ml-2">
+                                    <Clock className="w-3 h-3" />
+                                    <span>{new Date(task.updated_at * 1000).toLocaleString()}</span>
+                                </div>
+                            </div>
                          </div>
-                    ))}
+                        );
+                    })}
                 </div>
             </div>
         </div>
@@ -297,6 +335,146 @@ function FinishedPlansView({ plans }: { plans: AuditPlan[] }) {
                     <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                         <Archive className="w-12 h-12 mb-4 opacity-20" />
                         <p>Select a completed plan to view details</p>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function FindingsView({ findings }: { findings: Finding[] }) {
+    const [selectedFindingId, setSelectedFindingId] = useState<number | null>(null);
+
+    useEffect(() => {
+        if (!selectedFindingId && findings.length > 0) {
+            setSelectedFindingId(findings[0].finding_id);
+        }
+    }, [selectedFindingId, findings]);
+
+    const selectedFinding = findings.find(f => f.finding_id === selectedFindingId);
+
+    return (
+        <div className="h-full flex gap-4">
+            {/* Left: List of findings */}
+            <div className="w-80 border-r pr-4 overflow-auto shrink-0">
+                <h3 className="font-semibold mb-4 flex items-center gap-2 text-sm">
+                    <AlertTriangle className="w-4 h-4 text-red-500" />
+                    Security Findings ({findings.length})
+                </h3>
+                <div className="space-y-2">
+                    {findings.map(finding => (
+                        <button
+                            key={finding.finding_id}
+                            onClick={() => setSelectedFindingId(finding.finding_id)}
+                            className={`w-full text-left p-3 rounded-lg border transition-all ${
+                                selectedFindingId === finding.finding_id 
+                                    ? 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-600' 
+                                    : 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800'
+                            }`}
+                        >
+                            <div className="flex items-center justify-between mb-1">
+                                <Badge variant={finding.severity === 'critical' ? 'destructive' : finding.severity === 'high' ? 'destructive' : finding.severity === 'medium' ? 'warning' : 'info'}>
+                                    {finding.severity}
+                                </Badge>
+                                <span className="text-[10px] text-muted-foreground">
+                                    {new Date(finding.created_at).toLocaleDateString()}
+                                </span>
+                            </div>
+                            <div className="font-medium text-sm line-clamp-2 mb-1">{finding.title || finding.category}</div>
+                            <div className="text-xs text-muted-foreground truncate">
+                                {finding.binary_name}
+                            </div>
+                        </button>
+                    ))}
+                    {findings.length === 0 && (
+                        <div className="text-center text-muted-foreground py-8 text-sm">
+                            No findings yet.
+                        </div>
+                    )}
+                </div>
+            </div>
+            
+            {/* Right: Details */}
+            <div className="flex-1 overflow-auto">
+                {selectedFinding ? (
+                    <div className="space-y-4">
+                        {/* Header */}
+                        <div className="border-b pb-4">
+                            <div className="flex items-center gap-2 mb-2">
+                                <Badge variant={selectedFinding.severity === 'critical' ? 'destructive' : selectedFinding.severity === 'high' ? 'destructive' : selectedFinding.severity === 'medium' ? 'warning' : 'info'}>
+                                    {selectedFinding.severity.toUpperCase()}
+                                </Badge>
+                                <span className="text-sm font-mono text-muted-foreground uppercase">{selectedFinding.category}</span>
+                            </div>
+                            <h2 className="text-xl font-bold">{selectedFinding.title || "Untitled Finding"}</h2>
+                            <div className="text-xs text-muted-foreground mt-2 flex items-center gap-4">
+                                <span>ID: {selectedFinding.finding_id}</span>
+                                <span>Found: {new Date(selectedFinding.created_at).toLocaleString()}</span>
+                                <div className="flex items-center gap-1">
+                                    <Code className="w-3 h-3" />
+                                    <span className="font-mono">{selectedFinding.binary_name}</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        {/* Location Info */}
+                        {(selectedFinding.function_name || selectedFinding.address) && (
+                            <div className="bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg border flex items-center gap-4 text-sm font-mono">
+                                {selectedFinding.function_name && (
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-muted-foreground">Function:</span>
+                                        <span className="text-purple-600 dark:text-purple-400">{selectedFinding.function_name}</span>
+                                    </div>
+                                )}
+                                {selectedFinding.address && (
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-muted-foreground">Address:</span>
+                                        <span className="text-slate-700 dark:text-slate-300">{selectedFinding.address}</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Description */}
+                        <div>
+                            <h3 className="font-semibold text-sm mb-2">Description</h3>
+                            <div className="prose prose-sm dark:prose-invert max-w-none p-4 border rounded-lg bg-slate-50/50 dark:bg-slate-900/20">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {selectedFinding.description}
+                                </ReactMarkdown>
+                            </div>
+                        </div>
+
+                        {/* Evidence */}
+                        {selectedFinding.evidence && (
+                            <div>
+                                <h3 className="font-semibold text-sm mb-2">Evidence / Code Snippet</h3>
+                                <div className="bg-slate-900 text-slate-200 p-4 rounded-lg font-mono text-xs overflow-x-auto">
+                                    <pre>{selectedFinding.evidence}</pre>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Metadata Grid */}
+                        <div className="grid grid-cols-2 gap-4 mt-4">
+                            {selectedFinding.cvss && (
+                                <div className="border rounded p-3">
+                                    <div className="text-xs text-muted-foreground mb-1">CVSS Score</div>
+                                    <div className="font-mono font-bold">{selectedFinding.cvss}</div>
+                                </div>
+                            )}
+                            {selectedFinding.exploitability && (
+                                <div className="border rounded p-3">
+                                    <div className="text-xs text-muted-foreground mb-1">Exploitability</div>
+                                    <div className="font-medium">{selectedFinding.exploitability}</div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                        <AlertTriangle className="w-12 h-12 mb-4 opacity-20" />
+                        <p>Select a finding to view details</p>
                     </div>
                 )}
             </div>
@@ -907,55 +1085,18 @@ export function AuditDashboard() {
         )}
         
         {activeTab === 'findings' && (
-          <div className="h-full overflow-auto p-4">
-              <Card className="flex flex-col h-fit">
-                  <div className="p-4 border-b bg-slate-50 dark:bg-slate-900/50 font-semibold flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-red-500" /> Security Findings
+          <Card className="h-full flex flex-col border-0 shadow-none bg-transparent">
+            <CardContent className="flex-1 overflow-auto p-0">
+               {findings && findings.length > 0 ? (
+                   <FindingsView findings={findings} />
+               ) : (
+                  <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+                    <AlertTriangle className="w-12 h-12 mb-4 opacity-20" />
+                    <p>No security findings yet.</p>
                   </div>
-                  <CardContent className="p-4">
-                      {findings && findings.length > 0 ? (
-                          <div className="space-y-4">
-                              {findings.map(finding => (
-                                  <div key={finding.finding_id} className="border rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow cursor-pointer">
-                                      <details className="group">
-                                          <summary className="flex items-center justify-between mb-2 list-none outline-none">
-                                             <div className="flex items-center gap-2">
-                                                 <ChevronRight className="w-4 h-4 transition-transform group-open:rotate-90 text-muted-foreground" />
-                                                 <div className="font-semibold text-sm">{finding.category}</div>
-                                             </div>
-                                             <Badge variant={finding.severity === 'critical' ? 'destructive' : finding.severity === 'high' ? 'destructive' : finding.severity === 'medium' ? 'warning' : 'info'}>
-                                                  {finding.severity}
-                                              </Badge>
-                                          </summary>
-                                          <div className="pl-6 text-sm text-muted-foreground mt-2 space-y-2">
-                                              <p>{finding.description}</p>
-                                              {finding.evidence && (
-                                                  <div className="bg-slate-100 dark:bg-slate-800 p-2 rounded text-xs font-mono whitespace-pre-wrap">
-                                                      {finding.evidence}
-                                                  </div>
-                                              )}
-                                              {finding.function_name && (
-                                                  <div className="flex items-center gap-2 text-xs font-mono bg-slate-100 dark:bg-slate-800 p-1 rounded w-fit">
-                                                      <Code className="w-3 h-3" />
-                                                      {finding.function_name} @ {finding.address}
-                                                  </div>
-                                              )}
-                                              <div className="text-[10px] text-muted-foreground pt-2 border-t mt-2">
-                                                  Found at: {new Date(finding.created_at).toLocaleString()}
-                                              </div>
-                                          </div>
-                                      </details>
-                                  </div>
-                              ))}
-                          </div>
-                      ) : (
-                          <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
-                              <p>No security findings yet.</p>
-                          </div>
-                      )}
-                  </CardContent>
-              </Card>
-          </div>
+               )}
+            </CardContent>
+          </Card>
         )}
 
         {activeTab === 'notes' && (

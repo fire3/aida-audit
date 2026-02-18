@@ -141,6 +141,7 @@ export interface AuditStatus {
 export interface Note {
   note_id: number;
   binary_name: string;
+  title?: string;
   function_name?: string | null;
   address?: number | null;
   note_type: string;
@@ -155,6 +156,7 @@ export interface Finding {
   finding_id: number;
   note_id: number;
   binary_name: string;
+  title?: string;
   function_name?: string | null;
   address?: number | null;
   severity: string;
@@ -339,6 +341,7 @@ export interface NoteCreate {
   binary_name: string;
   content: string;
   note_type: string;
+  title?: string;
   function_name?: string | null;
   address?: string | number | null;
   tags?: string | null;
@@ -347,6 +350,7 @@ export interface NoteCreate {
 
 export interface NoteUpdate {
   content?: string | null;
+  title?: string | null;
   tags?: string | null;
 }
 
@@ -354,6 +358,7 @@ export interface FindingCreate {
   binary_name: string;
   severity: string;
   category: string;
+  title: string;
   description: string;
   function_name?: string | null;
   address?: string | number | null;

@@ -92,6 +92,7 @@ def audit_create_note(
     binary_name: str,
     content: str,
     note_type: str,
+    title: Optional[str] = None,
     function_name: Optional[str] = None,
     address: Optional[Union[str, int]] = None,
     tags: Optional[str] = None,
@@ -103,6 +104,7 @@ def audit_create_note(
         binary_name=binary_name,
         content=content,
         note_type=note_type,
+        title=title,
         function_name=function_name,
         address=addr,
         tags=tags,
@@ -129,10 +131,11 @@ def audit_get_notes(
 def audit_update_note(
     note_id: int,
     content: Optional[str] = None,
+    title: Optional[str] = None,
     tags: Optional[str] = None
 ) -> Dict[str, Any]:
     db = get_audit_db()
-    success = db.update_note(note_id=note_id, content=content, tags=tags)
+    success = db.update_note(note_id=note_id, content=content, title=title, tags=tags)
     return {"success": success}
 
 def audit_delete_note(note_id: int) -> Dict[str, Any]:
@@ -146,6 +149,7 @@ def audit_mark_finding(
     binary_name: str,
     severity: str,
     category: str,
+    title: str,
     description: str,
     function_name: Optional[str] = None,
     address: Optional[Union[str, int]] = None,
@@ -159,6 +163,7 @@ def audit_mark_finding(
         binary_name=binary_name,
         severity=severity,
         category=category,
+        title=title,
         description=description,
         function_name=function_name,
         address=addr,

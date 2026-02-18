@@ -99,6 +99,7 @@ class AuditDatabase:
             CREATE TABLE IF NOT EXISTS notes (
                 note_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 binary_name TEXT NOT NULL,
+                title TEXT,
                 function_name TEXT,
                 address INTEGER,
                 note_type TEXT NOT NULL,
@@ -123,6 +124,7 @@ class AuditDatabase:
                 finding_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 note_id INTEGER UNIQUE REFERENCES notes(note_id),
                 binary_name TEXT NOT NULL,
+                title TEXT,
                 function_name TEXT,
                 address INTEGER,
                 severity TEXT NOT NULL,
@@ -211,6 +213,20 @@ class AuditDatabase:
         if "summary" not in columns:
             self.log("Migrating schema: Adding summary to audit_plans")
             cursor.execute("ALTER TABLE audit_plans ADD COLUMN summary TEXT")
+
+        # Check notes table
+        cursor.execute("PRAGMA table_info(notes)")
+        note_columns = [row[1] for row in cursor.fetchall()]
+        if "title" not in note_columns:
+            self.log("Migrating schema: Adding title to notes")
+            cursor.execute("ALTER TABLE notes ADD COLUMN title TEXT")
+
+        # Check findings table
+        cursor.execute("PRAGMA table_info(findings)")
+        finding_columns = [row[1] for row in cursor.fetchall()]
+        if "title" not in finding_columns:
+            self.log("Migrating schema: Adding title to findings")
+            cursor.execute("ALTER TABLE findings ADD COLUMN title TEXT")
 
     def _ensure_tags(self, cursor=None):
         pass  # Placeholder to ensure non-identity replacement if needed, though logically identical context
@@ -387,6 +403,7 @@ class AuditDatabase:
         binary_name: str,
         content: str,
         note_type: str,
+        title: Optional[str] = None,
         function_name: Optional[str] = None,
         address: Optional[int] = None,
         tags: Optional[str] = None,
@@ -396,15 +413,21 @@ class AuditDatabase:
             note_type = "general"
         if confidence not in CONFIDENCE_LEVELS:
             confidence = "medium"
+        
+        # If title is not provided, try to generate it from content
+        if not title:
+            # Use first line or first 50 chars
+            first_line = content.split('\n')[0].strip()
+            title = first_line[:50] + "..." if len(first_line) > 50 else first_line
 
         parsed_tags = self._parse_tags(tags)
         tags_json = json.dumps(parsed_tags) if parsed_tags else None
 
         cursor = self.conn.cursor()
         cursor.execute("""
-            INSERT INTO notes (binary_name, function_name, address, note_type, content, confidence, tags)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (binary_name, function_name, address, note_type, content, confidence, tags_json))
+            INSERT INTO notes (binary_name, title, function_name, address, note_type, content, confidence, tags)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (binary_name, title, function_name, address, note_type, content, confidence, tags_json))
 
         note_id = cursor.lastrowid
 
@@ -448,7 +471,7 @@ class AuditDatabase:
 
         sql = f"""
             SELECT note_id, binary_name, function_name, address, note_type, content,
-                   confidence, tags, created_at, updated_at
+                   confidence, tags, created_at, updated_at, title
             FROM notes
             WHERE {where_clause}
             ORDER BY created_at DESC
@@ -472,7 +495,8 @@ class AuditDatabase:
                 "confidence": row[6],
                 "tags": json.loads(row[7]) if row[7] else [],
                 "created_at": row[8],
-                "updated_at": row[9]
+                "updated_at": row[9],
+                "title": row[10]
             }
 
             if tags:
@@ -489,6 +513,7 @@ class AuditDatabase:
         self,
         note_id: int,
         content: Optional[str] = None,
+        title: Optional[str] = None,
         tags: Optional[str] = None
     ) -> bool:
         updates = []
@@ -499,6 +524,10 @@ class AuditDatabase:
         if content is not None:
             updates.append("content = ?")
             params.append(content)
+
+        if title is not None:
+            updates.append("title = ?")
+            params.append(title)
 
         if tags is not None:
             parsed_tags = self._parse_tags(tags)
@@ -543,6 +572,7 @@ class AuditDatabase:
         binary_name: str,
         severity: str,
         category: str,
+        title: str,
         description: str,
         function_name: Optional[str] = None,
         address: Optional[int] = None,
@@ -558,6 +588,7 @@ class AuditDatabase:
         note_id = self.create_note(
             binary_name=binary_name,
             content=description,
+            title=title,
             note_type="vulnerability",
             function_name=function_name,
             address=address,
@@ -566,9 +597,9 @@ class AuditDatabase:
         
         cursor = self.conn.cursor()
         cursor.execute("""
-            INSERT INTO findings (note_id, binary_name, function_name, address, severity, category, description, evidence, cvss, exploitability)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (note_id, binary_name, function_name, address, severity, category, description, evidence, cvss, exploitability))
+            INSERT INTO findings (note_id, binary_name, title, function_name, address, severity, category, description, evidence, cvss, exploitability)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (note_id, binary_name, title, function_name, address, severity, category, description, evidence, cvss, exploitability))
 
         finding_id = cursor.lastrowid
         self.commit()
@@ -601,7 +632,7 @@ class AuditDatabase:
         sql = f"""
             SELECT f.finding_id, f.note_id, f.binary_name, f.function_name, f.address,
                    f.severity, f.category, f.description, f.evidence, f.cvss,
-                   f.exploitability, f.created_at
+                   f.exploitability, f.created_at, f.title
             FROM findings f
             WHERE {where_clause}
             ORDER BY
@@ -632,7 +663,8 @@ class AuditDatabase:
                 "evidence": row[8],
                 "cvss": row[9],
                 "exploitability": row[10],
-                "created_at": row[11]
+                "created_at": row[11],
+                "title": row[12]
             }
             for row in rows
         ]
@@ -694,7 +726,7 @@ class AuditDatabase:
         cursor.execute("""
             SELECT f.finding_id, f.note_id, f.binary_name, f.function_name, f.address,
                    f.severity, f.category, f.description, f.evidence, f.cvss,
-                   f.exploitability, f.created_at, fp.linked_at
+                   f.exploitability, f.created_at, fp.linked_at, f.title
             FROM findings f
             INNER JOIN finding_plans fp ON f.finding_id = fp.finding_id
             WHERE fp.plan_id = ?
@@ -723,7 +755,8 @@ class AuditDatabase:
                 "cvss": row[9],
                 "exploitability": row[10],
                 "created_at": row[11],
-                "linked_at": row[12]
+                "linked_at": row[12],
+                "title": row[13]
             }
             for row in rows
         ]
