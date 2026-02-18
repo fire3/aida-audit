@@ -570,31 +570,50 @@ class AuditService:
             )
 
             # 4. Alternating Loop
+            # 调度策略说明：
+            # 采用动态优先级调度算法。
+            # 1. 获取当前待处理任务（Verification Plan 和 Agent Plan）的数量。
+            # 2. 如果待处理任务数量超过阈值（PENDING_TASK_THRESHOLD），则跳过 Plan Agent（规划/审查）阶段，
+            #    优先全力执行现有任务，避免任务堆积和不必要的反复规划。
+            # 3. 只有当待处理任务较少时，才运行 Plan Agent 进行新任务生成或现有计划审查。
+            # 4. 始终优先执行 Verification Agent（验证任务），其次是 Audit Agent（审计任务）。
+            
+            PENDING_TASK_THRESHOLD = 3  # 当 Pending 任务超过此数量时，暂停规划代理
+
             while not self._stop_event.is_set():
-                # Step 1: Run Plan Agent
-                self.audit_db.log_progress("开始规划阶段...")
-                plan_agent = PlanAgent(
-                    llm_client, 
-                    mcp_client, 
-                    self.audit_db, 
-                    self.project_path, 
-                    tools,
-                    on_session_start=self._update_session_info,
-                    on_message=self.on_message,
-                    on_session_end=self.on_session_end,
-                    on_chunk=self.on_chunk
-                )
-                plan_agent.run(self._stop_event)
-                
-                if self._stop_event.is_set():
-                    break
+                # 获取当前所有 Pending 任务
+                pending_verifications = self.audit_db.get_plans(status="pending", plan_type="verification_plan")
+                pending_audits = self.audit_db.get_plans(status="pending", plan_type="agent_plan")
+                total_pending = len(pending_verifications) + len(pending_audits)
+
+                # Step 1: Run Plan Agent (Conditional)
+                # 仅在任务队列不拥堵时运行规划代理
+                if total_pending <= PENDING_TASK_THRESHOLD:
+                    self.audit_db.log_progress(f"当前待处理任务较少 ({total_pending} <= {PENDING_TASK_THRESHOLD})，启动规划阶段...")
+                    plan_agent = PlanAgent(
+                        llm_client, 
+                        mcp_client, 
+                        self.audit_db, 
+                        self.project_path, 
+                        tools,
+                        on_session_start=self._update_session_info,
+                        on_message=self.on_message,
+                        on_session_end=self.on_session_end,
+                        on_chunk=self.on_chunk
+                    )
+                    plan_agent.run(self._stop_event)
+                    
+                    if self._stop_event.is_set():
+                        break
+
+                    # 重新获取任务列表，因为 Plan Agent 可能生成了新任务
+                    pending_verifications = self.audit_db.get_plans(status="pending", plan_type="verification_plan")
+                    pending_audits = self.audit_db.get_plans(status="pending", plan_type="agent_plan")
+                else:
+                    self.audit_db.log_progress(f"当前待处理任务较多 ({total_pending} > {PENDING_TASK_THRESHOLD})，跳过规划阶段，优先执行任务。")
 
                 # Step 2: Run Audit Agent or Verification Agent
                 self.audit_db.log_progress("开始执行阶段...")
-                
-                # Fetch pending plans (both types)
-                pending_verifications = self.audit_db.get_plans(status="pending", plan_type="verification_plan")
-                pending_audits = self.audit_db.get_plans(status="pending", plan_type="agent_plan")
                 
                 task = None
                 AgentClass = None
