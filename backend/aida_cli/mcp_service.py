@@ -1059,6 +1059,25 @@ class McpService:
         """
         return audit_mcp_tools.audit_create_agent_task(title, description, parent_plan_id, binary_name)
 
+    @mcp_tool(name="audit_create_verification_task")
+    def audit_create_verification_task(self, title: str, description: str, parent_plan_id: int, binary_name: str, finding_id: int) -> Dict[str, Any]:
+        """Create a verification task for a specific finding.
+        
+        Use this to create a task specifically for verifying a suspected vulnerability (finding).
+        MUST be linked to a parent Macro Plan and a Finding.
+        
+        Args:
+            title: The title of the verification task.
+            description: Detailed instructions for verification (e.g., 'Construct PoC for buffer overflow').
+            parent_plan_id: The ID of the parent Macro Plan.
+            binary_name: The name of the binary.
+            finding_id: The ID of the finding to verify.
+
+        Returns:
+            dict: Contains 'plan_id' of the created task and 'type'='verification_plan'.
+        """
+        return audit_mcp_tools.audit_create_verification_task(title, description, parent_plan_id, binary_name, finding_id)
+
     @mcp_tool(name="audit_submit_summary")
     def audit_submit_summary(self, plan_id: int, summary: str) -> Dict[str, Any]:
         """Submit a final summary for a completed task.
@@ -1093,7 +1112,7 @@ class McpService:
         
         Args:
             status: Filter by status ('pending', 'in_progress', 'completed', 'failed').
-            plan_type: Filter by type ('audit_plan' for macro, 'agent_plan' for tasks).
+            plan_type: Filter by type ('audit_plan' for macro, 'agent_plan' for tasks, 'verification_plan' for verification tasks).
 
         Returns:
             list: List of plan objects.

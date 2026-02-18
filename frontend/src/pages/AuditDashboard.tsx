@@ -16,7 +16,8 @@ import {
   StickyNote,
   AlertTriangle,
   Code,
-  Archive
+  Archive,
+  ShieldCheck
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -75,6 +76,15 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
         plans.filter(p => p.plan_type === 'agent_plan').sort((a, b) => b.id - a.id), 
         [plans]
     );
+    const verificationTasks = useMemo(() => 
+        plans.filter(p => p.plan_type === 'verification_plan').sort((a, b) => b.id - a.id),
+        [plans]
+    );
+
+    const allExecutionTasks = useMemo(() => 
+        [...agentTasks, ...verificationTasks].sort((a, b) => b.id - a.id),
+        [agentTasks, verificationTasks]
+    );
 
     return (
         <div className="h-full flex gap-4">
@@ -93,7 +103,8 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
                             <p className="text-xs text-muted-foreground mb-2">{plan.description}</p>
                             
                             <div className="space-y-1 mt-3 pl-2 border-l-2 border-slate-200 dark:border-slate-800">
-                                <div className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Execution Tasks</div>
+                                <div className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Tasks</div>
+                                
                                 {agentTasks.filter(t => t.parent_id === plan.id).map(task => (
                                     <div key={task.id} className="flex items-center gap-2 text-xs py-1">
                                         <StatusIcon status={task.status} />
@@ -102,7 +113,18 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
                                         </span>
                                     </div>
                                 ))}
-                                {agentTasks.filter(t => t.parent_id === plan.id).length === 0 && (
+
+                                {verificationTasks.filter(t => t.parent_id === plan.id).map(task => (
+                                    <div key={task.id} className="flex items-center gap-2 text-xs py-1">
+                                        <StatusIcon status={task.status} />
+                                        <ShieldCheck className="w-3 h-3 text-blue-500" />
+                                        <span className={`${task.status === 'completed' ? 'line-through text-muted-foreground' : ''}`}>
+                                            {task.title}
+                                        </span>
+                                    </div>
+                                ))}
+
+                                {agentTasks.filter(t => t.parent_id === plan.id).length === 0 && verificationTasks.filter(t => t.parent_id === plan.id).length === 0 && (
                                     <div className="text-[10px] text-muted-foreground italic">No tasks assigned yet</div>
                                 )}
                             </div>
@@ -122,15 +144,16 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
                     Task Execution Stream
                 </h3>
                 <div className="space-y-3">
-                    {agentTasks.map(task => {
+                    {allExecutionTasks.map(task => {
                         const parentPlan = macroPlans.find(p => p.id === task.parent_id);
+                        const isVerification = task.plan_type === 'verification_plan';
                         return (
-                         <div key={task.id} className="group relative border rounded-lg p-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all hover:shadow-sm bg-white dark:bg-slate-900">
+                         <div key={task.id} className={`group relative border rounded-lg p-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all hover:shadow-sm bg-white dark:bg-slate-900 ${isVerification ? 'border-l-4 border-l-blue-400' : ''}`}>
                             {/* Header Row: ID, Title, Status */}
                             <div className="flex items-center justify-between gap-3 mb-2">
                                 <div className="flex items-center gap-2 overflow-hidden">
-                                    <div className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 shrink-0 border border-slate-200 dark:border-slate-700">
-                                        <span className="text-[10px] font-mono font-bold">#{task.id}</span>
+                                    <div className={`flex items-center justify-center w-6 h-6 rounded-full shrink-0 border border-slate-200 dark:border-slate-700 ${isVerification ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
+                                        {isVerification ? <ShieldCheck className="w-3 h-3" /> : <span className="text-[10px] font-mono font-bold">#{task.id}</span>}
                                     </div>
                                     <h4 className="font-semibold text-sm truncate text-slate-800 dark:text-slate-200" title={task.title}>
                                         {task.title}

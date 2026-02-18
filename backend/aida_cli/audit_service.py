@@ -375,11 +375,6 @@ class BaseAgent:
             
         return session_ended_normally and not stop_event.is_set()
 
-PLAN_AGENT_EXCLUDE = {
-    'audit_create_note', 'audit_update_note', 'audit_delete_note',
-    'audit_mark_finding',
-}
-
 
 class PlanAgent(BaseAgent):
     def __init__(self, 
@@ -423,9 +418,13 @@ class PlanAgent(BaseAgent):
 请为这些二进制文件创建安全审计计划。"""
         
     def get_tools(self) -> List[Dict]:
+        exclude_tools = {
+            'audit_create_note', 'audit_update_note', 'audit_delete_note',
+            'audit_mark_finding',
+        }
         tools = [
             t for t in self.all_tools
-            if t['function']['name'] not in PLAN_AGENT_EXCLUDE
+            if t['function']['name'] not in exclude_tools
         ]
         self.audit_db.log_progress(f"计划代理: 使用 {len(tools)} 个工具 (排除: {len(self.all_tools) - len(tools)})")
         return tools
@@ -451,7 +450,7 @@ class AuditAgent(BaseAgent):
         return "AUDIT_AGENT"
         
     def get_tools(self) -> List[Dict]:
-        exclude_tools = {'audit_create_macro_plan', 'audit_plan_update', 'audit_plan_list'}
+        exclude_tools = {'audit_create_macro_plan', 'audit_plan_update', 'audit_plan_list', 'audit_create_verification_task'}
         tools = [
             t for t in self.all_tools 
             if t['function']['name'] not in exclude_tools
