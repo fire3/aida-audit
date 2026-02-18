@@ -1011,8 +1011,12 @@ export function AuditDashboard() {
                   </details>
                 )}
                 {mainContent && mainContent.trim() && (
-                  <div className="whitespace-pre-wrap leading-relaxed">
-                    {mainContent}
+                  <div className="prose prose-sm dark:prose-invert max-w-none break-words
+                      prose-p:leading-relaxed prose-pre:bg-slate-800 prose-pre:p-2 prose-pre:rounded
+                      prose-code:text-amber-300 prose-code:bg-slate-800/50 prose-code:px-1 prose-code:rounded before:prose-code:content-none after:prose-code:content-none">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {mainContent}
+                    </ReactMarkdown>
                   </div>
                 )}
               </div>
@@ -1032,8 +1036,12 @@ export function AuditDashboard() {
                 </details>
               )}
               {liveChunk.content && (
-                <div className="whitespace-pre-wrap leading-relaxed text-amber-300">
-                  {liveChunk.content}
+                <div className="prose prose-sm dark:prose-invert max-w-none break-words text-amber-300
+                    prose-p:leading-relaxed prose-pre:bg-slate-800 prose-pre:p-2 prose-pre:rounded
+                    prose-code:text-amber-300 prose-code:bg-slate-800/50 prose-code:px-1 prose-code:rounded before:prose-code:content-none after:prose-code:content-none">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {liveChunk.content}
+                  </ReactMarkdown>
                 </div>
               )}
             </div>
@@ -1108,18 +1116,6 @@ export function AuditDashboard() {
           <CheckCircle2 className="w-4 h-4" /> Finished
         </button>
         <button 
-          onClick={() => setActiveTab('live')}
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'live' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-        >
-          <Circle className="w-4 h-4" /> Live Stream
-        </button>
-        <button 
-          onClick={() => setActiveTab('chat')}
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'chat' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-        >
-          <MessageSquare className="w-4 h-4" /> Chat History
-        </button>
-        <button 
           onClick={() => setActiveTab('findings')}
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'findings' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
@@ -1130,6 +1126,18 @@ export function AuditDashboard() {
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'notes' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
           <StickyNote className="w-4 h-4" /> Notes
+        </button>
+        <button 
+          onClick={() => setActiveTab('chat')}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'chat' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+        >
+          <MessageSquare className="w-4 h-4" /> Chat History
+        </button>
+        <button 
+          onClick={() => setActiveTab('live')}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'live' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+        >
+          <Circle className="w-4 h-4" /> Live Stream
         </button>
         <button 
           onClick={() => setActiveTab('logs')}

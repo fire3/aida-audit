@@ -16,18 +16,17 @@
 
 2. **制定宏观计划 (Audit Plan)**：
    - 使用 `audit_create_macro_plan` 创建顶层计划阶段。
-   - 建议的阶段包括：
-     - "攻击面分析" (Attack Surface Analysis)
-     - "关键功能识别" (Key Function Identification)
-     - "已知漏洞模式扫描" (Known Vulnerability Scanning)
-     - "敏感数据流分析" (Sensitive Data Flow Analysis)
+   - **逆向审计策略建议**：
+     - 阶段 1: "攻击面枚举" (Attack Surface Enumeration) - 识别所有对外接口（网络端口、文件解析、IPC）。
+     - 阶段 2: "危险函数排查" (Dangerous Function Audit) - 扫描 `system`, `exec`, `strcpy`, `sprintf` 等。
+     - 阶段 3: "关键逻辑审计" (Critical Logic Audit) - 认证绕过、权限提升逻辑。
+     - 阶段 4: "漏洞验证" (Vulnerability Verification) - 对疑似漏洞进行深入构造验证。
 
 3. **派发初始任务 (Agent Plan)**：
-   - 为第一个阶段（如"攻击面分析"）创建具体的执行任务。
+   - 为第一个阶段（如"攻击面枚举"）创建具体的执行任务。
    - 使用 `audit_create_agent_task`。
    - **关键要求**：任务描述中必须明确指定**目标二进制文件名**。
-     - 错误示例："分析入口函数"
-     - 正确示例："在 `httpd` 二进制文件中分析 `main` 函数及其调用的子函数"
+   - **任务粒度**：任务不宜过大。例如不要"分析整个httpd"，而是"分析httpd的HTTP请求解析逻辑"。
    - **参数要求**：
      - `title`: 任务简短标题
      - `description`: 具体的执行指令
