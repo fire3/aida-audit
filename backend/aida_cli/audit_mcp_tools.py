@@ -79,6 +79,12 @@ def audit_plan_list(status: Optional[str] = None, plan_type: Optional[str] = Non
     db = get_audit_db()
     return db.get_plans(status, plan_type)
 
+def audit_delete_plan(plan_id: int) -> Dict[str, Any]:
+    """Delete an audit plan and its associated data."""
+    db = get_audit_db()
+    success = db.delete_plan(plan_id)
+    return {"success": success}
+
 # ========== Log Operations ==========
 
 def audit_log_progress(message: str, plan_id: Optional[int] = None) -> Dict[str, Any]:

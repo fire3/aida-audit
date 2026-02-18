@@ -1011,19 +1011,6 @@ class McpService:
         """
         return audit_mcp_tools.audit_get_analysis_progress(binary_name=binary_name)
 
-    @mcp_tool(name="audit_link_finding_to_plan")
-    def audit_link_finding_to_plan(self, finding_id: int, plan_id: int) -> Dict[str, Any]:
-        """Link a security finding to an audit plan task.
-
-        Args:
-            finding_id: The ID of the finding to link.
-            plan_id: The ID of the plan task to link to.
-
-        Returns:
-            dict: Contains success boolean.
-        """
-        return audit_mcp_tools.audit_link_finding_to_plan(finding_id, plan_id)
-
     @mcp_tool(name="audit_get_plan_findings")
     def audit_get_plan_findings(self, plan_id: int) -> List[Dict[str, Any]]:
         """Get all findings linked to a specific audit plan task.
@@ -1112,6 +1099,18 @@ class McpService:
             list: List of plan objects.
         """
         return audit_mcp_tools.audit_plan_list(status, plan_type)
+
+    @mcp_tool(name="audit_delete_plan")
+    def audit_delete_plan(self, plan_id: int) -> Dict[str, Any]:
+        """Delete an audit plan and its associated data.
+
+        Args:
+            plan_id: The ID of the plan to delete.
+
+        Returns:
+            dict: Contains 'success' boolean.
+        """
+        return audit_mcp_tools.audit_delete_plan(plan_id)
 
     def audit_plan_update(self, plan_id: int, notes: str = None) -> Dict[str, Any]:
         """Update the notes of a plan task.

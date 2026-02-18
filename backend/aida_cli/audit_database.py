@@ -298,6 +298,27 @@ class AuditDatabase:
         self.commit()
         return cursor.rowcount > 0
 
+    def delete_plan(self, plan_id: int) -> bool:
+        cursor = self.conn.cursor()
+        
+        # Recursively delete children
+        cursor.execute("SELECT id FROM audit_plans WHERE parent_id = ?", (plan_id,))
+        children = cursor.fetchall()
+        for child in children:
+            self.delete_plan(child[0])
+            
+        # Delete related logs
+        cursor.execute("DELETE FROM audit_logs WHERE plan_id = ?", (plan_id,))
+        
+        # Delete related finding links
+        cursor.execute("DELETE FROM finding_plans WHERE plan_id = ?", (plan_id,))
+        
+        # Delete the plan
+        cursor.execute("DELETE FROM audit_plans WHERE id = ?", (plan_id,))
+        
+        self.commit()
+        return cursor.rowcount > 0
+
     def reset_in_progress_plans(self) -> int:
         """Reset all in_progress plans to pending status."""
         timestamp = int(time.time())
