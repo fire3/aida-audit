@@ -8,7 +8,8 @@ class LLMClient:
     def __init__(self, base_url: str, api_key: str, model: str, max_retries: int = 3):
         self.client = anthropic.Anthropic(
             api_key=api_key,
-            base_url=base_url.replace("v1", "")
+            # remove v1 end string
+            base_url=base_url.rstrip("v1")
         )
         self.model = model
         self.max_retries = max_retries
@@ -100,7 +101,7 @@ class LLMClient:
             "model": self.model,
             "messages": anthropic_msgs,
             "max_tokens": 8192,
-            "temperature": 0.0,
+            "temperature": 1.0,
         }
         
         if system_prompt:
@@ -140,7 +141,7 @@ class LLMClient:
             "model": self.model,
             "messages": anthropic_msgs,
             "max_tokens": 8192,
-            "temperature": 0.0,
+            "temperature": 1.0,
             "stream": True
         }
         

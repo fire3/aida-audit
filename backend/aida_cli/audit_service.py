@@ -38,6 +38,43 @@ def get_tools_for_llm(mcp_client: McpClient) -> List[Dict[str, Any]]:
     print(f"[DEBUG] Available tools: {tool_names}")
     return llm_tools
 
+from collections import deque
+
+class LoopDetector:
+    def __init__(self, max_history: int = 5, min_length: int = 10, threshold: float = 0.9):
+        self.history = deque(maxlen=max_history)
+        self.min_length = min_length
+        self.threshold = threshold
+
+    def is_looping(self, content: str) -> bool:
+        if len(content) < self.min_length:
+            return False
+            
+        # Normalize content (remove whitespace)
+        normalized_content = "".join(content.split())
+        
+        for past_content in self.history:
+            # Check for exact match or high similarity
+            if normalized_content == past_content:
+                return True
+            
+            # Simple similarity check (can be improved)
+            # If one is a substring of another and length is close
+            if len(past_content) > 0:
+                ratio = 0.0
+                if len(normalized_content) > len(past_content):
+                    if past_content in normalized_content:
+                         ratio = len(past_content) / len(normalized_content)
+                else:
+                    if normalized_content in past_content:
+                         ratio = len(normalized_content) / len(past_content)
+                
+                if ratio > self.threshold:
+                    return True
+
+        self.history.append(normalized_content)
+        return False
+
 class BaseAgent:
     project_store = None
     
@@ -63,6 +100,7 @@ class BaseAgent:
         self.on_session_end = on_session_end
         self.on_chunk = on_chunk
         self.session_id: Optional[str] = None
+        self.loop_detector = LoopDetector()
         
     @property
     def name(self) -> str:
@@ -93,7 +131,8 @@ class BaseAgent:
         for msg in self._session_messages:
             self.audit_db.add_message(self.session_id, msg["role"], msg["content"])
         
-    def run(self, stop_event: threading.Event):
+    def run(self, stop_event: threading.Event) -> bool:
+        """Run the agent session. Returns True if completed successfully, False if interrupted/failed."""
         self._session_messages = []  # Reset message buffer
         
         system_prompt = self.get_system_prompt()
@@ -119,6 +158,7 @@ class BaseAgent:
         
         turn_count = 0
         max_turns = 200
+        session_ended_normally = False
 
         while turn_count < max_turns:
             if stop_event.is_set():
@@ -185,6 +225,33 @@ class BaseAgent:
                 full_content += f"<think>{accumulated_reasoning}</think>\n"
             full_content += accumulated_content
             
+            # Loop Detection Check
+            # We check accumulated_content (the actual response) and accumulated_reasoning (the thinking)
+            # If either causes a loop, we abort.
+            # Usually loops happen in content or thinking.
+            
+            is_loop = False
+            if accumulated_content and self.loop_detector.is_looping(accumulated_content):
+                is_loop = True
+                self.audit_db.log_progress(f"[{self.name}] 检测到内容循环输出，强制终止会话。")
+            elif accumulated_reasoning and self.loop_detector.is_looping(accumulated_reasoning):
+                is_loop = True
+                self.audit_db.log_progress(f"[{self.name}] 检测到思考过程循环输出，强制终止会话。")
+            
+            if is_loop:
+                 # Record what we have so far
+                if full_content:
+                    message["content"] = full_content
+                    messages.append(message)
+                    self._add_message(self.session_id, "assistant", full_content)
+                
+                # Force stop, do NOT mark task as completed (handled in outer loop by checking stop_event or explicit return)
+                # We can simulate a stop_event or break with a flag
+                # Let's set a flag to indicate abnormal termination
+                self.audit_db.log_progress(f"[{self.name}] 会话因循环输出被终止 (第 {turn_count} 轮)")
+                session_ended_normally = False
+                break
+
             if full_content:
                 message["content"] = full_content
             
@@ -227,8 +294,10 @@ class BaseAgent:
             if not tool_calls:
                 if content:
                     self.audit_db.log_progress(f"[{self.name}] 会话结束: 正常完成 (第 {turn_count} 轮)")
+                    session_ended_normally = True
                 else:
                     self.audit_db.log_progress(f"[{self.name}] 会话结束: 无响应 (第 {turn_count} 轮)")
+                    session_ended_normally = False
                 break
 
             # Handle Tool Calls
@@ -279,7 +348,19 @@ class BaseAgent:
         
         # Log session end reason and flush messages to DB
         # Normal end means: completed without being stopped (either normal completion or max turns reached)
-        session_ended_normally = turn_count > 0 and not stop_event.is_set()
+        # We also need to check if we broke out due to loop detection (turn_count < max_turns and not stop_event)
+        # Wait, if we broke loop due to detection, we should return False
+        
+        # Check if we exited due to loop detection
+        # The loop breaks when is_loop is True. 
+        # But we don't have is_loop variable here in scope.
+        # We can infer it if we didn't complete normally (no tool calls, no content, but loop ended)
+        # Actually, let's track exit reason.
+        
+        is_loop_failure = False
+        # If we broke out of loop early without stop_event and without completion signal
+        # It's hard to tell without a flag.
+        # Let's assume run() returns success status.
         
         if turn_count >= max_turns:
             self.audit_db.log_progress(f"[{self.name}] 会话结束: 达到最大轮数 ({max_turns})")
@@ -291,6 +372,8 @@ class BaseAgent:
         # Notify session end (always notify)
         if self.on_session_end and self.session_id:
             self.on_session_end(self.session_id)
+            
+        return session_ended_normally and not stop_event.is_set()
 
 PLAN_AGENT_EXCLUDE = {
     'audit_create_note', 'audit_update_note', 'audit_delete_note',
@@ -544,14 +627,18 @@ class AuditService:
                         on_session_end=self.on_session_end,
                         on_chunk=self.on_chunk
                     )
-                    agent_instance.run(self._stop_event)
+                    success = agent_instance.run(self._stop_event)
                     
-                    # Only mark task as completed if NOT stopped by user
-                    if not self._stop_event.is_set():
+                    # Only mark task as completed if success (normal completion and not stopped)
+                    if success:
                         self.audit_db.update_plan_status(task['id'], "completed")
-                    else:
+                    elif self._stop_event.is_set():
                         self.audit_db.log_progress(f"任务 '{task['title']}' 被用户停止，重置为 pending")
                         self.audit_db.update_plan_status(task['id'], "pending")
+                    else:
+                        # Loop detection or other failure
+                        self.audit_db.log_progress(f"任务 '{task['title']}' 执行异常 (可能因循环输出)，重置为 failed")
+                        self.audit_db.update_plan_status(task['id'], "failed")
 
                 # Optional: Sleep briefly between sessions
                 time.sleep(2)
