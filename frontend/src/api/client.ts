@@ -166,6 +166,8 @@ export interface Finding {
   cvss?: number | null;
   exploitability?: string | null;
   created_at: string;
+  verification_status?: 'unverified' | 'confirmed' | 'false_positive';
+  verification_details?: string | null;
 }
 
 export const auditApi = {

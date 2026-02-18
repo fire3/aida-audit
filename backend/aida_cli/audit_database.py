@@ -228,6 +228,14 @@ class AuditDatabase:
             self.log("Migrating schema: Adding title to findings")
             cursor.execute("ALTER TABLE findings ADD COLUMN title TEXT")
 
+        if "verification_status" not in finding_columns:
+            self.log("Migrating schema: Adding verification_status to findings")
+            cursor.execute("ALTER TABLE findings ADD COLUMN verification_status TEXT DEFAULT 'unverified'")
+            
+        if "verification_details" not in finding_columns:
+            self.log("Migrating schema: Adding verification_details to findings")
+            cursor.execute("ALTER TABLE findings ADD COLUMN verification_details TEXT")
+
     def _ensure_tags(self, cursor=None):
         pass  # Placeholder to ensure non-identity replacement if needed, though logically identical context
         if cursor is None:
@@ -627,11 +635,32 @@ class AuditDatabase:
         self.log(f"Created finding {finding_id} for {binary_name}")
         return finding_id
 
+    def update_finding_verification(
+        self,
+        finding_id: int,
+        status: str,
+        details: Optional[str] = None
+    ) -> bool:
+        cursor = self.conn.cursor()
+        if details:
+            cursor.execute(
+                "UPDATE findings SET verification_status = ?, verification_details = ? WHERE finding_id = ?",
+                (status, details, finding_id)
+            )
+        else:
+            cursor.execute(
+                "UPDATE findings SET verification_status = ? WHERE finding_id = ?",
+                (status, finding_id)
+            )
+        self.commit()
+        return cursor.rowcount > 0
+
     def get_findings(
         self,
         binary_name: Optional[str] = None,
         severity: Optional[str] = None,
-        category: Optional[str] = None
+        category: Optional[str] = None,
+        verification_status: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         conditions = []
         params = []
@@ -648,12 +677,16 @@ class AuditDatabase:
             conditions.append("f.category = ?")
             params.append(category)
 
+        if verification_status:
+            conditions.append("f.verification_status = ?")
+            params.append(verification_status)
+
         where_clause = " AND ".join(conditions) if conditions else "1=1"
 
         sql = f"""
             SELECT f.finding_id, f.note_id, f.binary_name, f.function_name, f.address,
                    f.severity, f.category, f.description, f.evidence, f.cvss,
-                   f.exploitability, f.created_at, f.title
+                   f.exploitability, f.created_at, f.title, f.verification_status, f.verification_details
             FROM findings f
             WHERE {where_clause}
             ORDER BY
@@ -685,7 +718,9 @@ class AuditDatabase:
                 "cvss": row[9],
                 "exploitability": row[10],
                 "created_at": row[11],
-                "title": row[12]
+                "title": row[12],
+                "verification_status": row[13] or 'unverified',
+                "verification_details": row[14]
             }
             for row in rows
         ]

@@ -387,6 +387,20 @@ class AuditAgent(BaseAgent):
 现在请开始你的工作。"""
         return "开始你的工作。"
 
+class VerificationAgent(AuditAgent):
+    @property
+    def name(self) -> str:
+        return "VERIFICATION_AGENT"
+
+    def get_tools(self) -> List[Dict]:
+        exclude_tools = {'audit_create_macro_plan', 'audit_plan_update', 'audit_plan_list', 'audit_create_agent_task'}
+        tools = [
+            t for t in self.all_tools 
+            if t['function']['name'] not in exclude_tools
+        ]
+        self.audit_db.log_progress(f"验证代理: 使用 {len(tools)} 个工具")
+        return tools
+
 class AuditService:
     def __init__(self, project_path: str, audit_db: AuditDatabase, on_message: Optional[Callable[[str, str, str], None]] = None, on_session_end: Optional[Callable[[str], None]] = None, on_chunk: Optional[Callable[[str, str, str], None]] = None):
         self.project_path = project_path
@@ -492,21 +506,33 @@ class AuditService:
                 if self._stop_event.is_set():
                     break
 
-                # Step 2: Run Audit Agent
+                # Step 2: Run Audit Agent or Verification Agent
                 self.audit_db.log_progress("开始执行阶段...")
                 
-                # Fetch pending agent plans
-                pending_tasks = self.audit_db.get_plans(status="pending", plan_type="agent_plan")
-                if not pending_tasks:
+                # Fetch pending plans (both types)
+                pending_verifications = self.audit_db.get_plans(status="pending", plan_type="verification_plan")
+                pending_audits = self.audit_db.get_plans(status="pending", plan_type="agent_plan")
+                
+                task = None
+                AgentClass = None
+                
+                if pending_verifications:
+                    task = pending_verifications[0]
+                    AgentClass = VerificationAgent
+                    self.audit_db.log_progress(f"优先执行验证任务: {task['title']}")
+                elif pending_audits:
+                    task = pending_audits[0]
+                    AgentClass = AuditAgent
+                
+                if not task:
                      self.audit_db.log_progress("没有待执行的 Agent 任务，跳过执行阶段。")
                 else:
-                    task = pending_tasks[0]
-                    self.audit_db.log_progress(f"正在分配任务给审计代理: {task['title']} (ID: {task['id']})")
+                    self.audit_db.log_progress(f"正在分配任务给 {AgentClass.__name__}: {task['title']} (ID: {task['id']})")
                     
                     # Mark task as in_progress
                     self.audit_db.update_plan_status(task['id'], "in_progress")
 
-                    audit_agent = AuditAgent(
+                    agent_instance = AgentClass(
                         llm_client,
                         mcp_client,
                         self.audit_db,
@@ -518,7 +544,7 @@ class AuditService:
                         on_session_end=self.on_session_end,
                         on_chunk=self.on_chunk
                     )
-                    audit_agent.run(self._stop_event)
+                    agent_instance.run(self._stop_event)
                     
                     # Only mark task as completed if NOT stopped by user
                     if not self._stop_event.is_set():

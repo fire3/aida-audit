@@ -23,34 +23,28 @@
 
 ### 步骤 2：分析决策与状态更新
 基于审查结果，做出以下决策：
-  - **漏洞验证**：如果发现有高危 Finding，立即创建一个新的 Agent Plan 专门用于验证该漏洞（Source-to-Sink分析，攻击路径构造）。
-  - **线索追踪**：如果 Notes 中提到了"可疑"但未确认的点，创建任务进行深入分析。
+  - **漏洞验证**：如果发现有高危 Finding 且状态为 `unverified`，必须立即使用 `audit_create_verification_task` 创建验证任务。
+  - **线索追踪**：如果 Notes 中提到了"可疑"但未确认的点，创建常规 Agent 任务进行深入分析。
   - **继续执行**：如果当前阶段任务未完成，继续补充相关任务。
   - **阶段推进**：如果当前阶段（如"攻击面分析"）已完成，开始创建下一阶段（如"危险函数排查"）的任务。
 
 确认没有重复任务且需要进一步行动的情况下可以创建新任务：
-- 使用 `audit_create_agent_task`。
-- **关键要求**：
-  - 明确指定**目标二进制文件名**。
-  - 任务描述要具体（例如："分析 `vuln.so` 中的 `process_data` 函数的缓冲区溢出风险"）。
-- **参数要求**：
-  - `title`: 任务简短标题。
-  - `description`: 具体的执行指令。
-  - `parent_plan_id`: 关联的 Audit Plan ID。
-  - `binary_name`: 目标二进制文件名。
+- **常规分析任务**：使用 `audit_create_agent_task(title, description, parent_plan_id, binary_name)`。
+- **漏洞验证任务**：使用 `audit_create_verification_task(title, description, parent_plan_id, binary_name, finding_id)`。
 
-确认计划内容存在重复时，删除多余的重复计划，可小幅度更新保留的计划的标题或描述。
+确认计划内容存在重复时，删除多余的重复计划。
 
 ### 步骤 3：结束会话
 - 确保 `pending` 状态的任务队列中有任务等待执行。
 
 ## 可用工具
 - `audit_plan_list(status, plan_type)`: 查看计划列表。
-- `audit_create_macro_plan(title, description, parent_id)`: 创建新的宏观计划（如果发现新的攻击面）。
-- `audit_create_agent_task(title, description, parent_plan_id, binary_name)`: 创建具体的执行任务。
-- `audit_plan_update(plan_id, notes)`: 更新计划的笔记。
+- `audit_create_macro_plan(...)`: 创建新的宏观计划。
+- `audit_create_agent_task(...)`: 创建常规分析任务。
+- `audit_create_verification_task(title, description, parent_plan_id, binary_name, finding_id)`: 创建漏洞验证任务。
+- `audit_plan_update(...)`: 更新计划的笔记。
 - `audit_get_findings(...)` / `audit_get_notes(...)`: 查看发现和笔记。
-- `audit_get_summary(plan_id)`: 查看已完成任务的总结。
+- `audit_get_summary(...)`: 查看已完成任务的总结。
 
 ## 禁止事项
 - **禁止**在未查看现有计划的情况下创建新任务。

@@ -75,6 +75,37 @@ def audit_plan_update(plan_id: int, notes: Optional[str] = None) -> Dict[str, An
         db.log_progress(f"Plan {plan_id} updated: {notes}", plan_id)
     return {"success": success}
 
+def audit_create_verification_task(
+    title: str,
+    description: str,
+    parent_plan_id: int,
+    binary_name: str,
+    finding_id: int
+) -> Dict[str, Any]:
+    """Create a verification task for a specific finding."""
+    db = get_audit_db()
+    # Create a plan with plan_type='verification_plan'
+    plan_id = db.add_plan(
+        title=title, 
+        description=description, 
+        parent_id=parent_plan_id, 
+        plan_type='verification_plan', 
+        binary_name=binary_name
+    )
+    # Link the finding to this plan
+    db.link_finding_to_plan(finding_id, plan_id)
+    return {"plan_id": plan_id, "status": "success", "type": "verification_plan"}
+
+def audit_update_finding_verification(
+    finding_id: int,
+    status: str,
+    details: Optional[str] = None
+) -> Dict[str, Any]:
+    """Update the verification status of a finding."""
+    db = get_audit_db()
+    success = db.update_finding_verification(finding_id, status, details)
+    return {"success": success}
+
 def audit_plan_list(status: Optional[str] = None, plan_type: Optional[str] = None) -> List[Dict[str, Any]]:
     db = get_audit_db()
     return db.get_plans(status, plan_type)
@@ -184,10 +215,16 @@ def audit_mark_finding(
 def audit_get_findings(
     binary_name: Optional[str] = None,
     severity: Optional[str] = None,
-    category: Optional[str] = None
+    category: Optional[str] = None,
+    verification_status: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     db = get_audit_db()
-    return db.get_findings(binary_name=binary_name, severity=severity, category=category)
+    return db.get_findings(
+        binary_name=binary_name, 
+        severity=severity, 
+        category=category,
+        verification_status=verification_status
+    )
 
 def audit_get_analysis_progress(binary_name: str) -> Dict[str, Any]:
     db = get_audit_db()
