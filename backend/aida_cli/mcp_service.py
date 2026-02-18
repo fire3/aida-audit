@@ -1131,6 +1131,24 @@ class McpService:
         """
         return audit_mcp_tools.audit_delete_plan(plan_id)
 
+    @mcp_tool(name="audit_update_finding_verification")
+    def audit_update_finding_verification(self, finding_id: int, status: str, details: str = None) -> Dict[str, Any]:
+        """Update the verification status of a finding.
+
+        Args:
+            finding_id: The ID of the finding to update.
+            status: The new verification status. Options: confirmed, rejected, needs_review, inconclusive.
+            details: Optional details or explanation for the verification result.
+
+        Returns:
+            dict: Contains 'success' boolean.
+        """
+        return audit_mcp_tools.audit_update_finding_verification(
+            finding_id=finding_id,
+            status=status,
+            details=details
+        )
+
     def audit_plan_update(self, plan_id: int, notes: str = None) -> Dict[str, Any]:
         """Update the notes of a plan task.
         
