@@ -197,11 +197,11 @@ class LLMClient:
         return []
 
     def list_models(self) -> List[str]:
-        # MiniMax supported models
-        return [
-            "MiniMax-M2.5",
-            "MiniMax-M2.5-highspeed", 
-            "MiniMax-M2.1",
-            "MiniMax-M2.1-highspeed",
-            "MiniMax-M2"
-        ]
+        try:
+            # Call the models endpoint using the configured client
+            # This works for Anthropic API and compatible interfaces
+            response = self.client.models.list()
+            return [model.id for model in response.data]
+        except Exception as e:
+            print(f"Failed to list models from API: {e}")
+            return []

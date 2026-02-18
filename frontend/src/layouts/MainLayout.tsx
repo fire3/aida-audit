@@ -1,5 +1,5 @@
 import { Link, Outlet } from 'react-router-dom';
-import { Layers } from 'lucide-react';
+import { Layers, Settings } from 'lucide-react';
 
 export function MainLayout() {
   return (
@@ -23,7 +23,9 @@ export function MainLayout() {
             </nav>
           </div>
           <div className="flex flex-1 items-center justify-between space-x-2 md:justify-end">
-             {/* Search or User Menu could go here */}
+             <Link to="/settings" className="text-foreground/60 hover:text-foreground/80">
+                <Settings className="h-5 w-5" />
+             </Link>
           </div>
         </div>
       </header>

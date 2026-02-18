@@ -12,6 +12,7 @@ import { SymbolsBrowser } from './pages/SymbolsBrowser';
 import { SegmentsBrowser } from './pages/SegmentsBrowser';
 import { ProjectNotes } from './pages/ProjectNotes';
 import { AuditDashboard } from './pages/AuditDashboard';
+import { Settings } from './pages/Settings';
 import { useParams } from 'react-router-dom';
 
 function BinaryNotesWrapper() {
@@ -46,6 +47,7 @@ function App() {
             <Route index element={<Dashboard />} />
             <Route path="audit" element={<AuditDashboard />} />
             <Route path="notes" element={<ProjectNotes />} />
+            <Route path="settings" element={<Settings />} />
             
             <Route path="binary/:binaryName" element={<BinaryLayout />}>
               <Route index element={<Navigate to="overview" replace />} />

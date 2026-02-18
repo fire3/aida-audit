@@ -24,6 +24,8 @@ from .audit_database import AuditDatabase
 from .audit_service import AuditService
 from .constants import AUDIT_DB_FILENAME
 from . import audit_mcp_tools
+from .config import Config
+from .llm_client import LLMClient
 
 # Global service instance
 service = None
@@ -138,6 +140,82 @@ class FindingCreate(BaseModel):
 # --- REST API Implementation ---
 
 api_router = APIRouter(prefix="/api/v1")
+
+class ConfigUpdate(BaseModel):
+    base_url: str
+    api_key: Optional[str] = None
+    model: str
+
+@api_router.get("/config")
+def get_config():
+    config = Config()
+    llm_config = config.llm
+    
+    # Return masked API key
+    api_key = config.get_llm_api_key()
+    masked_key = ""
+    if api_key:
+        if len(api_key) > 8:
+            masked_key = api_key[:4] + "..." + api_key[-4:]
+        else:
+            masked_key = "***"
+            
+    return {
+        "base_url": config.get_llm_base_url(),
+        "api_key": masked_key,
+        "model": config.get_llm_model()
+    }
+
+@api_router.post("/config/validate")
+def validate_config(data: ConfigUpdate):
+    """Validate configuration by listing models."""
+    config = Config()
+    
+    # Determine which key to use
+    api_key = data.api_key
+    if not api_key or "..." in api_key:
+        api_key = config.get_llm_api_key()
+        
+    if not api_key:
+        raise HTTPException(status_code=400, detail="API Key is required")
+        
+    try:
+        # Create temporary client to test connection
+        # Use a default model name just for initialization
+        client = LLMClient(data.base_url, api_key, "gpt-4o")
+        models = client.list_models()
+        return {"valid": True, "models": models}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Validation failed: {str(e)}")
+
+@api_router.post("/config")
+def update_config(data: ConfigUpdate):
+    config = Config()
+    
+    # Determine which key to use
+    api_key = data.api_key
+    if not api_key or "..." in api_key:
+        api_key = config.get_llm_api_key()
+
+    if not api_key:
+        raise HTTPException(status_code=400, detail="API Key is required")
+
+    # Validate before saving
+    try:
+        client = LLMClient(data.base_url, api_key, "gpt-4o")
+        client.list_models()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Validation failed: {str(e)}")
+
+    if "llm" not in config.data:
+        config.data["llm"] = {}
+        
+    config.data["llm"]["base_url"] = data.base_url
+    config.data["llm"]["api_key"] = api_key
+    config.data["llm"]["model"] = data.model
+    config.save()
+    
+    return {"status": "ok", "message": "Configuration updated successfully"}
 
 def get_service():
     if not service:
