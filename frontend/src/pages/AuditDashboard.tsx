@@ -1052,7 +1052,7 @@ export function AuditDashboard() {
                   </details>
                 )}
                 {mainContent && mainContent.trim() && (
-                  <div className="prose prose-sm dark:prose-invert max-w-none break-words
+                  <div className="prose prose-sm prose-invert max-w-none break-words
                       prose-p:leading-relaxed prose-pre:bg-slate-800 prose-pre:p-2 prose-pre:rounded
                       prose-code:text-amber-300 prose-code:bg-slate-800/50 prose-code:px-1 prose-code:rounded before:prose-code:content-none after:prose-code:content-none">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -1077,7 +1077,7 @@ export function AuditDashboard() {
                 </details>
               )}
               {liveChunk.content && (
-                <div className="prose prose-sm dark:prose-invert max-w-none break-words text-amber-300
+                <div className="prose prose-sm prose-invert max-w-none break-words text-amber-300
                     prose-p:leading-relaxed prose-pre:bg-slate-800 prose-pre:p-2 prose-pre:rounded
                     prose-code:text-amber-300 prose-code:bg-slate-800/50 prose-code:px-1 prose-code:rounded before:prose-code:content-none after:prose-code:content-none">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
