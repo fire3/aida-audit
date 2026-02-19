@@ -941,32 +941,35 @@ class McpService:
         """
         return audit_mcp_tools.audit_delete_note(note_id=note_id)
 
-    @mcp_tool(name="audit_mark_finding")
-    def audit_mark_finding(self, binary_name: str, severity: str, category: str, title: str, description: str,
+    @mcp_tool(name="audit_report_vulnerability")
+    def audit_report_vulnerability(self, binary_name: str, severity: str, category: str, title: str, description: str,
                            function_name: str = None, address = None,
                            evidence: str = None, cvss: float = None,
                            exploitability: str = None) -> Dict[str, Any]:
-        """Mark a security finding in the analysis.
+        """Report a confirmed or suspected security vulnerability.
+
+        Use this tool ONLY for reporting significant security issues (e.g., buffer overflows, logic flaws, hardcoded secrets).
+        Do NOT use this for general observations or code quality issues (use `audit_create_note` for those).
 
         Args:
-            binary_name: The binary file name this finding is associated with.
-            severity: Finding severity. Options: critical, high, medium, low, info.
-            category: Finding category. Options: buffer_overflow, format_string, integer_overflow,
+            binary_name: The binary file name this vulnerability is associated with.
+            severity: Vulnerability severity. Options: critical, high, medium, low, info.
+            category: Vulnerability category. Options: buffer_overflow, format_string, integer_overflow,
                       use_after_free, double_free, memory_disclosure, crypto_weak, hardcoded_secret,
                       injection, path_traversal, authentication, authorization, anti_debug, anti_vm,
                       packing, other.
-            title: Short title for the finding.
-            description: Description of the security finding.
-            function_name: Optional function name associated with this finding.
-            address: Optional virtual address (hex or int) associated with this finding.
-            evidence: Optional evidence or code snippet supporting the finding.
+            title: Short title for the vulnerability.
+            description: Detailed description of the vulnerability.
+            function_name: Optional function name associated with this vulnerability.
+            address: Optional virtual address (hex or int) associated with this vulnerability.
+            evidence: Optional evidence or code snippet supporting the vulnerability.
             cvss: Optional CVSS score (0.0-10.0).
             exploitability: Optional exploitability assessment.
 
         Returns:
             dict: Contains finding_id and note_id.
         """
-        return audit_mcp_tools.audit_mark_finding(
+        return audit_mcp_tools.audit_report_vulnerability(
             binary_name=binary_name,
             severity=severity,
             category=category,
@@ -979,10 +982,10 @@ class McpService:
             exploitability=exploitability
         )
 
-    @mcp_tool(name="audit_get_findings")
-    def audit_get_findings(self, binary_name: str = None, severity: str = None,
+    @mcp_tool(name="audit_get_vulnerabilities")
+    def audit_get_vulnerabilities(self, binary_name: str = None, severity: str = None,
                            category: str = None) -> List[Dict[str, Any]]:
-        """Query security findings.
+        """Query reported security vulnerabilities.
 
         Args:
             binary_name: Optional binary name to filter by.
@@ -990,10 +993,10 @@ class McpService:
             category: Optional category filter.
 
         Returns:
-            list: Array of finding objects with finding_id, note_id, binary_name, function_name,
+            list: Array of vulnerability objects with finding_id, note_id, binary_name, function_name,
                   address, severity, category, description, evidence, cvss, exploitability, created_at.
         """
-        return audit_mcp_tools.audit_get_findings(
+        return audit_mcp_tools.audit_get_vulnerabilities(
             binary_name=binary_name,
             severity=severity,
             category=category
@@ -1118,19 +1121,19 @@ class McpService:
         """
         return audit_mcp_tools.audit_delete_plan(plan_id)
 
-    @mcp_tool(name="audit_update_finding_verification")
-    def audit_update_finding_verification(self, finding_id: int, status: str, details: str = None) -> Dict[str, Any]:
-        """Update the verification status of a finding.
+    @mcp_tool(name="audit_update_vulnerability_verification")
+    def audit_update_vulnerability_verification(self, finding_id: int, status: str, details: str = None) -> Dict[str, Any]:
+        """Update the verification status of a vulnerability.
 
         Args:
-            finding_id: The ID of the finding to update.
+            finding_id: The ID of the vulnerability to update.
             status: The new verification status. Options: confirmed, rejected, needs_review, inconclusive.
             details: Optional details or explanation for the verification result.
 
         Returns:
             dict: Contains 'success' boolean.
         """
-        return audit_mcp_tools.audit_update_finding_verification(
+        return audit_mcp_tools.audit_update_vulnerability_verification(
             finding_id=finding_id,
             status=status,
             details=details

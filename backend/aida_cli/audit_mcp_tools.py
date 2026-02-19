@@ -93,12 +93,12 @@ def audit_create_verification_task(
     )
     return {"plan_id": plan_id, "status": "success", "type": "verification_plan"}
 
-def audit_update_finding_verification(
+def audit_update_vulnerability_verification(
     finding_id: int,
     status: str,
     details: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Update the verification status of a finding."""
+    """Update the verification status of a vulnerability."""
     db = get_audit_db()
     success = db.update_finding_verification(finding_id, status, details)
     return {"success": success}
@@ -179,7 +179,7 @@ def audit_delete_note(note_id: int) -> Dict[str, Any]:
 
 # ========== Finding Operations ==========
 
-def audit_mark_finding(
+def audit_report_vulnerability(
     binary_name: str,
     severity: str,
     category: str,
@@ -209,7 +209,7 @@ def audit_mark_finding(
     actual_note_id = note_id[0]["note_id"] if note_id else None
     return {"finding_id": finding_id, "note_id": actual_note_id}
 
-def audit_get_findings(
+def audit_get_vulnerabilities(
     binary_name: Optional[str] = None,
     severity: Optional[str] = None,
     category: Optional[str] = None,

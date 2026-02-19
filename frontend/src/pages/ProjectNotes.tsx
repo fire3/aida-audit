@@ -7,7 +7,7 @@ import { Button } from '../components/ui/button';
 import { Search, Plus, Filter, AlertTriangle, FileText, Tag, Trash2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { AddNoteDialog } from '../components/AddNoteDialog';
-import { AddFindingDialog } from '../components/AddFindingDialog';
+import { AddVulnerabilityDialog } from '../components/AddVulnerabilityDialog';
 
 interface ProjectNotesProps {
   initialBinaryName?: string;
@@ -16,11 +16,11 @@ interface ProjectNotesProps {
 }
 
 export function ProjectNotes({ initialBinaryName, hideBinaryFilter = false, embedded = false }: ProjectNotesProps) {
-  const [activeTab, setActiveTab] = useState<'notes' | 'findings'>('notes');
+  const [activeTab, setActiveTab] = useState<'notes' | 'vulnerabilities'>('notes');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBinary, setSelectedBinary] = useState<string | undefined>(initialBinaryName);
   const [isAddNoteOpen, setIsAddNoteOpen] = useState(false);
-  const [isAddFindingOpen, setIsAddFindingOpen] = useState(false);
+  const [isAddVulnerabilityOpen, setIsAddVulnerabilityOpen] = useState(false);
   
   const queryClient = useQueryClient();
 
@@ -38,11 +38,11 @@ export function ProjectNotes({ initialBinaryName, hideBinaryFilter = false, embe
     enabled: activeTab === 'notes',
   });
 
-  // Findings Query
-  const { data: findings, isLoading: isFindingsLoading } = useQuery({
-    queryKey: ['findings', selectedBinary],
-    queryFn: () => notesApi.getFindings({ binary_name: selectedBinary }),
-    enabled: activeTab === 'findings',
+  // Vulnerabilities Query
+  const { data: vulnerabilities, isLoading: isVulnerabilitiesLoading } = useQuery({
+    queryKey: ['vulnerabilities', selectedBinary],
+    queryFn: () => notesApi.getVulnerabilities({ binary_name: selectedBinary }),
+    enabled: activeTab === 'vulnerabilities',
   });
 
   // Delete Note Mutation
@@ -63,7 +63,7 @@ export function ProjectNotes({ initialBinaryName, hideBinaryFilter = false, embe
     if (activeTab === 'notes') {
       setIsAddNoteOpen(true);
     } else {
-      setIsAddFindingOpen(true);
+      setIsAddVulnerabilityOpen(true);
     }
   };
 
@@ -71,12 +71,12 @@ export function ProjectNotes({ initialBinaryName, hideBinaryFilter = false, embe
     <div className={cn("space-y-6", !embedded && "container py-6")}>
       <div className="flex items-center justify-between">
         <h1 className={cn("font-bold tracking-tight", embedded ? "text-xl" : "text-3xl")}>
-            {embedded ? "Notes & Findings" : "Project Notes & Findings"}
+            {embedded ? "Notes & Vulnerabilities" : "Project Notes & Vulnerabilities"}
         </h1>
         <div className="flex items-center space-x-2">
             <Button onClick={handleAddClick} size={embedded ? "sm" : "default"}>
                 <Plus className="mr-2 h-4 w-4" />
-                Add {activeTab === 'notes' ? 'Note' : 'Finding'}
+                Add {activeTab === 'notes' ? 'Note' : 'Vulnerability'}
             </Button>
         </div>
       </div>
@@ -87,9 +87,9 @@ export function ProjectNotes({ initialBinaryName, hideBinaryFilter = false, embe
         initialBinaryName={selectedBinary}
       />
 
-      <AddFindingDialog 
-        isOpen={isAddFindingOpen} 
-        onClose={() => setIsAddFindingOpen(false)}
+      <AddVulnerabilityDialog 
+        isOpen={isAddVulnerabilityOpen} 
+        onClose={() => setIsAddVulnerabilityOpen(false)}
         initialBinaryName={selectedBinary}
       />
 
@@ -107,15 +107,15 @@ export function ProjectNotes({ initialBinaryName, hideBinaryFilter = false, embe
           Notes
         </button>
         <button
-          onClick={() => setActiveTab('findings')}
+          onClick={() => setActiveTab('vulnerabilities')}
           className={cn(
             "px-4 py-2 text-sm font-medium border-b-2 transition-colors",
-            activeTab === 'findings' 
+            activeTab === 'vulnerabilities' 
               ? "border-primary text-primary" 
               : "border-transparent text-muted-foreground hover:text-foreground"
           )}
         >
-          Findings
+          Vulnerabilities
         </button>
       </div>
 
@@ -124,7 +124,7 @@ export function ProjectNotes({ initialBinaryName, hideBinaryFilter = false, embe
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder={activeTab === 'notes' ? "Search notes..." : "Search findings..."}
+            placeholder={activeTab === 'notes' ? "Search notes..." : "Search vulnerabilities..."}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-8"
@@ -195,50 +195,50 @@ export function ProjectNotes({ initialBinaryName, hideBinaryFilter = false, embe
                 </div>
             )
         ) : (
-            isFindingsLoading ? (
-                <div>Loading findings...</div>
-            ) : findings?.length === 0 ? (
-                <div className="text-center py-10 text-muted-foreground">No findings found.</div>
+            isVulnerabilitiesLoading ? (
+                <div>Loading vulnerabilities...</div>
+            ) : vulnerabilities?.length === 0 ? (
+                <div className="text-center py-10 text-muted-foreground">No vulnerabilities found.</div>
             ) : (
                 <div className="grid gap-4">
-                    {findings?.map((finding) => (
-                        <Card key={finding.finding_id}>
+                    {vulnerabilities?.map((vulnerability) => (
+                        <Card key={vulnerability.finding_id}>
                             <CardHeader>
                                 <div className="flex justify-between items-start">
                                     <div>
                                         <CardTitle className="text-lg flex items-center gap-2">
                                             <AlertTriangle className={cn(
                                                 "h-5 w-5", 
-                                                finding.severity === 'high' || finding.severity === 'critical' ? "text-red-500" :
-                                                finding.severity === 'medium' ? "text-yellow-500" : "text-blue-500"
+                                                vulnerability.severity === 'high' || vulnerability.severity === 'critical' ? "text-red-500" :
+                                                vulnerability.severity === 'medium' ? "text-yellow-500" : "text-blue-500"
                                             )} />
-                                            {finding.category}
+                                            {vulnerability.category}
                                         </CardTitle>
                                         <CardDescription>
-                                            {finding.binary_name} 
-                                            {finding.function_name && ` • ${finding.function_name}`}
-                                            {finding.address && ` • ${finding.address}`}
+                                            {vulnerability.binary_name} 
+                                            {vulnerability.function_name && ` • ${vulnerability.function_name}`}
+                                            {vulnerability.address && ` • ${vulnerability.address}`}
                                         </CardDescription>
                                     </div>
                                     <div className="text-right">
                                         <div className={cn(
                                             "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium uppercase",
-                                            finding.severity === 'high' || finding.severity === 'critical' ? "bg-red-100 text-red-800" :
-                                            finding.severity === 'medium' ? "bg-yellow-100 text-yellow-800" : "bg-blue-100 text-blue-800"
+                                            vulnerability.severity === 'high' || vulnerability.severity === 'critical' ? "bg-red-100 text-red-800" :
+                                            vulnerability.severity === 'medium' ? "bg-yellow-100 text-yellow-800" : "bg-blue-100 text-blue-800"
                                         )}>
-                                            {finding.severity}
+                                            {vulnerability.severity}
                                         </div>
-                                        {finding.cvss && (
-                                            <div className="text-xs text-muted-foreground mt-1">CVSS: {finding.cvss}</div>
+                                        {vulnerability.cvss && (
+                                            <div className="text-xs text-muted-foreground mt-1">CVSS: {vulnerability.cvss}</div>
                                         )}
                                     </div>
                                 </div>
                             </CardHeader>
                             <CardContent>
-                                <p className="text-sm whitespace-pre-wrap mb-4">{finding.description}</p>
-                                {finding.evidence && (
+                                <p className="text-sm whitespace-pre-wrap mb-4">{vulnerability.description}</p>
+                                {vulnerability.evidence && (
                                     <div className="bg-muted p-3 rounded-md font-mono text-xs overflow-x-auto">
-                                        {finding.evidence}
+                                        {vulnerability.evidence}
                                     </div>
                                 )}
                             </CardContent>

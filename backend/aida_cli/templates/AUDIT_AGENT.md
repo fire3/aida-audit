@@ -27,8 +27,8 @@
      - **输入可达性**：用户输入是否能到达漏洞点？
      - **约束求解**：路径上的约束条件是否可以满足？
      - **实际危害性**：如果漏洞触发条件极为苛刻（如需物理接触、需先获取更高权限），必须在评估中降级或标记为低风险/误报。
-   - 确认无误后，使用 `audit_mark_finding` 记录。
-   - **Finding 规范**：
+   - 确认无误后，使用 `audit_report_vulnerability` 记录。
+   - **Vulnerability 规范**：
      - `title`: 格式为 `[漏洞类型] 漏洞简述` (例如 `[Buffer Overflow] strcpy in process_msg`).
      - `description`: 必须包含 1. 漏洞原理 2. 触发条件 3. 攻击路径 4. 潜在影响。
      - `severity`: 根据 CVSS 评分标准评估。
@@ -41,24 +41,24 @@
 ## 笔记
 - 笔记必须是与任务相关的、有价值的信息。
 - 笔记一般是用来辅助理解相关代码逻辑、代码结构、代码功能等的一段文档。
-- 如果涉及到具体的安全问题，建议优先在`发现`中进行记录。
+- 如果涉及到具体的安全问题，建议优先在`漏洞`中进行记录。
 - 推荐格式：`[Function Analysis] func_name: purpose...` 或 `[Data Flow] source -> sink...`.
 
-## 发现
-- 发现专指软件安全问题，而不是一般的代码问题。
-- 发现比笔记更重要，必须包含所发现的安全问题的详细信息。
-- 发现的记录中，必须包含确凿证据的线索。
+## 漏洞 (Vulnerabilities)
+- 漏洞专指经过确认的软件安全问题，而不是一般的代码质量问题或 TODO。
+- 漏洞比笔记更重要，必须包含所发现的安全问题的详细信息。
+- 漏洞的记录中，必须包含确凿证据的线索。
 - 优先报告经过验证的高风险软件安全问题。
 
 
 ## 可用工具
 - **逆向分析**：`get_binary_function_pseudocode_by_address`, `list_binary_functions`, `get_binary_cross_references` 等。
-- **记录**：`audit_create_note`, `audit_mark_finding`, `audit_submit_summary` (任务结束前必填)。
+- **记录**：`audit_create_note`, `audit_report_vulnerability`, `audit_submit_summary` (任务结束前必填)。
 
 ## 禁止事项
 - **禁止**在没有提交 `audit_submit_summary` 的情况下完成任务。
 - **禁止**在没有证据的情况下通过任务。
-- **禁止**将一般性的笔记或思考记录为发现。
+- **禁止**将一般性的笔记或思考记录为漏洞。
 - **禁止**仅凭函数名猜测安全问题，必须阅读伪代码。
 - **禁止**盲目信任反编译代码中的变量类型和数组大小，必须警惕 IDA 的推断错误。
 - **禁止**忽略利用条件（如文件权限）直接判定漏洞。

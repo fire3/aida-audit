@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { auditApi, type AuditPlan, type AuditMessage, type Finding, type Note } from '../api/client';
+import { auditApi, type AuditPlan, type AuditMessage, type Vulnerability, type Note } from '../api/client';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { useState, useMemo, useEffect, useRef } from 'react';
@@ -383,56 +383,56 @@ function FinishedPlansView({ plans }: { plans: AuditPlan[] }) {
     );
 }
 
-function FindingsView({ findings }: { findings: Finding[] }) {
-    const [selectedFindingId, setSelectedFindingId] = useState<number | null>(null);
+function VulnerabilitiesView({ vulnerabilities }: { vulnerabilities: Vulnerability[] }) {
+    const [selectedVulnerabilityId, setSelectedVulnerabilityId] = useState<number | null>(null);
 
     useEffect(() => {
-        if (!selectedFindingId && findings.length > 0) {
-            setSelectedFindingId(findings[0].finding_id);
+        if (!selectedVulnerabilityId && vulnerabilities.length > 0) {
+            setSelectedVulnerabilityId(vulnerabilities[0].finding_id);
         }
-    }, [selectedFindingId, findings]);
+    }, [selectedVulnerabilityId, vulnerabilities]);
 
-    const selectedFinding = findings.find(f => f.finding_id === selectedFindingId);
+    const selectedVulnerability = vulnerabilities.find(f => f.finding_id === selectedVulnerabilityId);
 
     return (
         <div className="h-full flex gap-4">
-            {/* Left: List of findings */}
+            {/* Left: List of vulnerabilities */}
             <div className="w-80 border-r pr-4 overflow-auto shrink-0">
                 <h3 className="font-semibold mb-4 flex items-center gap-2 text-sm">
                     <AlertTriangle className="w-4 h-4 text-red-500" />
-                    Security Findings ({findings.length})
+                    Security Vulnerabilities ({vulnerabilities.length})
                 </h3>
                 <div className="space-y-2">
-                    {findings.map(finding => (
+                    {vulnerabilities.map(vulnerability => (
                         <button
-                            key={finding.finding_id}
-                            onClick={() => setSelectedFindingId(finding.finding_id)}
+                            key={vulnerability.finding_id}
+                            onClick={() => setSelectedVulnerabilityId(vulnerability.finding_id)}
                             className={`w-full text-left p-3 rounded-lg border transition-all ${
-                                selectedFindingId === finding.finding_id 
+                                selectedVulnerabilityId === vulnerability.finding_id 
                                     ? 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-600' 
                                     : 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800'
                             }`}
                         >
                             <div className="flex items-center justify-between mb-1">
                                 <div className="flex gap-2">
-                                    <Badge variant={finding.severity === 'critical' ? 'destructive' : finding.severity === 'high' ? 'destructive' : finding.severity === 'medium' ? 'warning' : 'info'}>
-                                        {finding.severity}
+                                    <Badge variant={vulnerability.severity === 'critical' ? 'destructive' : vulnerability.severity === 'high' ? 'destructive' : vulnerability.severity === 'medium' ? 'warning' : 'info'}>
+                                        {vulnerability.severity}
                                     </Badge>
-                                    <VerificationStatusBadge status={finding.verification_status} />
+                                    <VerificationStatusBadge status={vulnerability.verification_status} />
                                 </div>
                                 <span className="text-[10px] text-muted-foreground">
-                                    {new Date(finding.created_at).toLocaleDateString()}
+                                    {new Date(vulnerability.created_at).toLocaleDateString()}
                                 </span>
                             </div>
-                            <div className="font-medium text-sm line-clamp-2 mb-1">{finding.title || finding.category}</div>
+                            <div className="font-medium text-sm line-clamp-2 mb-1">{vulnerability.title || vulnerability.category}</div>
                             <div className="text-xs text-muted-foreground truncate">
-                                {finding.binary_name}
+                                {vulnerability.binary_name}
                             </div>
                         </button>
                     ))}
-                    {findings.length === 0 && (
+                    {vulnerabilities.length === 0 && (
                         <div className="text-center text-muted-foreground py-8 text-sm">
-                            No findings yet.
+                            No vulnerabilities yet.
                         </div>
                     )}
                 </div>
@@ -440,58 +440,58 @@ function FindingsView({ findings }: { findings: Finding[] }) {
             
             {/* Right: Details */}
             <div className="flex-1 overflow-auto">
-                {selectedFinding ? (
+                {selectedVulnerability ? (
                     <div className="space-y-4">
                         {/* Header */}
                         <div className="border-b pb-4">
                             <div className="flex items-center justify-between mb-2">
                                 <div className="flex items-center gap-2">
-                                    <Badge variant={selectedFinding.severity === 'critical' ? 'destructive' : selectedFinding.severity === 'high' ? 'destructive' : selectedFinding.severity === 'medium' ? 'warning' : 'info'}>
-                                        {selectedFinding.severity.toUpperCase()}
+                                    <Badge variant={selectedVulnerability.severity === 'critical' ? 'destructive' : selectedVulnerability.severity === 'high' ? 'destructive' : selectedVulnerability.severity === 'medium' ? 'warning' : 'info'}>
+                                        {selectedVulnerability.severity.toUpperCase()}
                                     </Badge>
-                                    <span className="text-sm font-mono text-muted-foreground uppercase">{selectedFinding.category}</span>
+                                    <span className="text-sm font-mono text-muted-foreground uppercase">{selectedVulnerability.category}</span>
                                 </div>
-                                <VerificationStatusBadge status={selectedFinding.verification_status} />
+                                <VerificationStatusBadge status={selectedVulnerability.verification_status} />
                             </div>
-                            <h2 className="text-xl font-bold">{selectedFinding.title || "Untitled Finding"}</h2>
+                            <h2 className="text-xl font-bold">{selectedVulnerability.title || "Untitled Vulnerability"}</h2>
                             <div className="text-xs text-muted-foreground mt-2 flex items-center gap-4">
-                                <span>ID: {selectedFinding.finding_id}</span>
-                                <span>Found: {new Date(selectedFinding.created_at).toLocaleString()}</span>
+                                <span>ID: {selectedVulnerability.finding_id}</span>
+                                <span>Found: {new Date(selectedVulnerability.created_at).toLocaleString()}</span>
                                 <div className="flex items-center gap-1">
                                     <Code className="w-3 h-3" />
-                                    <span className="font-mono">{selectedFinding.binary_name}</span>
+                                    <span className="font-mono">{selectedVulnerability.binary_name}</span>
                                 </div>
                             </div>
                         </div>
                         
                         {/* Verification Details */}
-                        {selectedFinding.verification_details && (
-                            <div className={`border rounded-lg p-4 ${selectedFinding.verification_status === 'confirmed' ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-900' : 'bg-slate-50 dark:bg-slate-900/50'}`}>
+                        {selectedVulnerability.verification_details && (
+                            <div className={`border rounded-lg p-4 ${selectedVulnerability.verification_status === 'confirmed' ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-900' : 'bg-slate-50 dark:bg-slate-900/50'}`}>
                                 <h3 className="font-semibold text-sm mb-2 flex items-center gap-2">
                                     <CheckCircle2 className="w-4 h-4" />
                                     Verification Report
                                 </h3>
                                 <div className="prose prose-sm dark:prose-invert max-w-none">
                                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                        {selectedFinding.verification_details}
+                                        {selectedVulnerability.verification_details}
                                     </ReactMarkdown>
                                 </div>
                             </div>
                         )}
                         
                         {/* Location Info */}
-                        {(selectedFinding.function_name || selectedFinding.address) && (
+                        {(selectedVulnerability.function_name || selectedVulnerability.address) && (
                             <div className="bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg border flex items-center gap-4 text-sm font-mono">
-                                {selectedFinding.function_name && (
+                                {selectedVulnerability.function_name && (
                                     <div className="flex items-center gap-2">
                                         <span className="text-muted-foreground">Function:</span>
-                                        <span className="text-purple-600 dark:text-purple-400">{selectedFinding.function_name}</span>
+                                        <span className="text-purple-600 dark:text-purple-400">{selectedVulnerability.function_name}</span>
                                     </div>
                                 )}
-                                {selectedFinding.address && (
+                                {selectedVulnerability.address && (
                                     <div className="flex items-center gap-2">
                                         <span className="text-muted-foreground">Address:</span>
-                                        <span className="text-slate-700 dark:text-slate-300">{selectedFinding.address}</span>
+                                        <span className="text-slate-700 dark:text-slate-300">{selectedVulnerability.address}</span>
                                     </div>
                                 )}
                             </div>
@@ -502,33 +502,33 @@ function FindingsView({ findings }: { findings: Finding[] }) {
                             <h3 className="font-semibold text-sm mb-2">Description</h3>
                             <div className="prose prose-sm dark:prose-invert max-w-none p-4 border rounded-lg bg-slate-50/50 dark:bg-slate-900/20">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                    {selectedFinding.description}
+                                    {selectedVulnerability.description}
                                 </ReactMarkdown>
                             </div>
                         </div>
 
                         {/* Evidence */}
-                        {selectedFinding.evidence && (
+                        {selectedVulnerability.evidence && (
                             <div>
                                 <h3 className="font-semibold text-sm mb-2">Evidence / Code Snippet</h3>
                                 <div className="bg-slate-900 text-slate-200 p-4 rounded-lg font-mono text-xs overflow-x-auto">
-                                    <pre>{selectedFinding.evidence}</pre>
+                                    <pre>{selectedVulnerability.evidence}</pre>
                                 </div>
                             </div>
                         )}
 
                         {/* Metadata Grid */}
                         <div className="grid grid-cols-2 gap-4 mt-4">
-                            {selectedFinding.cvss && (
+                            {selectedVulnerability.cvss && (
                                 <div className="border rounded p-3">
                                     <div className="text-xs text-muted-foreground mb-1">CVSS Score</div>
-                                    <div className="font-mono font-bold">{selectedFinding.cvss}</div>
+                                    <div className="font-mono font-bold">{selectedVulnerability.cvss}</div>
                                 </div>
                             )}
-                            {selectedFinding.exploitability && (
+                            {selectedVulnerability.exploitability && (
                                 <div className="border rounded p-3">
                                     <div className="text-xs text-muted-foreground mb-1">Exploitability</div>
-                                    <div className="font-medium">{selectedFinding.exploitability}</div>
+                                    <div className="font-medium">{selectedVulnerability.exploitability}</div>
                                 </div>
                             )}
                         </div>
@@ -536,7 +536,7 @@ function FindingsView({ findings }: { findings: Finding[] }) {
                 ) : (
                     <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                         <AlertTriangle className="w-12 h-12 mb-4 opacity-20" />
-                        <p>Select a finding to view details</p>
+                        <p>Select a vulnerability to view details</p>
                     </div>
                 )}
             </div>
@@ -684,7 +684,7 @@ function NotesView({ notes }: { notes: Note[] }) {
 
 export function AuditDashboard() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'plan' | 'finished' | 'live' | 'logs' | 'chat' | 'findings' | 'notes'>('plan');
+  const [activeTab, setActiveTab] = useState<'plan' | 'finished' | 'live' | 'logs' | 'chat' | 'vulnerabilities' | 'notes'>('plan');
   const [manualSessionId, setManualSessionId] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [streamMessages, setStreamMessages] = useState<AuditMessage[]>([]);
@@ -940,7 +940,7 @@ export function AuditDashboard() {
   }, [lastHistoryMessage]);
 
   const { data: notes } = useQuery({ queryKey: ['auditNotes'], queryFn: () => auditApi.getNotes(), refetchInterval: autoRefresh ? 5000 : false });
-  const { data: findings } = useQuery({ queryKey: ['auditFindings'], queryFn: () => auditApi.getFindings(), refetchInterval: autoRefresh ? 5000 : false });
+  const { data: vulnerabilities } = useQuery({ queryKey: ['auditVulnerabilities'], queryFn: () => auditApi.getVulnerabilities(), refetchInterval: autoRefresh ? 5000 : false });
 
   const startMutation = useMutation({
     mutationFn: auditApi.start,
@@ -1126,7 +1126,7 @@ export function AuditDashboard() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6 shrink-0">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Automated Audit Dashboard</h1>
+          <h1 className="text-2xl font-bold tracking-tight">AIDA Audit Dashboard</h1>
           <p className="text-sm text-muted-foreground">Monitor and control the autonomous auditing agent.</p>
         </div>
         
@@ -1180,10 +1180,10 @@ export function AuditDashboard() {
           <CheckCircle2 className="w-4 h-4" /> Finished
         </button>
         <button 
-          onClick={() => setActiveTab('findings')}
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'findings' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+          onClick={() => setActiveTab('vulnerabilities')}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'vulnerabilities' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
-          <AlertTriangle className="w-4 h-4" /> Findings
+          <AlertTriangle className="w-4 h-4" /> Vulnerabilities
         </button>
         <button 
           onClick={() => setActiveTab('notes')}
@@ -1292,15 +1292,15 @@ export function AuditDashboard() {
           </div>
         )}
         
-        {activeTab === 'findings' && (
+        {activeTab === 'vulnerabilities' && (
           <Card className="h-full flex flex-col border-0 shadow-none bg-transparent">
             <CardContent className="flex-1 overflow-auto p-0">
-               {findings && findings.length > 0 ? (
-                   <FindingsView findings={findings} />
+               {vulnerabilities && vulnerabilities.length > 0 ? (
+                   <VulnerabilitiesView vulnerabilities={vulnerabilities} />
                ) : (
                   <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                     <AlertTriangle className="w-12 h-12 mb-4 opacity-20" />
-                    <p>No security findings yet.</p>
+                    <p>No security vulnerabilities yet.</p>
                   </div>
                )}
             </CardContent>

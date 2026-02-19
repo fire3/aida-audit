@@ -452,16 +452,16 @@ def delete_note(note_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Findings Endpoints
+# Vulnerabilities Endpoints
 
-@api_router.get("/findings")
-def get_findings(
+@api_router.get("/vulnerabilities")
+def get_vulnerabilities(
     binary_name: Optional[str] = None,
     severity: Optional[str] = None,
     category: Optional[str] = None
 ):
     try:
-        return audit_mcp_tools.audit_get_findings(
+        return audit_mcp_tools.audit_get_vulnerabilities(
             binary_name=binary_name,
             severity=severity,
             category=category
@@ -469,10 +469,10 @@ def get_findings(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.post("/findings")
-def mark_finding(finding: FindingCreate):
+@api_router.post("/vulnerabilities")
+def report_vulnerability(finding: FindingCreate):
     try:
-        return audit_mcp_tools.audit_mark_finding(
+        return audit_mcp_tools.audit_report_vulnerability(
             binary_name=finding.binary_name,
             severity=finding.severity,
             category=finding.category,
@@ -711,12 +711,12 @@ def get_audit_notes(binary_name: Optional[str] = None, limit: int = 50):
     except Exception as e:
          raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.get("/audit/findings")
-def get_audit_findings(binary_name: Optional[str] = None, severity: Optional[str] = None):
+@api_router.get("/audit/vulnerabilities")
+def get_audit_vulnerabilities(binary_name: Optional[str] = None, severity: Optional[str] = None):
     if not audit_db:
          return []
     try:
-        return audit_mcp_tools.audit_get_findings(binary_name=binary_name, severity=severity)
+        return audit_mcp_tools.audit_get_vulnerabilities(binary_name=binary_name, severity=severity)
     except Exception as e:
          raise HTTPException(status_code=500, detail=str(e))
 

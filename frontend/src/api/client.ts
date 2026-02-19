@@ -152,7 +152,7 @@ export interface Note {
   updated_at: string;
 }
 
-export interface Finding {
+export interface Vulnerability {
   finding_id: number;
   note_id: number;
   binary_name: string;
@@ -232,9 +232,9 @@ export const auditApi = {
     return res.data;
   },
 
-  getFindings: async (binaryName?: string, severity?: string) => {
+  getVulnerabilities: async (binaryName?: string, severity?: string) => {
     const params = { binary_name: binaryName, severity };
-    const res = await apiClient.get<Finding[]>('/audit/findings', { params });
+    const res = await apiClient.get<Vulnerability[]>('/audit/vulnerabilities', { params });
     return res.data;
   },
 
@@ -356,7 +356,7 @@ export interface NoteUpdate {
   tags?: string | null;
 }
 
-export interface FindingCreate {
+export interface VulnerabilityCreate {
   binary_name: string;
   severity: string;
   category: string;
@@ -457,10 +457,10 @@ export const notesApi = {
   deleteNote: (noteId: number) =>
     apiClient.delete<{ success: boolean }>(`/notes/${noteId}`).then(res => res.data),
   
-  getFindings: (params: { binary_name?: string; severity?: string; category?: string }) =>
-    apiClient.get<Finding[]>('/findings', { params }).then(res => res.data),
-  markFinding: (data: FindingCreate) =>
-    apiClient.post<{ finding_id: number; note_id: number }>('/findings', data).then(res => res.data),
+  getVulnerabilities: (params: { binary_name?: string; severity?: string; category?: string }) =>
+    apiClient.get<Vulnerability[]>('/vulnerabilities', { params }).then(res => res.data),
+  reportVulnerability: (data: VulnerabilityCreate) =>
+    apiClient.post<{ finding_id: number; note_id: number }>('/vulnerabilities', data).then(res => res.data),
     
   getAnalysisProgress: (binaryName: string) =>
     apiClient.get<AnalysisProgress>(`/binary/${binaryName}/analysis-progress`).then(res => res.data),
