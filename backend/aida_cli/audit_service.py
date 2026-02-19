@@ -110,10 +110,10 @@ class BaseAgent:
         return load_agent_prompt(self.name)
         
     def get_initial_message(self) -> str:
-        return ""
+        return "根据系统提示，开始你的工作。"
     
     def get_initial_context(self) -> str:
-        return ""
+        return "你是一个有用的助手。"
         
     def get_tools(self) -> List[Dict]:
         return self.all_tools
@@ -137,13 +137,12 @@ class BaseAgent:
         
         system_prompt = self.get_system_prompt()
         initial_context = self.get_initial_context()
-        
         content = self.get_initial_message()
         tools = self.get_tools()
         
         messages = [
-            {"role": "system", "content": f"{initial_context}\n\n{system_prompt}"},
-            {"role": "user", "content": content}
+            {"role": "system", "content": f"{system_prompt}"},
+            {"role": "user", "content": f"{initial_context}\n\n{content}"}
         ]
         
         self.session_id = f"{self.name.lower()}-{int(time.time())}"
@@ -414,8 +413,7 @@ class PlanAgent(BaseAgent):
             return load_agent_prompt("PLAN_AGENT_INITIAL")
 
     def get_initial_context(self) -> str:
-        return f"""
-请为这些二进制文件创建安全审计计划。"""
+        return f"请使用工具简要分析相关二进制文件，并按照要求创建安全审计计划。"
         
     def get_tools(self) -> List[Dict]:
         exclude_tools = {
