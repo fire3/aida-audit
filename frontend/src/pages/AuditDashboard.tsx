@@ -388,11 +388,11 @@ function VulnerabilitiesView({ vulnerabilities }: { vulnerabilities: Vulnerabili
 
     useEffect(() => {
         if (!selectedVulnerabilityId && vulnerabilities.length > 0) {
-            setSelectedVulnerabilityId(vulnerabilities[0].finding_id);
+            setSelectedVulnerabilityId(vulnerabilities[0].id);
         }
     }, [selectedVulnerabilityId, vulnerabilities]);
 
-    const selectedVulnerability = vulnerabilities.find(f => f.finding_id === selectedVulnerabilityId);
+    const selectedVulnerability = vulnerabilities.find(f => f.id === selectedVulnerabilityId);
 
     return (
         <div className="h-full flex gap-4">
@@ -405,10 +405,10 @@ function VulnerabilitiesView({ vulnerabilities }: { vulnerabilities: Vulnerabili
                 <div className="space-y-2">
                     {vulnerabilities.map(vulnerability => (
                         <button
-                            key={vulnerability.finding_id}
-                            onClick={() => setSelectedVulnerabilityId(vulnerability.finding_id)}
+                            key={vulnerability.id}
+                            onClick={() => setSelectedVulnerabilityId(vulnerability.id)}
                             className={`w-full text-left p-3 rounded-lg border transition-all ${
-                                selectedVulnerabilityId === vulnerability.finding_id 
+                                selectedVulnerabilityId === vulnerability.id 
                                     ? 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-600' 
                                     : 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800'
                             }`}
@@ -455,7 +455,7 @@ function VulnerabilitiesView({ vulnerabilities }: { vulnerabilities: Vulnerabili
                             </div>
                             <h2 className="text-xl font-bold">{selectedVulnerability.title || "Untitled Vulnerability"}</h2>
                             <div className="text-xs text-muted-foreground mt-2 flex items-center gap-4">
-                                <span>ID: {selectedVulnerability.finding_id}</span>
+                                <span>ID: {selectedVulnerability.id}</span>
                                 <span>Found: {new Date(selectedVulnerability.created_at).toLocaleString()}</span>
                                 <div className="flex items-center gap-1">
                                     <Code className="w-3 h-3" />

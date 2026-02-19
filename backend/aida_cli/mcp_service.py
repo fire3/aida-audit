@@ -982,24 +982,6 @@ class McpService:
             exploitability=exploitability
         )
 
-    @mcp_tool(name="audit_update_vulnerability_verification")
-    def audit_update_vulnerability_verification(self, finding_id: int, status: str, details: str = None) -> Dict[str, Any]:
-        """Update the verification status of a vulnerability.
-
-        Args:
-            finding_id: The ID of the vulnerability finding.
-            status: Verification status. Options: confirmed, false_positive, needs_review, inconclusive. (Cannot be 'unverified')
-            details: Optional details explaining the verification result.
-
-        Returns:
-            dict: Contains success boolean.
-        """
-        return audit_mcp_tools.audit_update_vulnerability_verification(
-            finding_id=finding_id,
-            status=status,
-            details=details
-        )
-
     @mcp_tool(name="audit_get_vulnerabilities")
     def audit_get_vulnerabilities(self, binary_name: str = None, severity: str = None,
                            category: str = None, verification_status: str = None) -> List[Dict[str, Any]]:
@@ -1142,11 +1124,11 @@ class McpService:
         return audit_mcp_tools.audit_delete_plan(plan_id)
 
     @mcp_tool(name="audit_update_vulnerability_verification")
-    def audit_update_vulnerability_verification(self, finding_id: int, status: str, details: str = None) -> Dict[str, Any]:
+    def audit_update_vulnerability_verification(self, id: int, status: str, details: str = None) -> Dict[str, Any]:
         """Update the verification status of a vulnerability.
 
         Args:
-            finding_id: The ID of the vulnerability to update.
+            id: The ID of the vulnerability to update.
             status: The new verification status. Options: confirmed, rejected, needs_review, inconclusive.
             details: Optional details or explanation for the verification result.
 
@@ -1154,7 +1136,7 @@ class McpService:
             dict: Contains 'success' boolean.
         """
         return audit_mcp_tools.audit_update_vulnerability_verification(
-            finding_id=finding_id,
+            id=id,
             status=status,
             details=details
         )

@@ -27,7 +27,7 @@
 | `notes` | 笔记主表 | note_id |
 | `tags` | 标签定义 | tag_id |
 | `note_tags` | 笔记标签关联 | (note_id, tag_id) |
-| `findings` | 安全发现记录 | finding_id |
+| `vulnerabilities` | 安全发现记录 | id |
 
 ### 2.2 详细表定义
 
@@ -61,12 +61,11 @@
 | tag_id | INTEGER | REFERENCES tags(tag_id) | 标签ID |
 | PRIMARY KEY | (note_id, tag_id) | | 联合主键 |
 
-#### 2.2.4 findings（安全发现表）
+#### 2.2.4 vulnerabilities（安全发现表）
 
 | 字段 | 类型 | 约束 | 说明 |
 |------|------|------|------|
-| finding_id | INTEGER | PRIMARY KEY | 发现唯一标识 |
-| note_id | INTEGER | UNIQUE, REFERENCES notes(note_id) | 关联笔记 |
+| id | INTEGER | PRIMARY KEY | 发现唯一标识 |
 | binary_name | TEXT | NOT NULL | 二进制名称 |
 | function_name | TEXT | NULL | 关联函数 |
 | address | INTEGER | NULL | 虚拟地址 |
@@ -77,6 +76,8 @@
 | cvss | REAL | NULL | CVSS 评分 |
 | exploitability | TEXT | NULL | 可利用性评估 |
 | created_at | DATETIME | DEFAULT CURRENT_TIMESTAMP | 创建时间 |
+| verification_status | TEXT | DEFAULT 'unverified' | 验证状态 |
+| verification_details | TEXT | NULL | 验证详情 |
 
 ### 2.3 索引设计
 
@@ -84,9 +85,9 @@
 CREATE INDEX idx_notes_binary ON notes(binary_name);
 CREATE INDEX idx_notes_type ON notes(note_type);
 CREATE INDEX idx_notes_func ON notes(function_name);
-CREATE INDEX idx_findings_binary ON findings(binary_name);
-CREATE INDEX idx_findings_severity ON findings(severity);
-CREATE INDEX idx_findings_category ON findings(category);
+CREATE INDEX idx_vulnerabilities_binary ON vulnerabilities(binary_name);
+CREATE INDEX idx_vulnerabilities_severity ON vulnerabilities(severity);
+CREATE INDEX idx_vulnerabilities_category ON vulnerabilities(category);
 ```
 
 ---
@@ -277,7 +278,7 @@ CREATE INDEX idx_findings_category ON findings(category);
 **返回值**:
 ```json
 {
-  "finding_id": 45,
+  "id": 45,
   "note_id": 123
 }
 ```
@@ -294,7 +295,7 @@ CREATE INDEX idx_findings_category ON findings(category);
 | category | string | 否 | 漏洞类别过滤 |
 
 **返回值**:
-发现对象数组，每项包含 finding_id, note_id, binary_name, function_name, address, severity, category, description, cvss, created_at。
+发现对象数组，每项包含 id, note_id, binary_name, function_name, address, severity, category, description, cvss, created_at。
 
 #### 4.2.7 get_analysis_progress
 

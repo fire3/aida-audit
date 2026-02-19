@@ -202,7 +202,7 @@ export function ProjectNotes({ initialBinaryName, hideBinaryFilter = false, embe
             ) : (
                 <div className="grid gap-4">
                     {vulnerabilities?.map((vulnerability) => (
-                        <Card key={vulnerability.finding_id}>
+                        <Card key={vulnerability.id}>
                             <CardHeader>
                                 <div className="flex justify-between items-start">
                                     <div>

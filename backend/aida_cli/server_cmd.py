@@ -125,7 +125,7 @@ class NoteUpdate(BaseModel):
     title: Optional[str] = None
     tags: Optional[str] = None
 
-class FindingCreate(BaseModel):
+class VulnerabilityCreate(BaseModel):
     binary_name: str
     severity: str
     category: str
@@ -470,19 +470,19 @@ def get_vulnerabilities(
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/vulnerabilities")
-def report_vulnerability(finding: FindingCreate):
+def report_vulnerability(vuln: VulnerabilityCreate):
     try:
         return audit_mcp_tools.audit_report_vulnerability(
-            binary_name=finding.binary_name,
-            severity=finding.severity,
-            category=finding.category,
-            title=finding.title,
-            description=finding.description,
-            function_name=finding.function_name,
-            address=finding.address,
-            evidence=finding.evidence,
-            cvss=finding.cvss,
-            exploitability=finding.exploitability
+            binary_name=vuln.binary_name,
+            severity=vuln.severity,
+            category=vuln.category,
+            title=vuln.title,
+            description=vuln.description,
+            function_name=vuln.function_name,
+            address=vuln.address,
+            evidence=vuln.evidence,
+            cvss=vuln.cvss,
+            exploitability=vuln.exploitability
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

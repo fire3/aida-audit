@@ -193,7 +193,7 @@ export interface Note {
 }
 
 export interface Vulnerability {
-  finding_id: number;
+  id: number;
   note_id: number;
   binary_name: string;
   title?: string;
@@ -500,7 +500,7 @@ export const notesApi = {
   getVulnerabilities: (params: { binary_name?: string; severity?: string; category?: string }) =>
     apiClient.get<Vulnerability[]>('/vulnerabilities', { params }).then(res => res.data),
   reportVulnerability: (data: VulnerabilityCreate) =>
-    apiClient.post<{ finding_id: number; note_id: number }>('/vulnerabilities', data).then(res => res.data),
+    apiClient.post<{ id: number; note_id: number }>('/vulnerabilities', data).then(res => res.data),
     
   getAnalysisProgress: (binaryName: string) =>
     apiClient.get<AnalysisProgress>(`/binary/${binaryName}/analysis-progress`).then(res => res.data),

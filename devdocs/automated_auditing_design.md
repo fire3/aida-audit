@@ -42,7 +42,8 @@ A SQLite database (`audit.db`) separate from the project data, or integrated int
 - **Plans**: `id`, `title`, `description`, `status` (pending, in_progress, completed, failed), `dependencies`.
 - **Progress**: `id`, `timestamp`, `message`, `step_id`.
 - **Memory**: `key`, `value` (JSON), `scope` (global/session).
-- **Findings**: (Already exists in `notes.db`, but linked here).
+- **Findings**: (Deprecated, use Vulnerabilities in `vulnerabilities` table).
+- **Vulnerabilities**: `id`, `binary_name`, `severity`, `category`, `description`, `evidence`, `status` (unverified, confirmed, etc).
 
 ### 3.3. MCP Tools (Audit Management)
 In addition to existing reverse engineering tools, we introduce **Audit Management Tools** to allow the AI to manage its own work:
@@ -61,7 +62,7 @@ A comprehensive system prompt that defines the "Auditor Persona".
     1.  Check `audit_plan_list` to see what needs to be done.
     2.  If empty, use `audit_plan_add` to create an initial analysis plan (e.g., "Identify entry points", "Analyze main loop", "Check for CWE-78").
     3.  Execute the next pending task using RE tools (e.g., `get_function`, `decompile`).
-    4.  Record findings using `mark_finding`.
+    4.  Record findings using `audit_report_vulnerability`.
     5.  Update task status with `audit_plan_update`.
     6.  Repeat.
 - **Constraints**: "Always update your plan. Do not rely on internal context for long-term memory; use `audit_memory` tools."

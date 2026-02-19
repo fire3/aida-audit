@@ -477,7 +477,7 @@ class VerificationAgent(AuditAgent):
         return "VERIFICATION_AGENT"
 
     def get_tools(self) -> List[Dict]:
-        exclude_tools = {'audit_create_macro_plan', 'audit_plan_update', 'audit_plan_list', 'audit_create_agent_task', 'audit_mark_finding'}
+        exclude_tools = {'audit_create_macro_plan', 'audit_plan_update', 'audit_plan_list', 'audit_create_agent_task', 'audit_mark_vulnerability'}
         tools = [
             t for t in self.all_tools 
             if t['function']['name'] not in exclude_tools

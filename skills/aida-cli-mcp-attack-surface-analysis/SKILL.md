@@ -172,16 +172,16 @@ List each chain as: `Source → Parser/Transform → Validation → Sink`, and i
 Example:
 *   `SRC-1 (recv) → parse_http_headers → no length clamp → SINK-2 (strcpy)`
 
-## 5. Detailed Findings
+## 5. Detailed Vulnerabilities
 
-### Finding #1: [Title, e.g., Unbounded Copy in Exported Function]
+### Vulnerability #1: [Title, e.g., Unbounded Copy in Exported Function]
 *   **Severity**: `[Critical/High/Medium/Low]`
 *   **Location**: `[Function Name] @ [Address]`
 *   **Description**: Detailed explanation of the vulnerability.
 *   **Evidence**:
     > [Relevant pseudocode, do not make assumptions]
 
-### Finding #2: ...
+### Vulnerability #2: ...
 
 ## 6. Conclusion & Next Steps
 Final assessment and recommended immediate actions.

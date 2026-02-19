@@ -34,8 +34,9 @@
     - **Unverified (无法验证)**：代码过于复杂，或缺少必要的上下文信息（如依赖外部库的特定行为），无法做出确切判断。
 
 4.  **提交结果**：
-    - 使用 `audit_update_vulnerability_verification(finding_id, status, details)` 更新验证状态。
-        - `status`: 'confirmed', 'false_positive', 'unverified'
+    - 使用 `audit_update_vulnerability_verification(id, status, details)` 更新验证状态。
+        - `id`: 即 Vulnerability ID。
+        - `status`: 'confirmed', 'false_positive', 'needs_review', 'inconclusive'
         - `details`: 详细的验证报告。必须包含：
             1.  **验证过程**：分析了哪些函数。
             2.  **关键证据**：为什么认为是漏洞或误报（例如：“在 `0x401000` 处发现了 `len < 100` 的检查，因此 `strcpy` 安全”）。

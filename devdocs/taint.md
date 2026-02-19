@@ -446,7 +446,7 @@ while worklist not empty:
 
 | 字段 | 类型 | 含义 |
 |------|------|------|
-| `finding_id` | `UUID` | 唯一报告 ID |
+| `id` | `UUID` | 唯一报告 ID |
 | `severity` | `enum` | `HIGH` / `MEDIUM` / `LOW`（基于 `is_cond_checked` 和 `sanitized_by` 评定） |
 | `source_ea` | `ea_t` | 污点来源指令地址 |
 | `source_func` | `string` | 引入污点的函数名 |

@@ -691,15 +691,7 @@ class AuditDatabase:
 
         return [
             {
-                "finding_id": row[0], # Keep key as finding_id for now if frontend expects it, or change to vulnerability_id? 
-                                      # User asked to "comprehensive modification, don't call it finding".
-                                      # So I should return "id" or "vulnerability_id".
-                                      # Let's use "id" or "vulnerability_id" and update frontend later if needed.
-                                      # Actually, frontend interfaces in client.ts use `finding_id`. 
-                                      # The user said "backend comprehensive modification", implying frontend might need update too or just internal backend.
-                                      # But "internal table and internal interface".
-                                      # Let's stick to "vulnerability_id" to be consistent with the request.
-                "vulnerability_id": row[0],
+                "id": row[0],
                 "binary_name": row[1],
                 "function_name": row[2],
                 "address": row[3],

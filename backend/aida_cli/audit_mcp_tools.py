@@ -114,7 +114,7 @@ def audit_create_verification_task(
     parent_plan_id: int,
     binary_name: str
 ) -> Dict[str, Any]:
-    """Create a verification task for a specific finding."""
+    """Create a verification task for a specific vulnerability."""
     db = get_audit_db()
     # Create a plan with plan_type='verification_plan'
     plan_id = db.add_plan(
@@ -127,7 +127,7 @@ def audit_create_verification_task(
     return {"plan_id": plan_id, "status": "success", "type": "verification_plan"}
 
 def audit_update_vulnerability_verification(
-    finding_id: int,
+    id: int,
     status: str,
     details: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -137,8 +137,7 @@ def audit_update_vulnerability_verification(
         raise ValueError("Cannot manually set status back to 'unverified'.")
     
     db = get_audit_db()
-    # finding_id corresponds to vulnerability_id in the new schema
-    success = db.update_vulnerability_verification(finding_id, status, details)
+    success = db.update_vulnerability_verification(id, status, details)
     return {"success": success}
 
 def audit_plan_list(status: Optional[str] = None, plan_type: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -219,8 +218,6 @@ def audit_delete_note(note_id: int) -> Dict[str, Any]:
     db = get_audit_db()
     success = db.delete_note(note_id=note_id)
     return {"success": success}
-
-# ========== Finding Operations ==========
 
 def audit_report_vulnerability(
     binary_name: str,
