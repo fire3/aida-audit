@@ -982,24 +982,44 @@ class McpService:
             exploitability=exploitability
         )
 
+    @mcp_tool(name="audit_update_vulnerability_verification")
+    def audit_update_vulnerability_verification(self, finding_id: int, status: str, details: str = None) -> Dict[str, Any]:
+        """Update the verification status of a vulnerability.
+
+        Args:
+            finding_id: The ID of the vulnerability finding.
+            status: Verification status. Options: unverified, confirmed, false_positive, needs_review, inconclusive.
+            details: Optional details explaining the verification result.
+
+        Returns:
+            dict: Contains success boolean.
+        """
+        return audit_mcp_tools.audit_update_vulnerability_verification(
+            finding_id=finding_id,
+            status=status,
+            details=details
+        )
+
     @mcp_tool(name="audit_get_vulnerabilities")
     def audit_get_vulnerabilities(self, binary_name: str = None, severity: str = None,
-                           category: str = None) -> List[Dict[str, Any]]:
+                           category: str = None, verification_status: str = None) -> List[Dict[str, Any]]:
         """Query reported security vulnerabilities.
 
         Args:
             binary_name: Optional binary name to filter by.
-            severity: Optional severity filter.
-            category: Optional category filter.
+            severity: Optional severity filter. Options: critical, high, medium, low, info.
+            category: Optional category filter. Options: buffer_overflow, format_string, integer_overflow, etc.
+            verification_status: Optional verification status filter. Options: unverified, confirmed, false_positive, needs_review, inconclusive.
 
         Returns:
             list: Array of vulnerability objects with finding_id, note_id, binary_name, function_name,
-                  address, severity, category, description, evidence, cvss, exploitability, created_at.
+                  address, severity, category, description, evidence, cvss, exploitability, created_at, verification_status.
         """
         return audit_mcp_tools.audit_get_vulnerabilities(
             binary_name=binary_name,
             severity=severity,
-            category=category
+            category=category,
+            verification_status=verification_status
         )
 
     @mcp_tool(name="audit_get_analysis_progress")

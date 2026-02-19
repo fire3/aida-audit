@@ -138,15 +138,55 @@ export interface AuditStatus {
   current_agent?: string;
 }
 
+export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+
+export type Category = 
+  | 'buffer_overflow' 
+  | 'format_string' 
+  | 'integer_overflow' 
+  | 'use_after_free' 
+  | 'double_free' 
+  | 'memory_disclosure' 
+  | 'crypto_weak' 
+  | 'hardcoded_secret' 
+  | 'injection' 
+  | 'path_traversal' 
+  | 'authentication' 
+  | 'authorization' 
+  | 'anti_debug' 
+  | 'anti_vm' 
+  | 'packing' 
+  | 'other';
+
+export type VerificationStatus = 
+  | 'unverified' 
+  | 'confirmed' 
+  | 'false_positive' 
+  | 'needs_review' 
+  | 'inconclusive';
+
+export type NoteType = 
+  | 'vulnerability' 
+  | 'behavior' 
+  | 'function_summary' 
+  | 'data_structure' 
+  | 'control_flow' 
+  | 'crypto_usage' 
+  | 'obfuscation' 
+  | 'io_operation' 
+  | 'general';
+
+export type Confidence = 'high' | 'medium' | 'low' | 'speculative';
+
 export interface Note {
   note_id: number;
   binary_name: string;
   title?: string;
   function_name?: string | null;
   address?: number | null;
-  note_type: string;
+  note_type: NoteType;
   content: string;
-  confidence: string;
+  confidence: Confidence;
   tags?: string[] | null;
   created_at: string;
   updated_at: string;
@@ -159,14 +199,14 @@ export interface Vulnerability {
   title?: string;
   function_name?: string | null;
   address?: number | null;
-  severity: string;
-  category: string;
+  severity: Severity;
+  category: Category;
   description: string;
   evidence?: string | null;
   cvss?: number | null;
   exploitability?: string | null;
   created_at: string;
-  verification_status?: 'unverified' | 'confirmed' | 'false_positive';
+  verification_status?: VerificationStatus;
   verification_details?: string | null;
 }
 

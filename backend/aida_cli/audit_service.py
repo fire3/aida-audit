@@ -418,7 +418,7 @@ class PlanAgent(BaseAgent):
     def get_tools(self) -> List[Dict]:
         exclude_tools = {
             'audit_create_note', 'audit_update_note', 'audit_delete_note',
-            'audit_mark_finding',
+            'audit_report_vulnerability', 'audit_update_vulnerability_verification'
         }
         tools = [
             t for t in self.all_tools
@@ -448,7 +448,11 @@ class AuditAgent(BaseAgent):
         return "AUDIT_AGENT"
         
     def get_tools(self) -> List[Dict]:
-        exclude_tools = {'audit_create_macro_plan', 'audit_plan_update', 'audit_plan_list', 'audit_create_verification_task'}
+        exclude_tools = {'audit_create_macro_plan', 
+            'audit_plan_update', 'audit_plan_list', 
+            'audit_create_verification_task',
+            'audit_update_vulnerability_verification'
+        }
         tools = [
             t for t in self.all_tools 
             if t['function']['name'] not in exclude_tools

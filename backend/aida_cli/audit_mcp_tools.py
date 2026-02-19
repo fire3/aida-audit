@@ -22,6 +22,50 @@ def _parse_address(addr: Optional[Union[str, int]]) -> Optional[int]:
         return int(addr_str, 16)
     return int(addr_str)
 
+# ========== Constants & Validation ==========
+
+VALID_SEVERITIES = {
+    'critical', 'high', 'medium', 'low', 'info'
+}
+
+VALID_CATEGORIES = {
+    'buffer_overflow', 'format_string', 'integer_overflow',
+    'use_after_free', 'double_free', 'memory_disclosure',
+    'crypto_weak', 'hardcoded_secret', 'injection',
+    'path_traversal', 'authentication', 'authorization',
+    'anti_debug', 'anti_vm', 'packing', 'other'
+}
+
+VALID_VERIFICATION_STATUSES = {
+    'unverified', 'confirmed', 'false_positive',
+    'needs_review', 'inconclusive'
+}
+
+VALID_NOTE_TYPES = {
+    'vulnerability', 'behavior', 'function_summary',
+    'data_structure', 'control_flow', 'crypto_usage',
+    'obfuscation', 'io_operation', 'general'
+}
+
+VALID_CONFIDENCE_LEVELS = {
+    'high', 'medium', 'low', 'speculative'
+}
+
+VALID_PLAN_STATUSES = {
+    'pending', 'in_progress', 'completed', 'failed'
+}
+
+VALID_PLAN_TYPES = {
+    'audit_plan', 'agent_plan', 'verification_plan'
+}
+
+def _validate_option(name: str, value: Optional[str], valid_options: set):
+    if value is not None and value not in valid_options:
+        raise ValueError(
+            f"Invalid {name}: '{value}'. "
+            f"Valid options are: {', '.join(sorted(valid_options))}"
+        )
+
 # ========== Plan Operations ==========
 
 def audit_create_macro_plan(title: str, description: str, parent_id: Optional[int] = None) -> Dict[str, Any]:
@@ -55,17 +99,6 @@ def audit_get_summary(plan_id: int) -> Dict[str, Any]:
 
 def audit_plan_update(plan_id: int, notes: Optional[str] = None) -> Dict[str, Any]:
     db = get_audit_db()
-    # Status update is removed from MCP tool, only notes can be appended or updated?
-    # Wait, the original function updated status AND notes.
-    # If we remove status, we just update notes?
-    # But the DB function `update_plan_status` requires status.
-    # We should fetch the current status or just ignore status update.
-    # Actually, the user said "mcp接口只能调整plan的内容" (MCP can only adjust plan content).
-    # Does "content" mean description or notes?
-    # Usually "notes" are progress notes.
-    # If I cannot change status, I should just update notes.
-    # But `update_plan_status` expects status.
-    # I need to get the current status first.
     plans = db.get_plans()
     current_plan = next((p for p in plans if p['id'] == plan_id), None)
     current_status = current_plan['status'] if current_plan else 'pending'
@@ -99,11 +132,14 @@ def audit_update_vulnerability_verification(
     details: Optional[str] = None
 ) -> Dict[str, Any]:
     """Update the verification status of a vulnerability."""
+    _validate_option("verification status", status, VALID_VERIFICATION_STATUSES)
     db = get_audit_db()
     success = db.update_finding_verification(finding_id, status, details)
     return {"success": success}
 
 def audit_plan_list(status: Optional[str] = None, plan_type: Optional[str] = None) -> List[Dict[str, Any]]:
+    _validate_option("status", status, VALID_PLAN_STATUSES)
+    _validate_option("plan_type", plan_type, VALID_PLAN_TYPES)
     db = get_audit_db()
     return db.get_plans(status, plan_type)
 
@@ -132,6 +168,8 @@ def audit_create_note(
     tags: Optional[str] = None,
     confidence: str = "medium"
 ) -> Dict[str, Any]:
+    _validate_option("note_type", note_type, VALID_NOTE_TYPES)
+    _validate_option("confidence", confidence, VALID_CONFIDENCE_LEVELS)
     db = get_audit_db()
     addr = _parse_address(address)
     note_id = db.create_note(
@@ -153,6 +191,7 @@ def audit_get_notes(
     tags: Optional[str] = None,
     limit: int = 50
 ) -> List[Dict[str, Any]]:
+    _validate_option("note_type", note_type, VALID_NOTE_TYPES)
     db = get_audit_db()
     return db.get_notes(
         binary_name=binary_name,
@@ -191,6 +230,8 @@ def audit_report_vulnerability(
     cvss: Optional[float] = None,
     exploitability: Optional[str] = None
 ) -> Dict[str, Any]:
+    _validate_option("severity", severity, VALID_SEVERITIES)
+    _validate_option("category", category, VALID_CATEGORIES)
     db = get_audit_db()
     addr = _parse_address(address)
     finding_id = db.create_finding(
@@ -215,6 +256,9 @@ def audit_get_vulnerabilities(
     category: Optional[str] = None,
     verification_status: Optional[str] = None
 ) -> List[Dict[str, Any]]:
+    _validate_option("severity", severity, VALID_SEVERITIES)
+    _validate_option("category", category, VALID_CATEGORIES)
+    _validate_option("verification_status", verification_status, VALID_VERIFICATION_STATUSES)
     db = get_audit_db()
     return db.get_findings(
         binary_name=binary_name, 
