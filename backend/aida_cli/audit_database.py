@@ -172,14 +172,6 @@ class AuditDatabase:
             )
         """)
 
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS finding_plans (
-                finding_id INTEGER NOT NULL REFERENCES findings(finding_id),
-                plan_id INTEGER NOT NULL REFERENCES audit_plans(id),
-                linked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (finding_id, plan_id)
-            )
-        """)
 
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_notes_binary ON notes(binary_name)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_notes_type ON notes(note_type)")
@@ -317,9 +309,6 @@ class AuditDatabase:
             
         # Delete related logs
         cursor.execute("DELETE FROM audit_logs WHERE plan_id = ?", (plan_id,))
-        
-        # Delete related finding links
-        cursor.execute("DELETE FROM finding_plans WHERE plan_id = ?", (plan_id,))
         
         # Delete the plan
         cursor.execute("DELETE FROM audit_plans WHERE id = ?", (plan_id,))
@@ -755,85 +744,3 @@ class AuditDatabase:
             "findings_by_severity": findings_by_severity
         }
 
-    # ========== Finding-Plan Link Operations ==========
-    def link_finding_to_plan(self, finding_id: int, plan_id: int) -> bool:
-        cursor = self.conn.cursor()
-        try:
-            cursor.execute(
-                "INSERT OR IGNORE INTO finding_plans (finding_id, plan_id) VALUES (?, ?)",
-                (finding_id, plan_id)
-            )
-            self.commit()
-            return cursor.rowcount > 0
-        except Exception:
-            return False
-
-    def unlink_finding_from_plan(self, finding_id: int, plan_id: int) -> bool:
-        cursor = self.conn.cursor()
-        cursor.execute(
-            "DELETE FROM finding_plans WHERE finding_id = ? AND plan_id = ?",
-            (finding_id, plan_id)
-        )
-        self.commit()
-        return cursor.rowcount > 0
-
-    def get_plan_findings(self, plan_id: int) -> List[Dict[str, Any]]:
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            SELECT f.finding_id, f.note_id, f.binary_name, f.function_name, f.address,
-                   f.severity, f.category, f.description, f.evidence, f.cvss,
-                   f.exploitability, f.created_at, fp.linked_at, f.title
-            FROM findings f
-            INNER JOIN finding_plans fp ON f.finding_id = fp.finding_id
-            WHERE fp.plan_id = ?
-            ORDER BY
-                CASE f.severity
-                    WHEN 'critical' THEN 1
-                    WHEN 'high' THEN 2
-                    WHEN 'medium' THEN 3
-                    WHEN 'low' THEN 4
-                    WHEN 'info' THEN 5
-                END
-        """, (plan_id,))
-        rows = cursor.fetchall()
-
-        return [
-            {
-                "finding_id": row[0],
-                "note_id": row[1],
-                "binary_name": row[2],
-                "function_name": row[3],
-                "address": row[4],
-                "severity": row[5],
-                "category": row[6],
-                "description": row[7],
-                "evidence": row[8],
-                "cvss": row[9],
-                "exploitability": row[10],
-                "created_at": row[11],
-                "linked_at": row[12],
-                "title": row[13]
-            }
-            for row in rows
-        ]
-
-    def get_finding_plans(self, finding_id: int) -> List[Dict[str, Any]]:
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            SELECT p.id, p.title, p.description, p.status, fp.linked_at
-            FROM audit_plans p
-            INNER JOIN finding_plans fp ON p.id = fp.plan_id
-            WHERE fp.finding_id = ?
-        """, (finding_id,))
-        rows = cursor.fetchall()
-
-        return [
-            {
-                "plan_id": row[0],
-                "title": row[1],
-                "description": row[2],
-                "status": row[3],
-                "linked_at": row[4]
-            }
-            for row in rows
-        ]

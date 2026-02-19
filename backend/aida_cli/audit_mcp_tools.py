@@ -79,8 +79,7 @@ def audit_create_verification_task(
     title: str,
     description: str,
     parent_plan_id: int,
-    binary_name: str,
-    finding_id: int
+    binary_name: str
 ) -> Dict[str, Any]:
     """Create a verification task for a specific finding."""
     db = get_audit_db()
@@ -92,8 +91,6 @@ def audit_create_verification_task(
         plan_type='verification_plan', 
         binary_name=binary_name
     )
-    # Link the finding to this plan
-    db.link_finding_to_plan(finding_id, plan_id)
     return {"plan_id": plan_id, "status": "success", "type": "verification_plan"}
 
 def audit_update_finding_verification(
@@ -230,22 +227,3 @@ def audit_get_analysis_progress(binary_name: str) -> Dict[str, Any]:
     db = get_audit_db()
     return db.get_statistics(binary_name=binary_name)
 
-# ========== Finding-Plan Link Operations ==========
-
-def audit_link_finding_to_plan(finding_id: int, plan_id: int) -> Dict[str, Any]:
-    db = get_audit_db()
-    success = db.link_finding_to_plan(finding_id, plan_id)
-    return {"success": success}
-
-def audit_unlink_finding_from_plan(finding_id: int, plan_id: int) -> Dict[str, Any]:
-    db = get_audit_db()
-    success = db.unlink_finding_from_plan(finding_id, plan_id)
-    return {"success": success}
-
-def audit_get_plan_findings(plan_id: int) -> List[Dict[str, Any]]:
-    db = get_audit_db()
-    return db.get_plan_findings(plan_id)
-
-def audit_get_finding_plans(finding_id: int) -> List[Dict[str, Any]]:
-    db = get_audit_db()
-    return db.get_finding_plans(finding_id)

@@ -30,7 +30,7 @@
 
 确认没有重复任务且需要进一步行动的情况下可以创建新任务：
 - **常规分析任务**：使用 `audit_create_agent_task(title, description, parent_plan_id, binary_name)`。仅用于探索和分析。
-- **漏洞验证任务**：使用 `audit_create_verification_task(title, description, parent_plan_id, binary_name, finding_id)`。仅用于验证已有的 Finding。
+- **漏洞验证任务**：使用 `audit_create_verification_task(title, description, parent_plan_id, binary_name)`。仅用于验证已有的 Finding。**注意：必须在 description 中明确包含要验证的 Finding ID 和关键信息。**
 
 确认计划内容存在重复时，删除多余的重复计划。
 
@@ -41,7 +41,7 @@
 - `audit_plan_list(status, plan_type)`: 查看计划列表。
 - `audit_create_macro_plan(...)`: 创建新的宏观计划。
 - `audit_create_agent_task(title, description, parent_plan_id, binary_name)`: 创建常规分析任务。
-- `audit_create_verification_task(title, description, parent_plan_id, binary_name, finding_id)`: 创建漏洞验证任务。
+- `audit_create_verification_task(title, description, parent_plan_id, binary_name)`: 创建漏洞验证任务。
 - `audit_plan_update(...)`: 更新计划的笔记。
 - `audit_get_findings(...)` / `audit_get_notes(...)`: 查看发现和笔记。
 - `audit_get_summary(...)`: 查看已完成任务的总结。

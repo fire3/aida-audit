@@ -1011,18 +1011,6 @@ class McpService:
         """
         return audit_mcp_tools.audit_get_analysis_progress(binary_name=binary_name)
 
-    @mcp_tool(name="audit_get_plan_findings")
-    def audit_get_plan_findings(self, plan_id: int) -> List[Dict[str, Any]]:
-        """Get all findings linked to a specific audit plan task.
-
-        Args:
-            plan_id: The ID of the plan task.
-
-        Returns:
-            list: Array of finding objects linked to the plan task.
-        """
-        return audit_mcp_tools.audit_get_plan_findings(plan_id)
-
     # --- Audit Management Tools ---
 
     @mcp_tool(name="audit_create_macro_plan")
@@ -1060,23 +1048,22 @@ class McpService:
         return audit_mcp_tools.audit_create_agent_task(title, description, parent_plan_id, binary_name)
 
     @mcp_tool(name="audit_create_verification_task")
-    def audit_create_verification_task(self, title: str, description: str, parent_plan_id: int, binary_name: str, finding_id: int) -> Dict[str, Any]:
+    def audit_create_verification_task(self, title: str, description: str, parent_plan_id: int, binary_name: str) -> Dict[str, Any]:
         """Create a verification task for a specific finding.
         
         Use this to create a task specifically for verifying a suspected vulnerability (finding).
-        MUST be linked to a parent Macro Plan and a Finding.
+        MUST be linked to a parent Macro Plan.
         
         Args:
             title: The title of the verification task.
             description: Detailed instructions for verification (e.g., 'Construct PoC for buffer overflow').
             parent_plan_id: The ID of the parent Macro Plan.
             binary_name: The name of the binary.
-            finding_id: The ID of the finding to verify.
 
         Returns:
             dict: Contains 'plan_id' of the created task and 'type'='verification_plan'.
         """
-        return audit_mcp_tools.audit_create_verification_task(title, description, parent_plan_id, binary_name, finding_id)
+        return audit_mcp_tools.audit_create_verification_task(title, description, parent_plan_id, binary_name)
 
     @mcp_tool(name="audit_submit_summary")
     def audit_submit_summary(self, plan_id: int, summary: str) -> Dict[str, Any]:
