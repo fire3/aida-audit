@@ -2,7 +2,7 @@ import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { binaryApi } from '../api/client';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { ProjectNotes } from './ProjectNotes';
+import { formatAddress } from '../lib/utils';
 
 export function BinaryOverview() {
   const { binaryName } = useParams();
@@ -51,7 +51,7 @@ export function BinaryOverview() {
                 </div>
                  <div>
                     <span className="text-muted-foreground block">Image Base</span>
-                    <span className="font-medium font-mono">{metadata?.image_base || 'N/A'}</span>
+                    <span className="font-medium font-mono">{formatAddress(metadata?.image_base) || 'N/A'}</span>
                 </div>
                  <div>
                     <span className="text-muted-foreground block">Endianness</span>
@@ -136,15 +136,6 @@ export function BinaryOverview() {
                 </div>
             </CardContent>
        </Card>
-
-       {/* Notes & Findings */}
-       {binaryName && (
-           <ProjectNotes 
-               initialBinaryName={binaryName} 
-               hideBinaryFilter={true}
-               embedded={true}
-           />
-       )}
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { binaryApi } from '../api/client';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, formatAddress } from '../lib/utils';
 import { FunctionDetail } from '../components/FunctionDetail';
 
 export function FunctionsBrowser() {
@@ -88,7 +88,7 @@ export function FunctionsBrowser() {
                     {func.demangled_name || func.name}
                   </div>
                   <div className="flex justify-between mt-1 text-xs text-muted-foreground">
-                    <span className="font-mono">{func.address}</span>
+                    <span className="font-mono">{formatAddress(func.address)}</span>
                     <span>{func.size} bytes</span>
                   </div>
                 </div>

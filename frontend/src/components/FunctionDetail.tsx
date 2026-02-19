@@ -7,6 +7,7 @@ import { Input } from './ui/input';
 import { Code, FileText, ArrowRight, ArrowLeft, Search, Database } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { formatAddress } from '../lib/utils';
 
 interface FunctionDetailProps {
   binaryName: string;
@@ -163,7 +164,7 @@ export function FunctionDetail({ binaryName, address, onNavigate }: FunctionDeta
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-muted-foreground">Address:</span>
-                      <span className="font-mono">{implementation.export.address}</span>
+                      <span className="font-mono">{formatAddress(implementation.export.address)}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-muted-foreground">Name:</span>
@@ -222,15 +223,15 @@ export function FunctionDetail({ binaryName, address, onNavigate }: FunctionDeta
                     onClick={() => onNavigate?.(ref.caller_address)}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <div className="font-mono text-sm font-medium text-foreground truncate min-w-0 group-hover:text-blue-600 dark:group-hover:text-blue-400" title={ref.caller_name || ref.caller_address}>
-                        {ref.caller_name || ref.caller_address}
+                      <div className="font-mono text-sm font-medium text-foreground truncate min-w-0 group-hover:text-blue-600 dark:group-hover:text-blue-400" title={ref.caller_name || formatAddress(ref.caller_address)}>
+                        {ref.caller_name || formatAddress(ref.caller_address)}
                       </div>
                       <div className="text-xs text-muted-foreground font-mono flex-shrink-0">
-                        {ref.caller_address}
+                        {formatAddress(ref.caller_address)}
                       </div>
                     </div>
                     <div className="text-xs text-muted-foreground mt-0.5 font-mono">
-                      callsite {ref.call_site_address}
+                      callsite {formatAddress(ref.call_site_address)}
                     </div>
                   </div>
                 ))}
@@ -273,15 +274,15 @@ export function FunctionDetail({ binaryName, address, onNavigate }: FunctionDeta
                     onClick={() => onNavigate?.(ref.callee_address)}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <div className="font-mono text-sm font-medium text-foreground truncate min-w-0 group-hover:text-green-600 dark:group-hover:text-green-400" title={ref.callee_name || ref.callee_address}>
-                        {ref.callee_name || ref.callee_address}
+                      <div className="font-mono text-sm font-medium text-foreground truncate min-w-0 group-hover:text-green-600 dark:group-hover:text-green-400" title={ref.callee_name || formatAddress(ref.callee_address)}>
+                        {ref.callee_name || formatAddress(ref.callee_address)}
                       </div>
                       <div className="text-xs text-muted-foreground font-mono flex-shrink-0">
-                        {ref.callee_address}
+                        {formatAddress(ref.callee_address)}
                       </div>
                     </div>
                     <div className="text-xs text-muted-foreground mt-0.5 font-mono flex items-center justify-between">
-                      <span>callsite {ref.call_site_address}</span>
+                      <span>callsite {formatAddress(ref.call_site_address)}</span>
                       {ref.call_type && <span className="text-[10px] px-1 rounded bg-muted text-muted-foreground">{ref.call_type}</span>}
                     </div>
                   </div>

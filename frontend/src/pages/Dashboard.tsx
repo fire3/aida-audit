@@ -6,7 +6,7 @@ import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { FileCode, Activity, Database, Search, List as ListIcon, Code, HelpCircle, Info, Hammer } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { cn } from '../lib/utils';
+import { cn, formatAddress } from '../lib/utils';
 import { McpToolsTab } from '../components/McpToolsTab';
 import { HelpTab } from '../components/HelpTab';
 import { AboutTab } from '../components/AboutTab';
@@ -219,7 +219,7 @@ export function Dashboard() {
                        <div className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">{hit.binary}</div>
                      </div>
                      <div className="text-xs text-muted-foreground font-mono mt-1">
-                       {hit.function.address} {hit.function.is_library ? '(Library)' : ''}
+                       {formatAddress(hit.function.address)} {hit.function.is_library ? '(Library)' : ''}
                      </div>
                    </div>
                  </Link>
@@ -266,7 +266,7 @@ export function Dashboard() {
                        <div className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded shrink-0">{hit.binary}</div>
                      </div>
                      <div className="text-xs text-muted-foreground font-mono mt-1">
-                       {hit.address}
+                       {formatAddress(hit.address)}
                      </div>
                    </div>
                  </Link>

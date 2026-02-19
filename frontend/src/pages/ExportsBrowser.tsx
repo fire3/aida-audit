@@ -6,7 +6,7 @@ import type { BinaryExport, XrefToItem } from '../api/client';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Search, ChevronLeft, ChevronRight, ArrowRight, Share2 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, formatAddress } from '../lib/utils';
 import { useDebounce } from '../hooks/useDebounce';
 
 interface ExportDetailProps {
@@ -35,7 +35,7 @@ function ExportDetail({ binaryName, exportItem, onNavigate }: ExportDetailProps)
           </div>
           <div>
             <div className="text-xs font-mono text-muted-foreground">Address</div>
-            <div className="font-mono text-sm">{exportItem.address}</div>
+            <div className="font-mono text-sm">{formatAddress(exportItem.address)}</div>
           </div>
           <div>
             <div className="text-xs font-mono text-muted-foreground">Ordinal</div>
@@ -68,10 +68,10 @@ function ExportDetail({ binaryName, exportItem, onNavigate }: ExportDetailProps)
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="font-mono text-sm font-medium text-foreground truncate min-w-0 group-hover:text-green-600 dark:group-hover:text-green-400">
-                      {ref.from_function || ref.from_address}
+                      {ref.from_function || formatAddress(ref.from_address)}
                     </div>
                     <div className="text-xs text-muted-foreground font-mono flex-shrink-0">
-                      {ref.from_address}
+                      {formatAddress(ref.from_address)}
                     </div>
                   </div>
                   <div className="text-xs text-muted-foreground mt-1 font-mono">

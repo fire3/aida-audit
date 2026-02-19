@@ -5,7 +5,7 @@ import { binaryApi } from '../api/client';
 import type { BinaryImport, XrefToItem } from '../api/client';
 import { Button } from '../components/ui/button';
 import { ChevronLeft, ChevronRight, ArrowRight, Import } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, formatAddress } from '../lib/utils';
 
 interface ImportDetailProps {
   binaryName: string;
@@ -37,7 +37,7 @@ function ImportDetail({ binaryName, importItem, onNavigate }: ImportDetailProps)
           </div>
           <div>
             <div className="text-xs font-mono text-muted-foreground">Address</div>
-            <div className="font-mono text-sm">{importItem.address}</div>
+            <div className="font-mono text-sm">{formatAddress(importItem.address)}</div>
           </div>
           <div>
             <div className="text-xs font-mono text-muted-foreground">Ordinal</div>
@@ -45,7 +45,7 @@ function ImportDetail({ binaryName, importItem, onNavigate }: ImportDetailProps)
           </div>
           <div>
             <div className="text-xs font-mono text-muted-foreground">Thunk Address</div>
-            <div className="font-mono text-sm">{importItem.thunk_address}</div>
+            <div className="font-mono text-sm">{formatAddress(importItem.thunk_address)}</div>
           </div>
         </div>
       </div>
@@ -68,10 +68,10 @@ function ImportDetail({ binaryName, importItem, onNavigate }: ImportDetailProps)
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="font-mono text-sm font-medium text-foreground truncate min-w-0 group-hover:text-green-600 dark:group-hover:text-green-400">
-                      {ref.from_function || ref.from_address}
+                      {ref.from_function || formatAddress(ref.from_address)}
                     </div>
                     <div className="text-xs text-muted-foreground font-mono flex-shrink-0">
-                      {ref.from_address}
+                      {formatAddress(ref.from_address)}
                     </div>
                   </div>
                   <div className="text-xs text-muted-foreground mt-1 font-mono">

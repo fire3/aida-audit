@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { binaryApi } from '../api/client';
 import { Search, Layers, FileDigit } from 'lucide-react';
 import { Input } from '../components/ui/input';
-import { cn } from '../lib/utils';
+import { cn, formatAddress } from '../lib/utils';
 
 export function SegmentsBrowser() {
   const { binaryName } = useParams<{ binaryName: string }>();
@@ -75,9 +75,9 @@ export function SegmentsBrowser() {
                           </span>
                         </h3>
                         <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground font-mono">
-                          <span title="Start Address">{seg.start_address}</span>
+                          <span title="Start Address">{formatAddress(seg.start_address)}</span>
                           <span>-</span>
-                          <span title="End Address">{seg.end_address}</span>
+                          <span title="End Address">{formatAddress(seg.end_address)}</span>
                           <span className="text-xs px-1.5 py-0.5 rounded bg-muted/50 text-foreground/70">
                             {seg.size.toLocaleString()} bytes
                           </span>

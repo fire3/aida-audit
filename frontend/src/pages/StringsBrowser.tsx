@@ -6,7 +6,7 @@ import type { XrefToItem } from '../api/client';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Search, ChevronLeft, ChevronRight, Quote, ArrowRight, Filter, FileCode } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, formatAddress } from '../lib/utils';
 
 interface XrefItemProps {
   binaryName: string;
@@ -65,13 +65,13 @@ function XrefItem({ binaryName, xref, onNavigate }: XrefItemProps) {
             "font-mono text-sm font-medium text-foreground truncate transition-colors",
             xref.from_function ? "group-hover:text-primary" : ""
           )}>
-            {xref.from_function_name || xref.from_function || (
+            {xref.from_function_name || formatAddress(xref.from_function) || (
               <span className="text-muted-foreground italic text-xs">No function</span>
             )}
           </div>
         </div>
         <div className="text-xs text-muted-foreground font-mono flex-shrink-0 bg-muted px-1.5 py-0.5 rounded">
-          {xref.from_address}
+          {formatAddress(xref.from_address)}
         </div>
       </div>
       
@@ -129,7 +129,7 @@ function StringDetail({ binaryName, address, stringContent, onNavigate }: String
           String Details
         </h2>
         <div className="mt-2 space-y-1">
-          <div className="text-sm font-mono text-muted-foreground">Address: {address}</div>
+          <div className="text-sm font-mono text-muted-foreground">Address: {formatAddress(address)}</div>
           <div className="p-2 bg-muted rounded border border-border font-mono text-sm whitespace-pre-wrap break-all">
             {stringContent}
           </div>
@@ -239,7 +239,7 @@ export function StringsBrowser() {
                     {str.string}
                   </div>
                   <div className="flex justify-between mt-1 text-xs text-muted-foreground">
-                    <span className="font-mono">{str.address}</span>
+                    <span className="font-mono">{formatAddress(str.address)}</span>
                     <span>{str.length} chars</span>
                     {str.section && <span>{str.section}</span>}
                   </div>

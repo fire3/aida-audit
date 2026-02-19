@@ -6,7 +6,7 @@ import type { BinarySymbol, XrefToItem } from '../api/client';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Search, ChevronLeft, ChevronRight, ArrowRight, Database } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, formatAddress } from '../lib/utils';
 import { useDebounce } from '../hooks/useDebounce';
 
 interface SymbolDetailProps {
@@ -41,7 +41,7 @@ function SymbolDetail({ binaryName, symbolItem, onNavigate }: SymbolDetailProps)
           )}
           <div>
             <div className="text-xs font-mono text-muted-foreground">Address</div>
-            <div className="font-mono text-sm">{symbolItem.address}</div>
+            <div className="font-mono text-sm">{formatAddress(symbolItem.address)}</div>
           </div>
           <div>
             <div className="text-xs font-mono text-muted-foreground">Kind</div>
@@ -72,10 +72,10 @@ function SymbolDetail({ binaryName, symbolItem, onNavigate }: SymbolDetailProps)
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="font-mono text-sm font-medium text-foreground truncate min-w-0 group-hover:text-green-600 dark:group-hover:text-green-400">
-                      {ref.from_function || ref.from_address}
+                      {ref.from_function || formatAddress(ref.from_address)}
                     </div>
                     <div className="text-xs text-muted-foreground font-mono flex-shrink-0">
-                      {ref.from_address}
+                      {formatAddress(ref.from_address)}
                     </div>
                   </div>
                   <div className="text-xs text-muted-foreground mt-1 font-mono">
@@ -173,7 +173,7 @@ export function SymbolsBrowser() {
                     </div>
                   </div>
                   <div className="flex justify-between mt-1 text-xs text-muted-foreground">
-                    <span className="font-mono">{sym.address}</span>
+                    <span className="font-mono">{formatAddress(sym.address)}</span>
                     <span className="font-mono">{sym.size} bytes</span>
                   </div>
                 </div>
