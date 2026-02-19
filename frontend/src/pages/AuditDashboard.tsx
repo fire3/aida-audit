@@ -223,67 +223,75 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
                     Task Execution Stream
                 </h3>
                 <div className="space-y-3">
-                    {allExecutionTasks.map(task => {
-                        const parentPlan = macroPlans.find(p => p.id === task.parent_id);
-                        const isVerification = task.plan_type === 'verification_plan';
-                        return (
-                         <div key={task.id} className={`group relative border rounded-lg p-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all hover:shadow-sm bg-white dark:bg-slate-900 ${isVerification ? 'border-l-4 border-l-blue-400' : ''}`}>
-                            {/* Header Row: ID, Title, Status */}
-                            <div className="flex items-center justify-between gap-3 mb-2">
-                                <div className="flex items-center gap-2 overflow-hidden">
-                                    <div className={`flex items-center justify-center w-6 h-6 rounded-full shrink-0 border border-slate-200 dark:border-slate-700 ${isVerification ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
-                                        {isVerification ? <ShieldCheck className="w-3 h-3" /> : <span className="text-[10px] font-mono font-bold">#{task.id}</span>}
+                    {allExecutionTasks.length > 0 ? (
+                        allExecutionTasks.map(task => {
+                            const parentPlan = macroPlans.find(p => p.id === task.parent_id);
+                            const isVerification = task.plan_type === 'verification_plan';
+                            return (
+                             <div key={task.id} className={`group relative border rounded-lg p-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all hover:shadow-sm bg-white dark:bg-slate-900 ${isVerification ? 'border-l-4 border-l-blue-400' : ''}`}>
+                                {/* Header Row: ID, Title, Status */}
+                                <div className="flex items-center justify-between gap-3 mb-2">
+                                    <div className="flex items-center gap-2 overflow-hidden">
+                                        <div className={`flex items-center justify-center w-6 h-6 rounded-full shrink-0 border border-slate-200 dark:border-slate-700 ${isVerification ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
+                                            {isVerification ? <ShieldCheck className="w-3 h-3" /> : <span className="text-[10px] font-mono font-bold">#{task.id}</span>}
+                                        </div>
+                                        <h4 className="font-semibold text-sm truncate text-slate-800 dark:text-slate-200" title={task.title}>
+                                            {task.title}
+                                        </h4>
                                     </div>
-                                    <h4 className="font-semibold text-sm truncate text-slate-800 dark:text-slate-200" title={task.title}>
-                                        {task.title}
-                                    </h4>
-                                </div>
-                                <div className="flex items-center gap-2 shrink-0">
-                                     <StatusIcon status={task.status} />
-                                     <Badge variant={task.status === 'completed' ? 'default' : task.status === 'in_progress' ? 'secondary' : task.status === 'failed' ? 'destructive' : 'outline'}>
-                                        {task.status}
-                                    </Badge>
-                                </div>
-                            </div>
-
-                            {/* Description Area - Fixed Height */}
-                            <div className="bg-slate-50 dark:bg-slate-950/50 rounded-md p-2.5 mb-2 border border-slate-100 dark:border-slate-800 h-24 overflow-y-auto custom-scrollbar">
-                                <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed font-mono">
-                                    {task.description || "No description provided."}
-                                </p>
-                            </div>
-
-                            {/* Footer Metadata Row */}
-                            <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-2 pt-2 border-t border-dashed border-slate-100 dark:border-slate-800">
-                                <div className="flex items-center gap-3 overflow-hidden">
-                                    {/* Parent Plan */}
-                                    {parentPlan && (
-                                        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border border-purple-100 dark:border-purple-800/30 shrink-0 max-w-[200px]">
-                                            <ListTodo className="w-3 h-3 shrink-0" />
-                                            <span className="font-medium truncate" title={parentPlan.title}>
-                                                Parent: {parentPlan.title}
-                                            </span>
-                                        </div>
-                                    )}
-                                    
-                                    {/* Binary Target */}
-                                    {task.binary_name && (
-                                        <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 shrink-0">
-                                            <Code className="w-3 h-3" />
-                                            <span className="font-mono">{task.binary_name}</span>
-                                        </div>
-                                    )}
+                                    <div className="flex items-center gap-2 shrink-0">
+                                         <StatusIcon status={task.status} />
+                                         <Badge variant={task.status === 'completed' ? 'default' : task.status === 'in_progress' ? 'secondary' : task.status === 'failed' ? 'destructive' : 'outline'}>
+                                            {task.status}
+                                        </Badge>
+                                    </div>
                                 </div>
 
-                                {/* Timestamp */}
-                                <div className="flex items-center gap-1 opacity-70 shrink-0 ml-2">
-                                    <Clock className="w-3 h-3" />
-                                    <span>{new Date(task.updated_at * 1000).toLocaleString()}</span>
+                                {/* Description Area - Fixed Height */}
+                                <div className="bg-slate-50 dark:bg-slate-950/50 rounded-md p-2.5 mb-2 border border-slate-100 dark:border-slate-800 h-24 overflow-y-auto custom-scrollbar">
+                                    <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed font-mono">
+                                        {task.description || "No description provided."}
+                                    </p>
                                 </div>
-                            </div>
-                         </div>
-                        );
-                    })}
+
+                                {/* Footer Metadata Row */}
+                                <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-2 pt-2 border-t border-dashed border-slate-100 dark:border-slate-800">
+                                    <div className="flex items-center gap-3 overflow-hidden">
+                                        {/* Parent Plan */}
+                                        {parentPlan && (
+                                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border border-purple-100 dark:border-purple-800/30 shrink-0 max-w-[200px]">
+                                                <ListTodo className="w-3 h-3 shrink-0" />
+                                                <span className="font-medium truncate" title={parentPlan.title}>
+                                                    Parent: {parentPlan.title}
+                                                </span>
+                                            </div>
+                                        )}
+                                        
+                                        {/* Binary Target */}
+                                        {task.binary_name && (
+                                            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 shrink-0">
+                                                <Code className="w-3 h-3" />
+                                                <span className="font-mono">{task.binary_name}</span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Timestamp */}
+                                    <div className="flex items-center gap-1 opacity-70 shrink-0 ml-2">
+                                        <Clock className="w-3 h-3" />
+                                        <span>{new Date(task.updated_at * 1000).toLocaleString()}</span>
+                                    </div>
+                                </div>
+                             </div>
+                            );
+                        })
+                    ) : (
+                        <div className="flex flex-col items-center justify-center h-64 text-muted-foreground border rounded-lg bg-slate-50/50 dark:bg-slate-900/20 border-dashed">
+                            <ListTodo className="w-12 h-12 mb-4 opacity-20" />
+                            <p>No tasks generated yet.</p>
+                            <p className="text-xs mt-2">Set your requirements on the left and start the audit.</p>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
@@ -1295,15 +1303,7 @@ export function AuditDashboard() {
         {activeTab === 'plan' && (
           <Card className="h-full flex flex-col border-0 shadow-none bg-transparent">
             <CardContent className="flex-1 overflow-auto p-0 pr-2">
-               {plans && plans.length > 0 ? (
-                   <PlanView plans={plans} />
-               ) : (
-                  <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-                    <ListTodo className="w-12 h-12 mb-4 opacity-20" />
-                    <p>No audit plans found.</p>
-                    <p className="text-xs mt-2">Start the audit to generate an analysis plan.</p>
-                  </div>
-               )}
+               <PlanView plans={plans || []} />
             </CardContent>
           </Card>
         )}
