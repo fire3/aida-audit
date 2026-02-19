@@ -146,6 +146,22 @@ class ConfigUpdate(BaseModel):
     api_key: Optional[str] = None
     model: str
 
+class UserPrompt(BaseModel):
+    content: str
+
+@api_router.get("/config/user-prompt")
+def get_user_prompt():
+    if not audit_db:
+        return {"content": ""}
+    return {"content": audit_db.get_config("user_prompt", "")}
+
+@api_router.post("/config/user-prompt")
+def update_user_prompt(prompt: UserPrompt):
+    if not audit_db:
+        raise HTTPException(status_code=503, detail="Audit database not initialized")
+    audit_db.set_config("user_prompt", prompt.content)
+    return {"status": "ok"}
+
 @api_router.get("/config")
 def get_config():
     config = Config()

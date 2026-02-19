@@ -283,6 +283,16 @@ export const auditApi = {
     return res.data;
   },
   
+  getUserPrompt: async () => {
+    const res = await apiClient.get<{content: string}>('/config/user-prompt');
+    return res.data;
+  },
+
+  updateUserPrompt: async (content: string) => {
+    const res = await apiClient.post('/config/user-prompt', { content });
+    return res.data;
+  },
+
   start: async () => {
     const res = await apiClient.post('/audit/start');
     return res.data;

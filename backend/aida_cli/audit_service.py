@@ -402,15 +402,23 @@ class PlanAgent(BaseAgent):
             return "Initial Plan Agent"
     
     def get_system_prompt(self) -> str:
+        base_prompt = ""
         try:
             plans = self.audit_db.get_plans(plan_type='audit_plan')
             if not plans:
-                return load_agent_prompt("PLAN_AGENT_INITIAL")
+                base_prompt = load_agent_prompt("PLAN_AGENT_INITIAL")
             else:
-                return load_agent_prompt("PLAN_AGENT_REVIEW")
+                base_prompt = load_agent_prompt("PLAN_AGENT_REVIEW")
         except Exception as e:
             print(f"Error checking plans: {e}")
-            return load_agent_prompt("PLAN_AGENT_INITIAL")
+            base_prompt = load_agent_prompt("PLAN_AGENT_INITIAL")
+
+        # Append user prompt if exists
+        user_prompt = self.audit_db.get_config("user_prompt", "")
+        if user_prompt:
+             base_prompt += f"\n\n【用户重要指示】\n用户的以下要求非常重要，请务必遵守：\n{user_prompt}\n"
+             
+        return base_prompt
 
     def get_initial_context(self) -> str:
         return f"请使用工具简要分析相关二进制文件，并按照要求创建安全审计计划。"

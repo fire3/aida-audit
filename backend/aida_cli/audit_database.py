@@ -175,6 +175,14 @@ class AuditDatabase:
         """)
 
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS system_config (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at INTEGER
+            )
+        """)
+
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_notes_binary ON notes(binary_name)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_notes_type ON notes(note_type)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_notes_func ON notes(function_name)")
@@ -187,6 +195,25 @@ class AuditDatabase:
         self._ensure_columns(cursor)
         self.commit()
         self.log("Audit schema created successfully.")
+
+    def get_config(self, key: str, default: str = "") -> str:
+        if not self.conn:
+            return default
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT value FROM system_config WHERE key = ?", (key,))
+        row = cursor.fetchone()
+        return row[0] if row else default
+
+    def set_config(self, key: str, value: str):
+        if not self.conn:
+            return
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO system_config (key, value, updated_at) 
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+        """, (key, value, int(time.time())))
+        self.conn.commit()
 
     def _ensure_columns(self, cursor):
         # Check if parent_id exists in audit_plans
