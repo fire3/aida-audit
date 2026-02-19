@@ -967,7 +967,7 @@ class McpService:
             exploitability: Optional exploitability assessment.
 
         Returns:
-            dict: Contains finding_id and note_id.
+            dict: Contains vulnerability_id.
         """
         return audit_mcp_tools.audit_report_vulnerability(
             binary_name=binary_name,
@@ -988,7 +988,7 @@ class McpService:
 
         Args:
             finding_id: The ID of the vulnerability finding.
-            status: Verification status. Options: unverified, confirmed, false_positive, needs_review, inconclusive.
+            status: Verification status. Options: confirmed, false_positive, needs_review, inconclusive. (Cannot be 'unverified')
             details: Optional details explaining the verification result.
 
         Returns:
@@ -1012,7 +1012,7 @@ class McpService:
             verification_status: Optional verification status filter. Options: unverified, confirmed, false_positive, needs_review, inconclusive.
 
         Returns:
-            list: Array of vulnerability objects with finding_id, note_id, binary_name, function_name,
+            list: Array of vulnerability objects with vulnerability_id, binary_name, function_name,
                   address, severity, category, description, evidence, cvss, exploitability, created_at, verification_status.
         """
         return audit_mcp_tools.audit_get_vulnerabilities(

@@ -133,8 +133,12 @@ def audit_update_vulnerability_verification(
 ) -> Dict[str, Any]:
     """Update the verification status of a vulnerability."""
     _validate_option("verification status", status, VALID_VERIFICATION_STATUSES)
+    if status == 'unverified':
+        raise ValueError("Cannot manually set status back to 'unverified'.")
+    
     db = get_audit_db()
-    success = db.update_finding_verification(finding_id, status, details)
+    # finding_id corresponds to vulnerability_id in the new schema
+    success = db.update_vulnerability_verification(finding_id, status, details)
     return {"success": success}
 
 def audit_plan_list(status: Optional[str] = None, plan_type: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -234,7 +238,7 @@ def audit_report_vulnerability(
     _validate_option("category", category, VALID_CATEGORIES)
     db = get_audit_db()
     addr = _parse_address(address)
-    finding_id = db.create_finding(
+    vulnerability_id = db.create_vulnerability(
         binary_name=binary_name,
         severity=severity,
         category=category,
@@ -246,9 +250,7 @@ def audit_report_vulnerability(
         cvss=cvss,
         exploitability=exploitability
     )
-    note_id = db.get_findings(binary_name=binary_name, severity=severity, category=category)
-    actual_note_id = note_id[0]["note_id"] if note_id else None
-    return {"finding_id": finding_id, "note_id": actual_note_id}
+    return {"vulnerability_id": vulnerability_id}
 
 def audit_get_vulnerabilities(
     binary_name: Optional[str] = None,
@@ -260,7 +262,7 @@ def audit_get_vulnerabilities(
     _validate_option("category", category, VALID_CATEGORIES)
     _validate_option("verification_status", verification_status, VALID_VERIFICATION_STATUSES)
     db = get_audit_db()
-    return db.get_findings(
+    return db.get_vulnerabilities(
         binary_name=binary_name, 
         severity=severity, 
         category=category,
