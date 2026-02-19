@@ -19,6 +19,7 @@ import {
   Archive,
   ShieldCheck
 } from 'lucide-react';
+import { formatAddress } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -491,7 +492,7 @@ function VulnerabilitiesView({ vulnerabilities }: { vulnerabilities: Vulnerabili
                                 {selectedVulnerability.address && (
                                     <div className="flex items-center gap-2">
                                         <span className="text-muted-foreground">Address:</span>
-                                        <span className="text-slate-700 dark:text-slate-300">{selectedVulnerability.address}</span>
+                                        <span className="text-slate-700 dark:text-slate-300">{formatAddress(selectedVulnerability.address)}</span>
                                     </div>
                                 )}
                             </div>
@@ -641,7 +642,7 @@ function NotesView({ notes }: { notes: Note[] }) {
                                 {selectedNote.address && (
                                     <div className="flex items-center gap-2">
                                         <span className="text-muted-foreground">Address:</span>
-                                        <span className="text-slate-700 dark:text-slate-300">{selectedNote.address}</span>
+                                        <span className="text-slate-700 dark:text-slate-300">{formatAddress(selectedNote.address)}</span>
                                     </div>
                                 )}
                             </div>
