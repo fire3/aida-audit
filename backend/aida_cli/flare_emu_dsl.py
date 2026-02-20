@@ -90,13 +90,26 @@ class DSLRunner:
                 else:
                     regs_to_dump = ["eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp", "eip"]
             elif arch == "ARM":
-                regs_to_dump = [f"r{i}" for i in range(13)] + ["sp", "lr", "pc"]
+                if self.eh.analysisHelper.getBitness() == 64:
+                    # ARM64
+                    regs_to_dump = [f"X{i}" for i in range(31)] + ["SP", "PC", "LR"]
+                else:
+                    # ARM 32
+                    regs_to_dump = [f"R{i}" for i in range(13)] + ["SP", "LR", "PC"]
                 
             for reg in regs_to_dump:
-                ctx["registers"][reg] = hex(self.eh.getRegVal(reg))
+                try:
+                    ctx["registers"][reg] = hex(self.eh.getRegVal(reg))
+                except Exception:
+                    # Try lowercase if uppercase fails or vice versa
+                    try:
+                        ctx["registers"][reg] = hex(self.eh.getRegVal(reg.lower()))
+                    except:
+                        pass
                 
             # Capture stack top (16 words)
-            sp_val = self.eh.getRegVal("rsp" if arch == "X86" and self.eh.analysisHelper.getBitness() == 64 else "esp" if arch == "X86" else "sp")
+            sp_reg = self._get_sp_register()
+            sp_val = self.eh.getRegVal(sp_reg)
             stack_data = self.eh.getEmuBytes(sp_val, 16 * 8) # generous read
             # Just hex dump it roughly
             ctx["stack_top"] = stack_data.hex()
@@ -188,9 +201,39 @@ class DSLRunner:
                     is_call = True
 
             elif arch == "ARM":
-                # BL (Branch with Link)
-                # This is complex to decode manually due to different modes (Thumb/ARM)
-                pass
+                bitness = self.eh.analysisHelper.getBitness()
+                if bitness == 64:
+                    # ARM64 (AArch64) - Little Endian assumed
+                    # BL: 94 xx xx xx (Opcode 100101) -> 0x94 in high byte
+                    if (insn[3] & 0xFC) == 0x94:
+                        is_call = True
+                        # Offset is 26 bits signed, * 4
+                        offset = struct.unpack("<I", insn)[0] & 0x03FFFFFF
+                        if offset & 0x02000000:
+                            offset -= 0x04000000
+                        offset *= 4
+                        target = address + offset
+                    # BLR: D6 3F xx xx
+                    elif insn[3] == 0xD6 and insn[2] == 0x3F:
+                        is_call = True
+                        # Target in register
+                else:
+                    # ARM 32 (AArch32)
+                    # BL: EB xx xx xx
+                    if insn[3] == 0xEB:
+                        is_call = True
+                        offset = struct.unpack("<I", insn)[0] & 0x00FFFFFF
+                        if offset & 0x00800000:
+                            offset -= 0x01000000
+                        offset = (offset << 2) + 8 # PC is +8
+                        target = address + offset
+                    # BLX (imm): FA xx xx xx
+                    elif insn[3] == 0xFA:
+                        is_call = True
+                        # Switch to Thumb
+                    # BLX (reg): E1 2F FF 3x (AL)
+                    elif insn[3] == 0xE1 and insn[2] == 0x2F and insn[1] == 0xFF and (insn[0] & 0xF0) == 0x30:
+                        is_call = True
                 
             if is_call:
                     self.call_trace.append({
@@ -326,8 +369,12 @@ class DSLRunner:
         registers = step.get("registers", {})
         for reg, val in registers.items():
             val = self._resolve_value(val)
-            self.eh.uc.reg_write(self.eh.regs[reg], val)
-            logger.info(f"Wrote {hex(val)} to {reg}")
+            try:
+                reg_id = self._get_reg_id(reg)
+                self.eh.uc.reg_write(reg_id, val)
+                logger.info(f"Wrote {hex(val)} to {reg}")
+            except Exception as e:
+                 logger.error(f"Write Error ({reg}): {e}")
             
         memory = step.get("memory", [])
         for mem_op in memory:
@@ -418,14 +465,37 @@ class DSLRunner:
                     stack.append(arg)
         
         elif arch == "ARM":
-            # R0-R3, stack
-            regs = ["r0", "r1", "r2", "r3"]
-            for i, arg in enumerate(args):
-                if i < 4: registers[regs[i]] = arg
-                else: stack.append(arg)
-            registers["lr"] = 0xDEADBEEF
+            if bitness == 64:
+                # ARM64 (AArch64)
+                # X0-X7, stack
+                regs = [f"X{i}" for i in range(8)]
+                for i, arg in enumerate(args):
+                    if i < 8: registers[regs[i]] = arg
+                    else: stack.append(arg)
+                registers["LR"] = 0xDEADBEEF
+            else:
+                # ARM 32
+                # R0-R3, stack
+                regs = ["R0", "R1", "R2", "R3"]
+                for i, arg in enumerate(args):
+                    if i < 4: registers[regs[i]] = arg
+                    else: stack.append(arg)
+                registers["LR"] = 0xDEADBEEF
 
         return registers, stack
+
+    def _get_reg_id(self, reg_name):
+        """Helper to resolve register ID with case insensitivity"""
+        if reg_name in self.eh.regs:
+            return self.eh.regs[reg_name]
+        if reg_name.upper() in self.eh.regs:
+            return self.eh.regs[reg_name.upper()]
+        if reg_name.lower() in self.eh.regs:
+            return self.eh.regs[reg_name.lower()]
+        # ARM64 specific aliases if needed
+        if reg_name.lower() == "fp": return self.eh.regs.get("X29", -1)
+        if reg_name.lower() == "lr": return self.eh.regs.get("X30", -1)
+        raise ValueError(f"Unknown register: {reg_name}")
 
     def _setup_hooks(self, hooks_config, user_data):
         """
@@ -446,27 +516,48 @@ class DSLRunner:
                     elif action == "write_reg":
                         reg = hook.get("register")
                         val = self._resolve_value(hook.get("value"))
-                        self.eh.uc.reg_write(self.eh.regs[reg], val)
+                        try:
+                            reg_id = self._get_reg_id(reg)
+                            self.eh.uc.reg_write(reg_id, val)
+                            logger.info(f"Hook: Wrote {hex(val)} to {reg}")
+                        except Exception as e:
+                            logger.error(f"Hook Error (write_reg {reg}): {e}")
+                            
                     elif action == "read_reg":
                         reg = hook.get("register")
                         var_name = hook.get("var")
                         if var_name:
-                            val = self.eh.getRegVal(reg)
-                            self.variables[var_name] = val
-                            logger.info(f"Hook: Read {reg} = {hex(val)} -> ${var_name}")
+                            try:
+                                reg_id = self._get_reg_id(reg)
+                                val = self.eh.uc.reg_read(reg_id)
+                                self.variables[var_name] = val
+                                logger.info(f"Hook: Read {reg} = {hex(val)} -> ${var_name}")
+                            except Exception as e:
+                                logger.error(f"Hook Error (read_reg {reg}): {e}")
+
                     elif action == "read_mem":
                         # Support resolving address from register or variable
                         addr_val = self._resolve_value(hook.get("addr_read") or hook.get("mem_addr"))
                         # If addr_read is a register name like "esp" or "rsp", we should read that register value first
-                        if isinstance(addr_val, str) and addr_val in self.eh.regs:
-                            addr_val = self.eh.getRegVal(addr_val)
+                        if isinstance(addr_val, str):
+                            # Try resolve as register
+                            try:
+                                reg_id = self._get_reg_id(addr_val)
+                                addr_val = self.eh.uc.reg_read(reg_id)
+                            except:
+                                # Not a register, maybe a variable not resolved?
+                                pass
                             
                         size = hook.get("size")
                         var_name = hook.get("var")
-                        if var_name and addr_val and size:
-                            val = self.eh.getEmuBytes(addr_val, size)
-                            self.variables[var_name] = val
-                            logger.info(f"Hook: Read {size} bytes from {hex(addr_val)} -> ${var_name}")
+                        if var_name and addr_val is not None and size:
+                            try:
+                                val = self.eh.getEmuBytes(addr_val, size)
+                                self.variables[var_name] = val
+                                logger.info(f"Hook: Read {size} bytes from {hex(addr_val)} -> ${var_name}")
+                            except Exception as e:
+                                logger.error(f"Hook Error (read_mem): {e}")
+
                     elif action == "stop":
                         self.eh.stopEmulation(user_data)
         
@@ -517,7 +608,10 @@ class DSLRunner:
             word_size = 8 if self.eh.analysisHelper.getBitness() == 64 else 4
             
             if diff == word_size:
-                # Normal return (ret popped)
+                # Normal return (ret popped) for x86
+                pass
+            elif diff == 0 and arch in ["ARM", "ARM64"]:
+                # Normal return for ARM (BX LR doesn't pop)
                 pass
             elif diff > word_size:
                 # Stdcall or arguments popped?
@@ -535,9 +629,17 @@ class DSLRunner:
         if arch == "X86" and bitness == 64:
             reg_name = "rax"
         elif arch == "ARM":
-            reg_name = "r0"
+            if bitness == 64:
+                reg_name = "X0"
+            else:
+                reg_name = "R0"
         
-        val = self.eh.getRegVal(reg_name)
+        try:
+            val = self.eh.getRegVal(reg_name)
+        except:
+            # Try fallback to alternate case if needed
+            val = self.eh.getRegVal(reg_name.lower())
+
         logger.info(f"Function returned: {hex(val)}")
         
         # Always store last return value in $retval for convenience
@@ -552,7 +654,7 @@ class DSLRunner:
         if arch == "X86":
             return "rsp" if self.eh.analysisHelper.getBitness() == 64 else "esp"
         elif arch == "ARM":
-            return "sp"
+            return "SP"
         return "sp"
 
     def _handle_emulate(self, step):
@@ -585,8 +687,21 @@ class DSLRunner:
             if type_ == "register":
                 reg = check.get("register") or check.get("name")
                 expected = self._resolve_value(check.get("value"))
-                actual = self.eh.getRegVal(reg)
-                
+                try:
+                    actual = self.eh.getRegVal(reg)
+                except:
+                    # Try alternate case
+                    try:
+                         actual = self.eh.getRegVal(reg.lower())
+                    except:
+                         try:
+                             actual = self.eh.getRegVal(reg.upper())
+                         except:
+                             # Try resolving via _get_reg_id and raw read if getRegVal fails (e.g. for aliases not in flare_emu logic)
+                             # But getRegVal logic is important for subregisters.
+                             # If we are here, it's likely an invalid register name.
+                             raise ValueError(f"Unknown register in assert: {reg}")
+
                 # Handle simple signed/unsigned assumption for x86 return values like -1
                 if expected < 0:
                      # This is a bit rough, but handles common cases

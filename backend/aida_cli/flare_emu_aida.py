@@ -57,8 +57,10 @@ class AidaAnalysisHelper(flare_emu.AnalysisHelper):
             proc = self._meta.get("processor", "metapc")
             if "arm" in proc.lower():
                 self.arch = "ARM"
+                # flare_emu expects "ARM" for both 32/64 and checks bitness
                 if self.bitness == 64:
-                    self.arch = "ARM64"
+                     # We keep self.arch as "ARM" so flare_emu.initEmuHelper works
+                     pass
             elif "pc" in proc.lower():
                 self.arch = "X86"
                 
