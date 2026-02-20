@@ -14,12 +14,15 @@ class DSLRunner:
         # Analysis data
         self.coverage_data = set() # Set of executed addresses
         self.trace_log = [] # List of trace events
+        self.call_trace = [] # List of function call events
         self.crash_context = None # Context if crash occurs
         self.features = {
             "coverage": False,
             "trace": False,
-            "trace_mem": False
+            "trace_mem": False,
+            "trace_calls": False
         }
+        self.shadow_stack = [] # For stack integrity checking
 
     def run(self, scenario):
         """
@@ -51,6 +54,8 @@ class DSLRunner:
                     self._handle_alloc(step)
                 elif step_type == "report":
                     self._handle_report(step)
+                elif step_type == "log":
+                    self._handle_log(step)
                 else:
                     logger.warning(f"Unknown step type: {step_type}")
                     
@@ -101,19 +106,55 @@ class DSLRunner:
             self.coverage_data.add(address)
             
         if self.features["trace"]:
-            # Log execution trace (can be verbose!)
-            # Maybe restrict to basic blocks? For now instruction level if enabled
             self.trace_log.append({
                 "type": "exec",
                 "addr": hex(address),
                 "size": size
             })
             
+        if self.features["trace_calls"]:
+            self._trace_call_instruction(uc, address, size)
+
+    def _trace_call_instruction(self, uc, address, size):
+        """Heuristic to detect and log function calls"""
+        # This is a simplified heuristic. For robust detection, we'd need disassembly.
+        # We can try to read the instruction bytes and check for common opcodes.
+        try:
+            insn = self.eh.getEmuBytes(address, size)
+            is_call = False
+            target = None
+            
+            arch = self.eh.analysisHelper.getArch()
+            if arch == "X86":
+                # E8 xx xx xx xx (CALL rel32)
+                if insn[0] == 0xE8 and len(insn) >= 5:
+                    is_call = True
+                    # Calculate target
+                    rel = struct.unpack("<i", insn[1:5])[0]
+                    target = address + 5 + rel
+                # FF 15 (CALL r/m32) - indirect
+                elif insn[0] == 0xFF and (insn[1] & 0x38 == 0x10): 
+                    is_call = True
+                    # Target unknown statically without more decoding
+            elif arch == "ARM":
+                # BL (Branch with Link)
+                # This is complex to decode manually due to different modes (Thumb/ARM)
+                pass
+                
+            if is_call:
+                self.call_trace.append({
+                    "from": hex(address),
+                    "to": hex(target) if target else "indirect"
+                })
+                logger.debug(f"Call Trace: {hex(address)} -> {hex(target) if target else 'indirect'}")
+                
+        except Exception:
+            pass
+
     def _mem_trace_hook(self, uc, access, address, size, value, user_data):
         """Hook for memory access tracing"""
         if self.features["trace_mem"]:
             # 16 = READ, 17 = WRITE (Unicorn constants mapping)
-            # Actually unicorn exposes constants, but let's just log type
             access_type = "READ" if access == 16 else "WRITE"
             self.trace_log.append({
                 "type": "mem",
@@ -125,13 +166,9 @@ class DSLRunner:
 
     def _setup_analysis_hooks(self):
         """Setup internal hooks for analysis if features enabled"""
-        # We need to add these hooks to unicorn instance
-        # Flare-emu manages hooks, so we should be careful not to conflict
-        # But we can add our own raw unicorn hooks
-        
         import unicorn
         
-        if self.features["coverage"] or self.features["trace"]:
+        if self.features["coverage"] or self.features["trace"] or self.features["trace_calls"]:
             self.eh.uc.hook_add(unicorn.UC_HOOK_CODE, self._trace_hook)
             
         if self.features["trace_mem"]:
@@ -145,19 +182,21 @@ class DSLRunner:
         report = {
             "coverage_count": len(self.coverage_data),
             "trace_events": len(self.trace_log),
+            "call_events": len(self.call_trace),
             "crash_context": self.crash_context,
             "coverage_addresses": [hex(x) for x in sorted(list(self.coverage_data))],
-            # "trace_log": self.trace_log # Optional, can be huge
         }
         
         if step.get("include_trace", False):
             report["trace_log"] = self.trace_log
+            report["call_trace"] = self.call_trace
             
         content = ""
         if report_type == "json":
             content = json.dumps(report, indent=2)
         else:
             content = f"Coverage: {len(self.coverage_data)} instructions\n"
+            content += f"Calls: {len(self.call_trace)}\n"
             if self.crash_context:
                 content += f"CRASH DETECTED: {self.crash_context['exception']}\n"
                 
@@ -167,6 +206,16 @@ class DSLRunner:
             logger.info(f"Report written to {report_file}")
         else:
             logger.info(f"Analysis Report:\n{content}")
+
+    def _handle_log(self, step):
+        """Log message with variable substitution"""
+        msg = step.get("message", "")
+        # Replace $var with value
+        if "$" in msg:
+            for var_name, val in self.variables.items():
+                msg = msg.replace(f"${var_name}", str(val) if not isinstance(val, int) else hex(val))
+        
+        logger.info(f"[SCRIPT LOG] {msg}")
 
     def _resolve_value(self, val):
         """
@@ -278,6 +327,7 @@ class DSLRunner:
     def _setup_call_context(self, args, convention=None):
         """
         Setup registers and stack for function call.
+        Returns registers dict and stack list (values to be written to stack starting at SP).
         """
         arch = self.eh.analysisHelper.getArch()
         bitness = self.eh.analysisHelper.getBitness()
@@ -308,11 +358,10 @@ class DSLRunner:
                 stack.insert(0, 0xDEADBEEF) # Return addr
             else:
                 # x86 cdecl / stdcall
-                # For now assuming cdecl (caller cleans up) or stdcall (callee cleans up)
-                # But for emulation setup, we just push args.
-                for arg in reversed(args):
+                # Stack layout: [ret, arg1, arg2, ...]
+                stack.append(0xDEADBEEF)
+                for arg in args:
                     stack.append(arg)
-                stack.insert(0, 0xDEADBEEF)
         
         elif arch == "ARM":
             # R0-R3, stack
@@ -323,6 +372,45 @@ class DSLRunner:
             registers["lr"] = 0xDEADBEEF
 
         return registers, stack
+
+    def _apply_call_context(self, registers, stack_data):
+        """
+        Apply registers and stack data to emulator manually.
+        Returns the stack pointer value after setup.
+        """
+        # Write stack
+        if stack_data:
+            sp_reg = self._get_sp_register()
+            sp = self.eh.getRegVal(sp_reg)
+            arch = self.eh.analysisHelper.getArch()
+            is_64 = self.eh.analysisHelper.getBitness() == 64
+            word_size = 8 if is_64 else 4
+            
+            # Calculate space needed
+            total_size = len(stack_data) * word_size
+            
+            # Allocate space on stack (grow down)
+            sp -= total_size
+            
+            # Update SP register
+            self.eh.uc.reg_write(self.eh.regs[sp_reg], sp)
+            
+            # Write data to stack (growing up from new SP)
+            pack_fmt = "<Q" if is_64 else "<I"
+            current_sp = sp
+            for val in stack_data:
+                # Ensure val is int
+                if not isinstance(val, int):
+                    logger.warning(f"Stack value not int: {val}, using 0")
+                    val = 0
+                self.eh.writeEmuMem(current_sp, struct.pack(pack_fmt, val))
+                current_sp += word_size
+                
+        # Write registers
+        for reg, val in registers.items():
+             self.eh.uc.reg_write(self.eh.regs[reg], val)
+             
+        return self.eh.getRegVal(self._get_sp_register())
 
     def _setup_hooks(self, hooks_config, user_data):
         """
@@ -390,22 +478,65 @@ class DSLRunner:
         if hooks_config:
             instr_hook = self._setup_hooks(hooks_config, {})
             
-        self.eh.emulateRange(addr, registers=registers, stack=stack, instructionHook=instr_hook)
+        # Manually setup context to track SP
+        sp_before = self._apply_call_context(registers, stack)
+        
+        # Run emulation (without passing regs/stack as we already set them)
+        # Note: we must ensure emulateRange doesn't reset them if None passed.
+        # flare_emu.emulateRange default args for registers/stack are None.
+        self.eh.emulateRange(addr, instructionHook=instr_hook)
+        
+        # Check stack integrity
+        sp_reg = self._get_sp_register()
+        sp_after = self.eh.getRegVal(sp_reg)
+        
+        # Check for stack overflow/imbalance
+        if sp_after != sp_before:
+            # For cdecl (caller cleans), SP should be where it was (pointing to ret addr) 
+            # or popped? 
+            # If function returns with RET, it pops return addr (size 4/8).
+            # So SP should be sp_before + word_size.
+            # If stdcall (callee cleans), SP should be sp_before + word_size + args_size.
+            
+            diff = sp_after - sp_before
+            arch = self.eh.analysisHelper.getArch()
+            word_size = 8 if self.eh.analysisHelper.getBitness() == 64 else 4
+            
+            if diff == word_size:
+                # Normal return (ret popped)
+                pass
+            elif diff > word_size:
+                # Stdcall or arguments popped?
+                logger.info(f"Stack pointer increased by {diff} (Stdcall/Args popped?)")
+            else:
+                logger.warning(f"Stack pointer mismatch: start={hex(sp_before)}, end={hex(sp_after)}, diff={diff}")
         
         # Store return value if requested
         ret_var = step.get("return_var")
+        
+        # Always log return value for debugging
+        arch = self.eh.analysisHelper.getArch()
+        bitness = self.eh.analysisHelper.getBitness()
+        reg_name = "eax"
+        if arch == "X86" and bitness == 64:
+            reg_name = "rax"
+        elif arch == "ARM":
+            reg_name = "r0"
+        
+        val = self.eh.getRegVal(reg_name)
+        logger.info(f"Function returned: {hex(val)}")
+        
         if ret_var:
-            arch = self.eh.analysisHelper.getArch()
-            bitness = self.eh.analysisHelper.getBitness()
-            reg_name = "eax"
-            if arch == "X86" and bitness == 64:
-                reg_name = "rax"
-            elif arch == "ARM":
-                reg_name = "r0"
-            
-            val = self.eh.getRegVal(reg_name)
             self.variables[ret_var] = val
-            logger.info(f"Return value {hex(val)} stored in ${ret_var}")
+            logger.info(f"Return value stored in ${ret_var}")
+
+    def _get_sp_register(self):
+        arch = self.eh.analysisHelper.getArch()
+        if arch == "X86":
+            return "rsp" if self.eh.analysisHelper.getBitness() == 64 else "esp"
+        elif arch == "ARM":
+            return "sp"
+        return "sp"
 
     def _handle_emulate(self, step):
         start = self._resolve_value(step.get("start"))
@@ -516,6 +647,8 @@ class TextDSLParser:
                 scenario["steps"].append(self._parse_assert(line))
             elif line.startswith("report "):
                 scenario["steps"].append(self._parse_report(line))
+            elif line.startswith("log "):
+                scenario["steps"].append(self._parse_log(line))
             else:
                 logger.warning(f"Unknown DSL line: {line}")
                 
@@ -748,3 +881,10 @@ class TextDSLParser:
             if "include_trace=true" in p:
                 step["include_trace"] = True
         return step
+
+    def _parse_log(self, line):
+        # log "message"
+        msg = line[4:].strip()
+        if msg.startswith('"') and msg.endswith('"'):
+            msg = msg[1:-1]
+        return {"type": "log", "message": msg}
