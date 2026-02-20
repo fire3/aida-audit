@@ -266,6 +266,11 @@ class AidaAnalysisHelper(flare_emu.AnalysisHelper):
         for seg in self._segments:
              if seg[1] <= addr < seg[2]:
                  seg_id = seg[0]
+                 name = seg[3]
+                 # For BSS segments, we want to return 0 so flare_emu maps it as 0-filled
+                 if name == ".bss":
+                     return 0
+                     
                  if seg_id not in self._seg_content:
                       self.db.cursor.execute("SELECT content FROM segment_content WHERE seg_id=?", (seg_id,))
                       row = self.db.cursor.fetchone()
@@ -273,7 +278,7 @@ class AidaAnalysisHelper(flare_emu.AnalysisHelper):
                           self._seg_content[seg_id] = row[0]
                       else:
                           self._seg_content[seg_id] = b""
-                      self.logger.info(f"Loaded content for segment (id={seg_id}) in getSegmentDefinedSize, size={len(self._seg_content[seg_id])}")
+                      self.logger.info(f"Loaded content for segment {name} (id={seg_id}) in getSegmentDefinedSize, size={len(self._seg_content[seg_id])}")
                  return len(self._seg_content[seg_id])
         return 0
 
