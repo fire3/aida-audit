@@ -1,7 +1,7 @@
 import logging
 import struct
-import flare_emu
-from binary_database import BinaryDatabase
+from . import flare_emu
+from .binary_database import BinaryDatabase
 import io
 
 class AidaBasicBlock:

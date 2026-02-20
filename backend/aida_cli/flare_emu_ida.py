@@ -5,7 +5,7 @@ import idautils
 import idc
 import ida_ida
 
-import flare_emu
+from . import flare_emu
 
 # wrappers for IDA Pro (IDAPython) 7, 8 and 9 compability
 version = float(idaapi.get_kernel_version())

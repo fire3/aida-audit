@@ -1,4 +1,4 @@
-import flare_emu
+from . import flare_emu
 
 # return a fake handle value
 def _returnHandleHook(eh, address, argv, funcName, userData):

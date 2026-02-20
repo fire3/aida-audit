@@ -24,7 +24,7 @@ from copy import deepcopy
 import logging
 import struct
 import re
-import flare_emu_hooks
+from . import flare_emu_hooks
 import types
 import sys
 
