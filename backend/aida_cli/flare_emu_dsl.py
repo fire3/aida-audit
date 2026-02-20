@@ -25,11 +25,17 @@ class DSLRunner:
         }
         self.shadow_stack = [] # For stack integrity checking
 
-    def run(self, scenario):
+    def run(self, script_or_scenario):
         """
         Run a full scenario defined by the DSL.
-        scenario: dict containing 'name', 'steps', etc.
+        script_or_scenario: text script (str) or parsed scenario (dict)
         """
+        if isinstance(script_or_scenario, str):
+            parser = TextDSLParser()
+            scenario = parser.parse(script_or_scenario)
+        else:
+            scenario = script_or_scenario
+            
         logger.info(f"Running scenario: {scenario.get('name', 'Unnamed')}")
         
         # Configure features
@@ -297,7 +303,10 @@ class DSLRunner:
         
         if content is not None:
             if isinstance(content, str):
-                content = content.encode("utf-8") + b"\x00"
+                if content.startswith("hex:"):
+                    content = bytes.fromhex(content[4:])
+                else:
+                    content = content.encode("utf-8") + b"\x00"
             size = len(content)
             addr = self.eh.allocEmuMem(size)
             self.eh.writeEmuMem(addr, content)
@@ -750,10 +759,21 @@ class TextDSLParser:
             
         args = []
         if args_str:
-            # Simple split by comma, ignoring quotes? 
-            # A robust split needed for "a,b", 1
-            # For simplicity assuming no commas in strings for now or simple args
-            raw_args = [x.strip() for x in args_str.split(",")]
+            # Robust split handling quoted strings
+            raw_args = []
+            current_arg = ""
+            in_quote = False
+            for char in args_str:
+                if char == '"':
+                    in_quote = not in_quote
+                if char == ',' and not in_quote:
+                    raw_args.append(current_arg.strip())
+                    current_arg = ""
+                else:
+                    current_arg += char
+            if current_arg:
+                raw_args.append(current_arg.strip())
+                
             for raw in raw_args:
                 if not raw: continue
                 # Detect type
@@ -773,6 +793,13 @@ class TextDSLParser:
                 elif raw.startswith('"'):
                     # Implicit string alloc
                     args.append({"type": "string", "value": raw[1:-1]})
+                elif raw.startswith('hex"'):
+                    # Implicit bytes alloc
+                    try:
+                        val_bytes = bytes.fromhex(raw[4:-1])
+                        args.append({"type": "bytes", "value": val_bytes})
+                    except ValueError:
+                        raise ValueError(f"Invalid hex string: {raw}")
                 else:
                     args.append(self._parse_value(raw))
                     
@@ -784,6 +811,36 @@ class TextDSLParser:
         if ret_var:
             step["return_var"] = ret_var
             
+        if has_block:
+            step["hooks"] = self._parse_hooks_block()
+            
+        return step
+
+    def _parse_emulate(self, line):
+        # emulate start, end [count=N] {
+        line = line[8:].strip()
+        
+        has_block = False
+        if line.endswith("{"):
+            has_block = True
+            line = line.rstrip("{").strip()
+            
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 2:
+            raise ValueError("Emulate requires start and end addresses")
+            
+        start = self._parse_value(parts[0])
+        end = self._parse_value(parts[1])
+        
+        step = {"type": "emulate", "start": start, "end": end}
+        
+        if len(parts) > 2:
+            # handle optional count=N
+            extra = parts[2]
+            if extra.startswith("count="):
+                step["count"] = int(extra.split("=")[1])
+                
+        # Support hooks block
         if has_block:
             step["hooks"] = self._parse_hooks_block()
             
