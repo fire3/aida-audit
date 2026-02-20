@@ -2,9 +2,16 @@ import json
 import re
 import inspect
 import traceback
+import os
+import io
+import logging
 from typing import Any, Dict, List, Optional, Union, get_type_hints
 from .project_store import ProjectStore
 from . import audit_mcp_tools
+
+# Delayed imports for Flare-Emu to avoid circular dependencies or heavy loading if not used
+# form .flare_emu_dsl import TextDSLParser, DSLRunner
+# from .flare_emu_aida import AidaEmuHelper
 
 def mcp_tool(name=None):
     """Decorator to mark a method as an MCP tool."""
@@ -129,6 +136,136 @@ class McpService:
 
     # --- Tool Definitions ---
 
+    @mcp_tool(name="get_flare_emu_dsl_guide")
+    def get_flare_emu_dsl_guide(self) -> str:
+        """Retrieve the official guide for writing Flare-Emu Text DSL scripts.
+
+        Use this tool to learn the syntax and features of the Flare-Emu DSL, which is used for dynamic emulation tasks.
+        The guide includes examples of memory allocation, function calls, hooking, and assertions.
+
+        Returns:
+            str: The full markdown content of the DSL guide.
+        """
+        try:
+            # Locate the guide file relative to this module
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            guide_path = os.path.join(current_dir, "templates", "FLARE_EMU_DSL_GUIDE.md")
+
+            if not os.path.exists(guide_path):
+                return "Error: DSL Guide file not found."
+
+            with open(guide_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception as e:
+            return f"Error reading DSL guide: {str(e)}"
+
+    @mcp_tool(name="run_flare_emu_dsl")
+    def run_flare_emu_dsl(self, binary_name: str, script: str) -> Dict[str, Any]:
+        """Execute a Flare-Emu Text DSL script on a specific binary.
+
+        Use this tool to perform dynamic analysis tasks such as emulating functions, fuzzing inputs, or verifying behavior.
+        The script should follow the syntax defined in the DSL guide.
+
+        Args:
+            binary_name: The unique name of the binary to analyze.
+            script: The DSL script content to execute.
+
+        Returns:
+            dict: A dictionary containing the execution results:
+                - 'success' (bool): Whether the execution completed without unhandled exceptions.
+                - 'logs' (list): Captured log messages from the emulation session.
+                - 'variables' (dict): Final state of DSL variables.
+                - 'coverage_count' (int): Number of unique instructions executed.
+                - 'trace' (list): Execution trace (if enabled in script).
+                - 'error' (str): Error message if execution failed.
+                - 'crash_context' (dict): Register/stack state if a crash occurred.
+        """
+        try:
+            # Delayed imports
+            from .flare_emu_dsl import TextDSLParser, DSLRunner
+            from .flare_emu_aida import AidaEmuHelper
+        except ImportError as e:
+             raise McpError("INTERNAL_ERROR", f"Failed to import emulation modules: {e}")
+
+        try:
+            binary = self._get_binary(binary_name)
+            # Access the underlying DB path from the binary object
+            # ProjectStore wraps BinaryDbQuery, which has db_path
+            db_path = getattr(binary, "db_path", None)
+            if not db_path:
+                 raise McpError("INTERNAL_ERROR", "Binary database path not found.")
+
+            # Initialize emulator helper
+            # verbose=0 to minimize stdout noise, we capture logs via handler
+            eh = AidaEmuHelper(db_path, verbose=0)
+            
+            # Parse script
+            parser = TextDSLParser()
+            try:
+                scenario = parser.parse(script)
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"DSL Parsing Error: {str(e)}",
+                    "logs": []
+                }
+
+            # Setup log capturing
+            log_capture = io.StringIO()
+            handler = logging.StreamHandler(log_capture)
+            handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+            
+            # Get the logger used by DSLRunner
+            dsl_logger = logging.getLogger("aida_cli.flare_emu_dsl")
+            dsl_logger.addHandler(handler)
+            dsl_logger.setLevel(logging.INFO)
+            
+            # Also capture AidaEmuHelper logs if needed?
+            # flare_emu uses its own logger, maybe we should capture root or specific loggers
+            # For now, DSLRunner logs are most important
+            
+            runner = DSLRunner(eh)
+            success = True
+            error_msg = None
+            
+            try:
+                runner.run(scenario)
+            except Exception as e:
+                success = False
+                error_msg = str(e)
+                # traceback.print_exc() # Print to stderr for server debug
+            finally:
+                dsl_logger.removeHandler(handler)
+                
+            logs = log_capture.getvalue().splitlines()
+            
+            result = {
+                "success": success,
+                "logs": logs,
+                "variables": runner.variables,
+                "coverage_count": len(runner.coverage_data),
+                "trace_events_count": len(runner.trace_log),
+                "crash_context": runner.crash_context
+            }
+            
+            if error_msg:
+                result["error"] = error_msg
+                
+            # If trace is enabled, include it (might be large, maybe truncate?)
+            if runner.features.get("trace") or runner.features.get("trace_calls"):
+                result["trace"] = runner.trace_log[:1000] # Limit to 1000 events to avoid blowing up JSON
+                if len(runner.trace_log) > 1000:
+                    result["trace_truncated"] = True
+                    
+            if runner.features.get("trace_calls"):
+                result["call_trace"] = runner.call_trace
+
+            return result
+
+        except LookupError as e:
+            raise McpError("NOT_FOUND", str(e))
+        except Exception as e:
+            raise McpError("INTERNAL_ERROR", f"Emulation failed: {str(e)}\n{traceback.format_exc()}")
     @mcp_tool(name="get_project_overview")
     def get_project_overview(self) -> Dict[str, Any]:
         """Retrieve a high-level overview of the current analysis project.
