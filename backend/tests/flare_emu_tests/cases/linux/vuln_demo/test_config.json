@@ -11,60 +11,17 @@
     {
       "name": "test_coverage_report",
       "description": "Test coverage collection",
-      "options": {
-          "coverage": true
-      },
-      "steps": [
-        {
-          "type": "call",
-          "function": "path_coverage",
-          "args": [11, 5]
-        },
-        {
-            "type": "report",
-            "file": "coverage_report.json",
-            "format": "json"
-        }
-      ]
+      "script": "option coverage = true\ncall path_coverage(11, 5)\nreport \"coverage_report.json\""
     },
     {
       "name": "test_trace_log",
       "description": "Test execution tracing",
-      "options": {
-          "trace": true,
-          "trace_mem": true
-      },
-      "steps": [
-        {
-          "type": "call",
-          "function": "path_coverage",
-          "args": [5, 11]
-        },
-        {
-            "type": "report",
-            "file": "trace_report.json",
-            "include_trace": true
-        }
-      ]
+      "script": "option trace = true\noption trace_mem = true\ncall path_coverage(5, 11)\nreport \"trace_report.json\" include_trace=true"
     },
     {
       "name": "test_crash_detection",
       "description": "Test crash context capture (Stack Overflow)",
-      "options": {
-          "trace": true
-      },
-      "steps": [
-        {
-            "type": "alloc",
-            "content": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-            "var": "bad_input"
-        },
-        {
-          "type": "call",
-          "function": "vuln_strcpy",
-          "args": [{"type": "ptr", "value": "$bad_input"}]
-        }
-      ]
+      "script": "option trace = true\n$bad_input = alloc(\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\")\ncall vuln_strcpy($bad_input)"
     }
   ]
 }

@@ -16,7 +16,7 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 from aida_cli.flare_emu_aida import AidaEmuHelper
-from aida_cli.flare_emu_dsl import DSLRunner
+from aida_cli.flare_emu_dsl import DSLRunner, TextDSLParser
 
 # Constants
 CASES_DIR = os.path.join(current_dir, "cases", platform.system().lower())
@@ -185,6 +185,7 @@ class TestRunner:
                 
         return {
             "name": case_name,
+            "case_path": case_path,
             "config": config,
             "db_path": db_path,
             "binary_name": binary_name
@@ -297,6 +298,8 @@ class TestRunner:
         suite = unittest.TestSuite()
         
         for test_def in config.get("tests", []):
+            # Inject case path for resolving script files
+            test_def["_case_path"] = case_data["case_path"]
             suite.addTest(DynamicTestCase(eh, test_def))
             
         runner = unittest.TextTestRunner(verbosity=2)
@@ -328,10 +331,31 @@ class DynamicTestCase(unittest.TestCase):
 
     def run_dynamic_test(self):
         # Check if this is a DSL test or legacy test
-        if "steps" in self.test_def:
+        if "script" in self.test_def:
+            self._run_text_dsl_test(self.test_def["script"])
+        elif "script_file" in self.test_def:
+            # Resolve path relative to case dir
+            script_path = os.path.join(self.test_def.get("_case_path", ""), self.test_def["script_file"])
+            if not os.path.exists(script_path):
+                self.fail(f"Script file not found: {script_path}")
+            with open(script_path, "r") as f:
+                script = f.read()
+            self._run_text_dsl_test(script)
+        elif "steps" in self.test_def:
             self._run_dsl_test()
         else:
             self._run_legacy_test()
+
+    def _run_text_dsl_test(self, script):
+        parser = TextDSLParser()
+        try:
+            scenario = parser.parse(script)
+            # Merge name/description from test_def if available
+            scenario["name"] = self.test_def.get("name", scenario["name"])
+            runner = DSLRunner(self.eh)
+            runner.run(scenario)
+        except Exception as e:
+            self.fail(f"Text DSL Execution failed: {e}")
 
     def _run_dsl_test(self):
         runner = DSLRunner(self.eh)

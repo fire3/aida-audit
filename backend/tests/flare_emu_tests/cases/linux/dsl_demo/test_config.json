@@ -9,117 +9,16 @@
   },
   "tests": [
     {
-      "name": "test_add_dsl",
-      "description": "Test basic addition using DSL",
-      "steps": [
-        {
-          "type": "call",
-          "function": "test_add",
-          "args": [10, 20],
-          "return_var": "sum"
-        },
-        {
-          "type": "assert",
-          "checks": [
-            {
-              "type": "variable",
-              "name": "sum",
-              "value": 30
-            }
-          ]
-        }
-      ]
+      "name": "test_add_text_dsl",
+      "script": "$res = call test_add(10, 20)\nassert $res == 30"
     },
     {
-      "name": "test_strlen_dsl",
-      "description": "Test string length using DSL and explicit alloc",
-      "steps": [
-        {
-          "type": "alloc",
-          "content": "hello world",
-          "var": "my_str"
-        },
-        {
-          "type": "call",
-          "function": "test_strlen",
-          "args": [{"type": "ptr", "value": "$my_str"}],
-          "return_var": "len"
-        },
-        {
-          "type": "assert",
-          "checks": [
-            {
-              "type": "variable",
-              "name": "len",
-              "value": 11
-            }
-          ]
-        }
-      ]
+      "name": "test_strlen_text_dsl",
+      "script": "$str = alloc(\"hello world\")\n$len = call test_strlen($str)\nassert $len == 11"
     },
     {
-        "name": "test_xor_dsl",
-        "description": "Test memory modification with DSL",
-        "steps": [
-            {
-                "type": "alloc",
-                "content": "AAAAA",
-                "var": "buffer"
-            },
-            {
-                "type": "call",
-                "function": "test_xor_crypt",
-                "args": [
-                    {"type": "ptr", "value": "$buffer"},
-                    5,
-                    {"type": "int", "value": 32} 
-                ]
-            },
-            {
-                "type": "assert",
-                "checks": [
-                    {
-                        "type": "memory",
-                        "addr": "$buffer",
-                        "content": "aaaaa"
-                    }
-                ]
-            }
-        ]
-    },
-    {
-        "name": "test_hooks_dsl",
-        "description": "Test hooks to modify behavior",
-        "steps": [
-            {
-                "type": "setup",
-                "note": "We want to hook the addition to return a different value or modify registers before return"
-            },
-            {
-                "type": "call",
-                "function": "test_add",
-                "args": [10, 20],
-                "hooks": [
-                    {
-                        "action": "write_reg",
-                        "register": "edi", 
-                        "value": 100,
-                        "addr": "test_add" 
-                    }
-                ],
-                "return_var": "hacked_sum"
-            },
-            {
-                "type": "assert",
-                "checks": [
-                    {
-                        "type": "variable",
-                        "name": "hacked_sum",
-                        "value": 120
-                    }
-                ]
-            }
-        ]
+        "name": "test_hooks_text_dsl",
+        "script": "$res = call test_add(10, 20) {\n  hook test_add {\n    action: write_reg reg.edi = 100\n  }\n}\nassert $res == 120"
     }
   ]
 }

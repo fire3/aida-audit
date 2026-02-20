@@ -2,6 +2,7 @@ import logging
 import struct
 import json
 import time
+import re
 from .flare_emu import EmuHelper
 
 logger = logging.getLogger(__name__)
@@ -482,3 +483,268 @@ class DSLRunner:
                     raise AssertionError(f"Memory mismatch at {hex(addr)}: expected {content}, got {actual}")
                 else:
                     logger.info(f"Assert Passed: Memory at {hex(addr)} matches")
+
+class TextDSLParser:
+    def __init__(self):
+        self.lines = []
+        self.current_line = 0
+
+    def parse(self, text):
+        self.lines = [line.strip() for line in text.splitlines()]
+        self.current_line = 0
+        scenario = {"name": "TextDSL", "steps": [], "options": {}}
+        
+        while self.current_line < len(self.lines):
+            line = self.lines[self.current_line]
+            self.current_line += 1
+            
+            if not line or line.startswith("#"):
+                continue
+                
+            # Parse directives
+            if line.startswith("option "):
+                self._parse_option(line, scenario["options"])
+            elif " = alloc(" in line:
+                scenario["steps"].append(self._parse_alloc(line))
+            elif line.startswith("write "):
+                scenario["steps"].append(self._parse_write(line))
+            elif line.startswith("call ") or " = call " in line:
+                scenario["steps"].append(self._parse_call(line))
+            elif line.startswith("emulate "):
+                scenario["steps"].append(self._parse_emulate(line))
+            elif line.startswith("assert "):
+                scenario["steps"].append(self._parse_assert(line))
+            elif line.startswith("report "):
+                scenario["steps"].append(self._parse_report(line))
+            else:
+                logger.warning(f"Unknown DSL line: {line}")
+                
+        return scenario
+
+    def _parse_value(self, val_str):
+        val_str = val_str.strip()
+        if val_str.startswith('"') and val_str.endswith('"'):
+            return val_str[1:-1]
+        if val_str.startswith('$'):
+            return val_str # Keep var syntax for runner
+        if val_str.startswith('hex"'):
+            return "hex:" + val_str[4:-1]
+        try:
+            if val_str.startswith("0x") or val_str.startswith("-0x"):
+                return int(val_str, 16)
+            return int(val_str)
+        except ValueError:
+            return val_str # Return as string (symbol name)
+
+    def _parse_option(self, line, options):
+        # option key = value
+        match = re.match(r"option\s+(\w+)\s*=?\s*(.+)", line)
+        if match:
+            key = match.group(1)
+            val = match.group(2)
+            if val.lower() == "true": val = True
+            elif val.lower() == "false": val = False
+            options[key] = val
+
+    def _parse_alloc(self, line):
+        # $var = alloc(content)
+        match = re.match(r"(\$\w+)\s*=\s*alloc\((.+)\)", line)
+        if not match:
+            raise ValueError(f"Invalid alloc syntax: {line}")
+        var_name = match.group(1)[1:] # strip $
+        arg = match.group(2)
+        step = {"type": "alloc", "var": var_name}
+        
+        val = self._parse_value(arg)
+        if isinstance(val, int):
+            step["size"] = val
+        else:
+            step["content"] = val
+        return step
+
+    def _parse_write(self, line):
+        # write reg.eax = 1
+        # write mem[$p] = "val"
+        step = {"type": "write"}
+        if line.startswith("write reg."):
+            match = re.match(r"write reg\.(\w+)\s*=\s*(.+)", line)
+            if match:
+                step["registers"] = {match.group(1): self._parse_value(match.group(2))}
+        elif line.startswith("write mem"):
+            match = re.match(r"write mem\[(.+)\]\s*=\s*(.+)", line)
+            if match:
+                step["memory"] = [{
+                    "addr": self._parse_value(match.group(1)),
+                    "data": self._parse_value(match.group(2))
+                }]
+        return step
+
+    def _parse_call(self, line):
+        # $res = call func(a, b) { ... }
+        # call func(a, b)
+        ret_var = None
+        if " = call " in line:
+            parts = line.split(" = call ")
+            ret_var = parts[0].strip()[1:]
+            call_part = parts[1]
+        else:
+            call_part = line[5:] # strip "call "
+            
+        # Check for block start
+        has_block = False
+        if call_part.strip().endswith("{"):
+            has_block = True
+            call_part = call_part.rstrip("{").strip()
+            
+        # Parse func and args
+        match = re.match(r"([\w\.]+)\((.*)\)", call_part)
+        if not match:
+             # Maybe no args? call func
+             match = re.match(r"([\w\.]+)", call_part)
+             func_name = match.group(1)
+             args_str = ""
+        else:
+            func_name = match.group(1)
+            args_str = match.group(2)
+            
+        args = []
+        if args_str:
+            # Simple split by comma, ignoring quotes? 
+            # A robust split needed for "a,b", 1
+            # For simplicity assuming no commas in strings for now or simple args
+            raw_args = [x.strip() for x in args_str.split(",")]
+            for raw in raw_args:
+                if not raw: continue
+                # Detect type
+                if raw.startswith("$"):
+                    # Check if it's treated as ptr or value?
+                    # In new DSL, variables are passed as is. 
+                    # Runner resolves them.
+                    # But for strings/bytes alloc logic in JSON runner...
+                    # New DSL uses explicit alloc, so just pass value.
+                    args.append({"type": "ptr", "value": raw}) # Default to ptr for var? Or let runner handle?
+                    # Runner _prepare_args logic:
+                    # if dict: ...
+                    # else: resolve value
+                    # If we pass "$var", runner resolves it to int/addr.
+                    # If we want to support implicit string alloc: call func("str")
+                    # We can detect quotes.
+                elif raw.startswith('"'):
+                    # Implicit string alloc
+                    args.append({"type": "string", "value": raw[1:-1]})
+                else:
+                    args.append(self._parse_value(raw))
+                    
+        step = {
+            "type": "call",
+            "function": func_name,
+            "args": args
+        }
+        if ret_var:
+            step["return_var"] = ret_var
+            
+        if has_block:
+            step["hooks"] = self._parse_hooks_block()
+            
+        return step
+
+    def _parse_hooks_block(self):
+        hooks = []
+        while self.current_line < len(self.lines):
+            line = self.lines[self.current_line]
+            self.current_line += 1
+            line = line.strip()
+            
+            if line == "}":
+                break
+            
+            if line.startswith("hook "):
+                # hook <addr> {
+                match = re.match(r"hook\s+(.+)\s+\{", line)
+                if match:
+                    addr = self._parse_value(match.group(1))
+                    hook_def = self._parse_single_hook_content()
+                    hook_def["addr"] = addr
+                    hooks.append(hook_def)
+        return hooks
+
+    def _parse_single_hook_content(self):
+        hook = {}
+        while self.current_line < len(self.lines):
+            line = self.lines[self.current_line]
+            self.current_line += 1
+            line = line.strip()
+            
+            if line == "}":
+                break
+                
+            if line.startswith("action:"):
+                # action: type params...
+                parts = line.split(":", 1)[1].strip().split(" ", 1)
+                action_type = parts[0]
+                rest = parts[1] if len(parts) > 1 else ""
+                
+                hook["action"] = action_type
+                
+                if action_type == "write_reg":
+                    # reg.name = val
+                    m = re.match(r"reg\.(\w+)\s*=\s*(.+)", rest)
+                    if m:
+                        hook["register"] = m.group(1)
+                        hook["value"] = self._parse_value(m.group(2))
+                elif action_type == "read_reg":
+                    # reg.name -> $var
+                    m = re.match(r"reg\.(\w+)\s*->\s*\$(\w+)", rest)
+                    if m:
+                        hook["register"] = m.group(1)
+                        hook["var"] = m.group(2)
+                elif action_type == "read_mem":
+                    # mem[addr] size=N -> $var
+                    # Regex is getting complex, do simple split
+                    # expected: mem[...] size=... -> ...
+                    m = re.match(r"mem\[(.+)\]\s+size=(\d+)\s*->\s*\$(\w+)", rest)
+                    if m:
+                        hook["addr_read"] = self._parse_value(m.group(1))
+                        hook["size"] = int(m.group(2))
+                        hook["var"] = m.group(3)
+        return hook
+
+    def _parse_assert(self, line):
+        # assert $var == val
+        # assert reg.x == val
+        # assert mem[x] == val
+        line = line[7:].strip() # strip assert
+        
+        check = {}
+        # Split by ==
+        parts = line.split("==")
+        lhs = parts[0].strip()
+        rhs = self._parse_value(parts[1].strip())
+        
+        check["value"] = rhs # or content
+        
+        if lhs.startswith("$"):
+            check["type"] = "variable"
+            check["name"] = lhs[1:]
+        elif lhs.startswith("reg."):
+            check["type"] = "register"
+            check["name"] = lhs[4:]
+        elif lhs.startswith("mem["):
+            check["type"] = "memory"
+            check["addr"] = self._parse_value(lhs[4:-1])
+            check["content"] = rhs # Reuse value field for content? Runner expects content
+            del check["value"]
+            check["content"] = rhs
+            
+        return {"type": "assert", "checks": [check]}
+
+    def _parse_report(self, line):
+        # report "file" [include_trace=true]
+        parts = line[7:].split()
+        filename = self._parse_value(parts[0])
+        step = {"type": "report", "file": filename}
+        
+        for p in parts[1:]:
+            if "include_trace=true" in p:
+                step["include_trace"] = True
+        return step
