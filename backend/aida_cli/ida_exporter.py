@@ -197,6 +197,25 @@ class IDAExporter:
             traceback.print_exc()
             raise e
 
+    def export_all_but_pseudocode(self):
+        self.export_metadata()
+        self.export_segments()
+        self.export_sections()
+        self.export_imports()
+        self.export_exports()
+        self.export_symbols()
+        self.export_functions()
+        #self.export_pseudocode()
+        self.export_disasm_chunks()
+        self.export_data_items()
+        self.export_strings()
+        self.export_xrefs()
+        self.export_call_edges()
+        self.export_local_types()
+        self.export_segment_content()
+        self.export_cfg()
+        self.export_instructions()
+
     def export_metadata(self):
         self.timer.start_step("Metadata")
         self.log("Exporting metadata...")

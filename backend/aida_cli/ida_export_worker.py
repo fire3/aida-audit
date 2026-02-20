@@ -258,24 +258,7 @@ def main():
             if args.export_c:
                 export_c_file(args.export_c, logger)
             
-            exporter.export_metadata()
-            exporter.export_segments()
-            exporter.export_sections()
-            exporter.export_imports()
-            exporter.export_exports()
-            exporter.export_symbols()
-            exporter.export_functions()
-            # SKIP pseudocode
-            exporter.export_disasm_chunks()
-            exporter.export_data_items()
-            exporter.export_strings()
-            exporter.export_xrefs()
-            exporter.export_call_edges()
-            exporter.export_local_types()
-            exporter.export_segment_content()
-            exporter.export_cfg()
-            exporter.export_instructions()
-            
+            exporter.export_all_but_pseudocode()
         else:
             # Standard Mode: Export all
             if args.export_c:
