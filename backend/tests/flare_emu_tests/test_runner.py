@@ -8,6 +8,7 @@ import unittest
 import subprocess
 import glob
 import platform
+import yaml
 
 # Ensure backend directory is in path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -49,7 +50,14 @@ class TestRunner:
             if self.filter_case and self.filter_case not in name:
                 continue
                 
-            config_path = os.path.join(case_path, "test_config.json")
+            # Check for yaml config first
+            config_path = os.path.join(case_path, "test_config.yaml")
+            if not os.path.exists(config_path):
+                config_path = os.path.join(case_path, "test_config.yml")
+            
+            if not os.path.exists(config_path):
+                config_path = os.path.join(case_path, "test_config.json")
+                
             if os.path.exists(config_path):
                 cases.append((name, case_path, config_path))
         return cases
@@ -123,7 +131,10 @@ class TestRunner:
         logger.info(f"Preparing case: {case_name}")
         try:
             with open(config_path, 'r') as f:
-                config = json.load(f)
+                if config_path.endswith(('.yaml', '.yml')):
+                    config = yaml.safe_load(f)
+                else:
+                    config = json.load(f)
         except Exception as e:
             logger.error(f"Failed to load config for {case_name}: {e}")
             return None
