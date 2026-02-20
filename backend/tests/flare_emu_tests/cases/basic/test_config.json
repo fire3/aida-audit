@@ -1,0 +1,53 @@
+{
+    "description": "Basic arithmetic and memory operations",
+    "source": "test_basic.c",
+    "targets": {
+        "windows": {
+            "binary": "test_basic.dll",
+            "build_cmd": "cl /Fe:test_basic.dll test_basic.c /LD"
+        },
+        "linux": {
+            "binary": "test_basic.so",
+            "build_cmd": "gcc -shared -o test_basic.so test_basic.c"
+        }
+    },
+    "tests": [
+        {
+            "name": "test_add",
+            "description": "Simple addition",
+            "args": [10, 20],
+            "expected_return": 30
+        },
+        {
+            "name": "test_strlen",
+            "description": "String length",
+            "args": [{"type": "string", "value": "Hello World"}],
+            "expected_return": 11
+        },
+        {
+            "name": "test_xor_crypt",
+            "description": "XOR encryption (in-place modification)",
+            "args": [
+                {"type": "bytes", "value": "AAAA", "check_content": true},
+                4,
+                16
+            ],
+            "expected_memory": {
+                "arg_index": 0,
+                "content": "QQQQ" 
+            }
+        },
+        {
+            "name": "test_fib",
+            "description": "Fibonacci recursion",
+            "args": [10],
+            "expected_return": 55
+        },
+        {
+            "name": "test_complex_path",
+            "description": "Loop execution",
+            "args": [5],
+            "expected_return": 10
+        }
+    ]
+}
