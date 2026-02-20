@@ -20,7 +20,8 @@ class DSLRunner:
             "coverage": False,
             "trace": False,
             "trace_mem": False,
-            "trace_calls": False
+            "trace_calls": False,
+            "stack_check": False
         }
         self.shadow_stack = [] # For stack integrity checking
 
@@ -115,6 +116,39 @@ class DSLRunner:
         if self.features["trace_calls"]:
             self._trace_call_instruction(uc, address, size)
 
+        if self.features["stack_check"]:
+            self._check_stack_overflow()
+
+    def _check_stack_overflow(self):
+        """Check if SP is within valid bounds"""
+        try:
+            sp_reg = self._get_sp_register()
+            sp = self.eh.getRegVal(sp_reg)
+            
+            # Stack grows down from self.eh.stack (initial SP)
+            # Valid range: [stack_bottom, stack_top]
+            # stack_bottom = self.eh.stack - (self.eh.stackSize // 2)
+            # But wait, self.eh.stack is mid-point of allocation.
+            # Total allocation size is self.eh.stackSize.
+            # Allocation start: self.eh.stack - self.eh.stackSize // 2
+            # Allocation end: self.eh.stack + self.eh.stackSize // 2
+            
+            stack_limit_low = self.eh.stack - (self.eh.stackSize // 2)
+            stack_limit_high = self.eh.stack + (self.eh.stackSize // 2)
+            
+            if sp < stack_limit_low:
+                logger.error(f"STACK OVERFLOW: SP={hex(sp)} < Limit={hex(stack_limit_low)}")
+                # We can choose to stop emulation or just warn
+                # For safety, maybe just log heavily?
+                if not self.crash_context:
+                    self.crash_context = {"error": "StackOverflow", "sp": hex(sp)}
+            elif sp > stack_limit_high:
+                # Stack underflow or SP corruption
+                logger.warning(f"STACK UNDERFLOW/CORRUPTION: SP={hex(sp)} > Limit={hex(stack_limit_high)}")
+
+        except Exception:
+            pass
+
     def _trace_call_instruction(self, uc, address, size):
         """Heuristic to detect and log function calls"""
         # This is a simplified heuristic. For robust detection, we'd need disassembly.
@@ -132,10 +166,21 @@ class DSLRunner:
                     # Calculate target
                     rel = struct.unpack("<i", insn[1:5])[0]
                     target = address + 5 + rel
-                # FF 15 (CALL r/m32) - indirect
+                # FF 15 (CALL r/m32) - indirect via memory
                 elif insn[0] == 0xFF and (insn[1] & 0x38 == 0x10): 
                     is_call = True
                     # Target unknown statically without more decoding
+                # FF D0-D7 (CALL r32) - indirect via register
+                elif insn[0] == 0xFF and (insn[1] & 0xF0 == 0xD0):
+                    is_call = True
+                    # Target is in register, can resolve dynamically!
+                    reg_idx = insn[1] & 0x07
+                    # Mapping reg_idx to register name is complex without capstone
+                    # But we can try to guess or just say "indirect reg"
+                # 9A (CALL ptr16:32) - far call (rare)
+                elif insn[0] == 0x9A:
+                    is_call = True
+
             elif arch == "ARM":
                 # BL (Branch with Link)
                 # This is complex to decode manually due to different modes (Thumb/ARM)
@@ -168,7 +213,7 @@ class DSLRunner:
         """Setup internal hooks for analysis if features enabled"""
         import unicorn
         
-        if self.features["coverage"] or self.features["trace"] or self.features["trace_calls"]:
+        if self.features["coverage"] or self.features["trace"] or self.features["trace_calls"] or self.features["stack_check"]:
             self.eh.uc.hook_add(unicorn.UC_HOOK_CODE, self._trace_hook)
             
         if self.features["trace_mem"]:
@@ -485,6 +530,9 @@ class DSLRunner:
         
         val = self.eh.getRegVal(reg_name)
         logger.info(f"Function returned: {hex(val)}")
+        
+        # Always store last return value in $retval for convenience
+        self.variables["retval"] = val
         
         if ret_var:
             self.variables[ret_var] = val
