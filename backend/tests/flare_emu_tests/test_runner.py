@@ -16,6 +16,7 @@ if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
 from aida_cli.flare_emu_aida import AidaEmuHelper
+from aida_cli.flare_emu_dsl import DSLRunner
 
 # Constants
 CASES_DIR = os.path.join(current_dir, "cases", platform.system().lower())
@@ -326,102 +327,152 @@ class DynamicTestCase(unittest.TestCase):
         self._testMethodDoc = test_def.get("description", test_def["name"])
 
     def run_dynamic_test(self):
+        # Check if this is a DSL test or legacy test
+        if "steps" in self.test_def:
+            self._run_dsl_test()
+        else:
+            self._run_legacy_test()
+
+    def _run_dsl_test(self):
+        runner = DSLRunner(self.eh)
+        try:
+            runner.run(self.test_def)
+        except Exception as e:
+            self.fail(f"DSL Execution failed: {e}")
+
+    def _run_legacy_test(self):
+        # Convert legacy format to DSL steps internally or just run legacy logic
+        # For simplicity and robustness, let's keep legacy logic separate for now
+        # but we could refactor to use DSLRunner too.
+        
         func_name = self.test_def["name"]
         args = self.test_def.get("args", [])
         expected_ret = self.test_def.get("expected_return")
         expected_mem = self.test_def.get("expected_memory")
         
-        addr = self.eh.analysisHelper.getNameAddr(func_name)
-        if addr is None:
-            self.fail(f"Function {func_name} not found.")
-
-        real_args = []
-        allocated_ptrs = []
+        # Convert to DSL structure
+        steps = []
         
-        # Argument preparation
-        for arg in args:
-            val = arg
-            if isinstance(arg, dict):
-                type_ = arg.get("type", "int")
-                val_raw = arg.get("value")
-                
-                if type_ == "string":
-                    if isinstance(val_raw, str):
-                        val_raw = val_raw.encode("utf-8") + b"\x00"
-                    mem = self.eh.allocEmuMem(len(val_raw))
-                    self.eh.writeEmuMem(mem, val_raw)
-                    val = mem
-                elif type_ == "bytes":
-                    if isinstance(val_raw, str):
-                        val_raw = val_raw.encode("utf-8") # Simple encoding
-                    mem = self.eh.allocEmuMem(len(val_raw))
-                    self.eh.writeEmuMem(mem, val_raw)
-                    val = mem
-                
-            real_args.append(val)
-
-        # Register setup
-        arch = self.eh.analysisHelper.getArch()
-        bitness = self.eh.analysisHelper.getBitness()
-        registers = {}
-        stack = []
+        # Call step
+        steps.append({
+            "type": "call",
+            "function": func_name,
+            "args": args,
+            "return_var": "retval" if expected_ret is not None else None
+        })
         
-        if arch == "X86":
-            if bitness == 64:
-                # Windows x64 (RCX, RDX, R8, R9) - Assumes Windows binary for now
-                # TODO: Check binary format (PE vs ELF) from AnalysisHelper to switch ABI?
-                # AidaAnalysisHelper sets filetype to PE/ELF.
-                ftype = self.eh.analysisHelper.getFileType()
-                
-                if ftype == "PE":
-                    regs = ["rcx", "rdx", "r8", "r9"]
-                    stack = [0] * 4 # Shadow space
-                    for i, arg in enumerate(real_args):
-                        if i < 4: registers[regs[i]] = arg
-                        else: stack.append(arg)
-                else:
-                    # System V AMD64 (RDI, RSI, RDX, RCX, R8, R9)
-                    regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"]
-                    for i, arg in enumerate(real_args):
-                        if i < 6: registers[regs[i]] = arg
-                        else: stack.append(arg)
-                        
-                stack.insert(0, 0xDEADBEEF) # Return addr
-            else:
-                # x86 cdecl
-                for arg in reversed(real_args):
-                    stack.append(arg)
-                stack.insert(0, 0xDEADBEEF)
-        
-        try:
-            self.eh.emulateRange(addr, registers=registers, stack=stack)
-        except Exception as e:
-            self.fail(f"Emulation error: {e}")
-
-        # Return value check
+        # Assert step
+        checks = []
         if expected_ret is not None:
-            ret_val = 0
-            if arch == "X86":
-                reg = "rax" if bitness == 64 else "eax"
-                ret_val = self.eh.getRegVal(reg)
-                # Handle signed return values for test_complex_path
-                if ret_val > 0x7FFFFFFFFFFFFFFF: # Approx check for unsigned negative
-                     ret_val -= 0x10000000000000000
+            # We need to know which register holds return value based on arch
+            # DSLRunner handles this if we use "register" check with correct name
+            # Or we can use the return_var feature we just added
+            # But wait, legacy logic handles arch-specific return register manually.
+            # Let's trust DSLRunner's abstraction if we use return_var?
+            # Actually, DSLRunner._handle_call stores return value in variable from register
+            # So we can check the variable.
+            checks.append({
+                "type": "variable",
+                "name": "retval",
+                "value": expected_ret
+            })
             
-            # Simple fuzzy match for pointers/addresses if needed, but here we expect exact values for ints
-            self.assertEqual(ret_val, expected_ret, f"Return value mismatch. Expected {expected_ret}, got {ret_val}")
+        if expected_mem:
+            # Legacy expected_memory format: {"arg_index": 1, "content": "..."}
+            # We need to resolve arg pointer.
+            # This is tricky because in legacy logic, args are allocated and pointers stored.
+            # DSLRunner re-implements arg preparation.
+            # If we want to use DSLRunner, we should let it handle args.
+            pass
 
-        # Memory check
+        # To avoid breaking changes and complex migration of legacy logic right now,
+        # I will use the existing legacy implementation for _run_legacy_test
+        # and only use DSLRunner for new tests.
+        # But wait, the prompt asked to "adjust test_runner.py to use this DSL".
+        # So I should try to migrate legacy tests to use DSL if possible, or at least support both.
+        # Let's stick to the plan: use DSLRunner for DSL tests, and keep legacy logic for now,
+        # OR refactor legacy logic to construct a DSL object and run it.
+        
+        # Refactoring legacy to use DSLRunner:
+        dsl_scenario = {
+            "name": func_name,
+            "steps": []
+        }
+        
+        # 1. Alloc args if needed (DSLRunner handles this inside 'call' step for simple cases)
+        # But legacy expected_memory refers to arg by index.
+        # DSLRunner doesn't easily expose arg pointers unless we alloc them explicitly first.
+        
+        # If expected_mem is used, we need to explicit alloc
+        call_args = []
+        setup_steps = []
+        
+        for i, arg in enumerate(args):
+            # Check if this arg needs explicit alloc for later verification
+            is_mem_check_target = False
+            if expected_mem and expected_mem.get("arg_index") == i:
+                is_mem_check_target = True
+                
+            if isinstance(arg, dict) and arg.get("type") in ["string", "bytes"]:
+                # It's a pointer type
+                if is_mem_check_target:
+                    # Explicit alloc
+                    var_name = f"arg_{i}"
+                    setup_steps.append({
+                        "type": "alloc",
+                        "content": arg.get("value"),
+                        "var": var_name
+                    })
+                    call_args.append({"type": "ptr", "value": f"${var_name}"})
+                else:
+                    call_args.append(arg)
+            else:
+                call_args.append(arg)
+                
+        dsl_scenario["steps"].extend(setup_steps)
+        
+        dsl_scenario["steps"].append({
+            "type": "call",
+            "function": func_name,
+            "args": call_args,
+            "return_var": "retval"
+        })
+        
+        checks = []
+        if expected_ret is not None:
+             checks.append({
+                "type": "variable",
+                "name": "retval",
+                "value": expected_ret
+            })
+            
         if expected_mem:
             arg_idx = expected_mem.get("arg_index")
             content = expected_mem.get("content")
-            if isinstance(content, str):
-                content = content.encode("utf-8")
-                
-            if arg_idx is not None and arg_idx < len(real_args):
-                ptr = real_args[arg_idx]
-                actual = self.eh.getEmuBytes(ptr, len(content))
-                self.assertEqual(actual, content, "Memory content mismatch")
+            # We assumed we created a var for this
+            var_name = f"arg_{arg_idx}"
+            checks.append({
+                "type": "memory",
+                "addr": f"${var_name}",
+                "content": content
+            })
+            
+        if checks:
+            dsl_scenario["steps"].append({
+                "type": "assert",
+                "checks": checks
+            })
+            
+        # Run via DSLRunner
+        runner = DSLRunner(self.eh)
+        try:
+            runner.run(dsl_scenario)
+        except Exception as e:
+            self.fail(f"Legacy (via DSL) Execution failed: {e}")
+            
+    # Keep the original implementation as fallback or reference if needed?
+    # No, I will replace it.
+
 
     def __str__(self):
         return f"{self.test_def['name']} ({self.test_def.get('description', '')})"
