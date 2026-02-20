@@ -201,13 +201,18 @@ class TestRunner:
              except OSError as e:
                  logger.error(f"Failed to remove empty DB: {e}")
 
-        # Use aida_cli module export command
-        cmd = [sys.executable, "-m", "aida_cli.cli", "export", binary_path, "--output", output_dir]
+        # Use local aida_cli.cli export command
+        # To avoid relative import error, we should run it as a module but with proper PYTHONPATH
+        # The correct way to run a module inside a package from outside is:
+        # python -m aida_cli.cli ...
+        # But we must ensure 'backend' is in PYTHONPATH so it can find 'aida_cli'
         
         # Ensure environment has backend in PYTHONPATH
         env = os.environ.copy()
         if backend_dir not in env.get("PYTHONPATH", ""):
             env["PYTHONPATH"] = backend_dir + os.pathsep + env.get("PYTHONPATH", "")
+            
+        cmd = [sys.executable, "-m", "aida_cli.cli", "export", binary_path, "--output", output_dir]
 
         try:
             # We don't check for IDA specifically here, assuming user environment is set up
@@ -221,7 +226,7 @@ class TestRunner:
                 logger.info(f"STDOUT:\n{result.stdout}")
             if result.stderr:
                 logger.info(f"STDERR:\n{result.stderr}")
-                
+
             if result.returncode != 0:
                 logger.error(f"Export command failed:\n{result.stderr}\n{result.stdout}")
                 return False
@@ -399,6 +404,11 @@ class DynamicTestCase(unittest.TestCase):
             if arch == "X86":
                 reg = "rax" if bitness == 64 else "eax"
                 ret_val = self.eh.getRegVal(reg)
+                # Handle signed return values for test_complex_path
+                if ret_val > 0x7FFFFFFFFFFFFFFF: # Approx check for unsigned negative
+                     ret_val -= 0x10000000000000000
+            
+            # Simple fuzzy match for pointers/addresses if needed, but here we expect exact values for ints
             self.assertEqual(ret_val, expected_ret, f"Return value mismatch. Expected {expected_ret}, got {ret_val}")
 
         # Memory check

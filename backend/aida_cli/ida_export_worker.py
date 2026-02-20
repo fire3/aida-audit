@@ -272,6 +272,9 @@ def main():
             exporter.export_xrefs()
             exporter.export_call_edges()
             exporter.export_local_types()
+            exporter.export_segment_content()
+            exporter.export_cfg()
+            exporter.export_instructions()
             
         else:
             # Standard Mode: Export all

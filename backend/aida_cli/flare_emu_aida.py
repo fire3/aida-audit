@@ -166,6 +166,7 @@ class AidaAnalysisHelper(flare_emu.AnalysisHelper):
         if self._segments is None:
             self.db.cursor.execute("SELECT seg_id, start_va, end_va, name FROM segments")
             self._segments = self.db.cursor.fetchall()
+            self.logger.info(f"Loaded {len(self._segments)} segments: {self._segments}")
 
     def getBytes(self, addr, size):
         self._ensure_segments()
@@ -181,6 +182,7 @@ class AidaAnalysisHelper(flare_emu.AnalysisHelper):
                         self._seg_content[seg_id] = row[0]
                     else:
                         self._seg_content[seg_id] = b""
+                    self.logger.info(f"Loaded content for segment {name} (id={seg_id}), size={len(self._seg_content[seg_id])}")
                 
                 content = self._seg_content[seg_id]
                 offset = addr - start
@@ -271,6 +273,7 @@ class AidaAnalysisHelper(flare_emu.AnalysisHelper):
                           self._seg_content[seg_id] = row[0]
                       else:
                           self._seg_content[seg_id] = b""
+                      self.logger.info(f"Loaded content for segment (id={seg_id}) in getSegmentDefinedSize, size={len(self._seg_content[seg_id])}")
                  return len(self._seg_content[seg_id])
         return 0
 

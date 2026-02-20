@@ -792,6 +792,33 @@ class IDAExporter:
                     content = ida_bytes.get_bytes(start_va, size)
                     if content:
                         self.db.insert_segment_content(seg_id, content)
+                    else:
+                        self.log(f"Warning: get_bytes returned None for segment {name} ({hex(start_va)}-{hex(end_va)}). Trying byte-by-byte check...")
+                        if not ida_bytes.is_loaded(start_va):
+                             self.log(f"  Start VA {hex(start_va)} is not loaded.")
+                        else:
+                             b = ida_bytes.get_bytes(start_va, 1)
+                             self.log(f"  First byte at {hex(start_va)}: {b}")
+                             
+                        # Try to read partially?
+                        # If a segment has uninitialized tail, get_bytes fails for whole range?
+                        # Let's try to read byte by byte until failure or end
+                        loaded_bytes = []
+                        for i in range(size):
+                            b = ida_bytes.get_bytes(start_va + i, 1)
+                            if b:
+                                loaded_bytes.append(b)
+                            else:
+                                # Stop at first failure? Or assume 00?
+                                # Usually uninitialized data is 00 or ??
+                                # We'll pad with 00 for now if we found SOME bytes
+                                loaded_bytes.append(b"\x00")
+                        
+                        if loaded_bytes:
+                            full_content = b"".join(loaded_bytes)
+                            self.db.insert_segment_content(seg_id, full_content)
+                            self.log(f"  Recovered {len(full_content)} bytes using byte-by-byte read (padded with 00).")
+
             except Exception as e:
                 self.log(f"Error exporting content for segment {name}: {e}")
                 
