@@ -33,7 +33,7 @@ function XrefItem({ binaryName, xref, onNavigate }: XrefItemProps) {
     if (!disassembly) return null;
     
     // disassembly is already { lines: string[] } from getDisassemblyContext
-    const lines = disassembly.lines;
+    const lines = disassembly.lines || [];
     const targetAddr = xref.from_address.toLowerCase();
     
     // Find line starting with address (ignoring case)

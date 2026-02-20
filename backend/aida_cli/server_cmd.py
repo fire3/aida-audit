@@ -543,7 +543,8 @@ def get_binary_disassembly_context(
 ):
     svc = get_service()
     try:
-        return svc.get_binary_disassembly_context(binary_name, address, context_lines)
+        text = svc.get_binary_disassembly_context(binary_name, address, context_lines)
+        return {"lines": text.splitlines()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
