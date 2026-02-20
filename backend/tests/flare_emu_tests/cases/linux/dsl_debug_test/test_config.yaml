@@ -1,0 +1,9 @@
+binary: debug_test_bin
+source: debug_test.c
+targets:
+  linux:
+    build_cmd: gcc -g -O0 -o debug_test_bin debug_test.c
+    binary: debug_test_bin
+tests:
+  - name: debug_features_dsl
+    script_file: debug_scenario.dsl

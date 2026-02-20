@@ -142,11 +142,11 @@ class DSLRunner:
                 pass
                 
             if is_call:
-                self.call_trace.append({
-                    "from": hex(address),
-                    "to": hex(target) if target else "indirect"
-                })
-                logger.debug(f"Call Trace: {hex(address)} -> {hex(target) if target else 'indirect'}")
+                    self.call_trace.append({
+                        "from": hex(address),
+                        "to": hex(target) if target else "indirect"
+                    })
+                    logger.info(f"Call Trace: {hex(address)} -> {hex(target) if target else 'indirect'}")
                 
         except Exception:
             pass
@@ -373,45 +373,6 @@ class DSLRunner:
 
         return registers, stack
 
-    def _apply_call_context(self, registers, stack_data):
-        """
-        Apply registers and stack data to emulator manually.
-        Returns the stack pointer value after setup.
-        """
-        # Write stack
-        if stack_data:
-            sp_reg = self._get_sp_register()
-            sp = self.eh.getRegVal(sp_reg)
-            arch = self.eh.analysisHelper.getArch()
-            is_64 = self.eh.analysisHelper.getBitness() == 64
-            word_size = 8 if is_64 else 4
-            
-            # Calculate space needed
-            total_size = len(stack_data) * word_size
-            
-            # Allocate space on stack (grow down)
-            sp -= total_size
-            
-            # Update SP register
-            self.eh.uc.reg_write(self.eh.regs[sp_reg], sp)
-            
-            # Write data to stack (growing up from new SP)
-            pack_fmt = "<Q" if is_64 else "<I"
-            current_sp = sp
-            for val in stack_data:
-                # Ensure val is int
-                if not isinstance(val, int):
-                    logger.warning(f"Stack value not int: {val}, using 0")
-                    val = 0
-                self.eh.writeEmuMem(current_sp, struct.pack(pack_fmt, val))
-                current_sp += word_size
-                
-        # Write registers
-        for reg, val in registers.items():
-             self.eh.uc.reg_write(self.eh.regs[reg], val)
-             
-        return self.eh.getRegVal(self._get_sp_register())
-
     def _setup_hooks(self, hooks_config, user_data):
         """
         Setup hooks for emulation.
@@ -478,15 +439,14 @@ class DSLRunner:
         if hooks_config:
             instr_hook = self._setup_hooks(hooks_config, {})
             
-        # Manually setup context to track SP
-        sp_before = self._apply_call_context(registers, stack)
-        
-        # Run emulation (without passing regs/stack as we already set them)
-        # Note: we must ensure emulateRange doesn't reset them if None passed.
-        # flare_emu.emulateRange default args for registers/stack are None.
-        self.eh.emulateRange(addr, instructionHook=instr_hook)
+        # Run emulation
+        # We use flare_emu's context setup which resets SP to self.stack and writes stack args
+        self.eh.emulateRange(addr, registers=registers, stack=stack, instructionHook=instr_hook)
         
         # Check stack integrity
+        # In flare_emu, SP is reset to self.eh.stack at start of emulateRange
+        sp_before = self.eh.stack
+        
         sp_reg = self._get_sp_register()
         sp_after = self.eh.getRegVal(sp_reg)
         
