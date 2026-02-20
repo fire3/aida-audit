@@ -423,7 +423,7 @@ class ExportOrchestrator:
         current_script_dir = os.path.dirname(os.path.abspath(__file__))
         ida_export_script = os.path.join(current_script_dir, "ida_export_worker.py")
         
-        master_cmd = f"python \"{ida_export_script}\" \"{master_input}\" --output \"{output_db}\" --parallel-master --dump-funcs \"{funcs_json}\" --save-idb \"{analysis_base}\" --perf-json \"{master_perf_json}\" --no-perf-report --fast --plain-log"
+        master_cmd = f"\"{sys.executable}\" \"{ida_export_script}\" \"{master_input}\" --output \"{output_db}\" --parallel-master --dump-funcs \"{funcs_json}\" --save-idb \"{analysis_base}\" --perf-json \"{master_perf_json}\" --no-perf-report --fast --plain-log"
         if export_c_path:
             master_cmd += f" --export-c \"{export_c_path}\""
             

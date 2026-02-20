@@ -18,8 +18,8 @@ if backend_dir not in sys.path:
 from aida_cli.flare_emu_aida import AidaEmuHelper
 
 # Constants
-CASES_DIR = os.path.join(current_dir, "cases")
-DEFAULT_IDA_EXPORT_SCRIPT = os.path.join(backend_dir, "backend", "aida_cli", "ida_export_worker.py")
+CASES_DIR = os.path.join(current_dir, "cases", platform.system().lower())
+DEFAULT_IDA_EXPORT_SCRIPT = os.path.join(backend_dir, "aida_cli", "ida_export_worker.py")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("TestRunner")
@@ -80,6 +80,44 @@ class TestRunner:
             logger.error(f"Build exception: {e}")
             return False
 
+    def cleanup_case_files(self, case_path, binary_name):
+        """Clean up binary, AIDA DB, and IDA database files."""
+        binary_path = os.path.join(case_path, binary_name)
+        
+        # Files to remove:
+        # 1. The binary itself
+        # 2. The AIDA DB (.db)
+        # 3. IDA database files (.i64, .idb) - checking both appended and replaced extension
+        
+        files_to_remove = [
+            binary_path,
+            binary_path + ".db",
+            binary_path + ".i64",
+            binary_path + ".idb",
+        ]
+        
+        # specific handling for IDA DB naming conventions
+        # If binary is "test.exe", IDA makes "test.i64" (usually) or "test.exe.i64" depending on version/settings
+        # We'll try to catch common variations
+        base_name = os.path.splitext(binary_name)[0]
+        if base_name != binary_name:
+             files_to_remove.append(os.path.join(case_path, base_name + ".i64"))
+             files_to_remove.append(os.path.join(case_path, base_name + ".idb"))
+
+        # Deduplicate list
+        files_to_remove = list(set(files_to_remove))
+
+        for f in files_to_remove:
+            if os.path.exists(f):
+                try:
+                    if os.path.isdir(f):
+                        shutil.rmtree(f)
+                    else:
+                        os.remove(f)
+                    logger.info(f"Removed file: {f}")
+                except OSError as e:
+                    logger.warning(f"Failed to remove {f}: {e}")
+
     def prepare_case(self, case_name, case_path, config_path):
         logger.info(f"Preparing case: {case_name}")
         try:
@@ -104,19 +142,16 @@ class TestRunner:
              logger.error(f"No binary specified for {self.os_type} in config.")
              return None
 
+        # Clean up existing files to ensure clean start
+        self.cleanup_case_files(case_path, binary_name)
+
         binary_path = os.path.join(case_path, binary_name)
-        db_path = os.path.splitext(binary_path)[0] + ".db"
+        # Use .so.db / .dll.db convention to match aida_cli export
+        db_path = binary_path + ".db"
         source_file = config.get("source")
         
-        # Check if build needed
-        needs_build = self.force_build
-        if not os.path.exists(binary_path):
-            needs_build = True
-        elif source_file:
-            source_path = os.path.join(case_path, source_file)
-            if os.path.exists(source_path) and os.path.getmtime(source_path) > os.path.getmtime(binary_path):
-                logger.info(f"Source {source_file} is newer than binary. Re-building.")
-                needs_build = True
+        # Check if build needed - always true since we cleaned up
+        needs_build = True
 
         if needs_build:
             if not target_config:
@@ -135,6 +170,9 @@ class TestRunner:
         needs_export = self.force_export
         if not os.path.exists(db_path):
             needs_export = True
+        elif os.path.getsize(db_path) == 0:
+            logger.info(f"DB is empty for {case_name}. Re-exporting.")
+            needs_export = True
         elif os.path.getmtime(binary_path) > os.path.getmtime(db_path):
             logger.info(f"Binary is newer than DB for {case_name}. Re-exporting.")
             needs_export = True
@@ -147,26 +185,70 @@ class TestRunner:
         return {
             "name": case_name,
             "config": config,
-            "db_path": db_path
+            "db_path": db_path,
+            "binary_name": binary_name
         }
 
     def run_export(self, binary_path, db_path):
-        logger.info(f"Running export for {binary_path} -> {db_path}")
+        output_dir = os.path.dirname(db_path)
+        logger.info(f"Running export for {binary_path} -> {output_dir}")
         
-        cmd = [sys.executable, DEFAULT_IDA_EXPORT_SCRIPT, binary_path, "--output", db_path]
+        # Remove empty DB if exists to force re-export
+        if os.path.exists(db_path) and os.path.getsize(db_path) == 0:
+             logger.warning(f"Removing empty DB file: {db_path}")
+             try:
+                 os.remove(db_path)
+             except OSError as e:
+                 logger.error(f"Failed to remove empty DB: {e}")
+
+        # Use aida_cli module export command
+        cmd = [sys.executable, "-m", "aida_cli.cli", "export", binary_path, "--output", output_dir]
         
+        # Ensure environment has backend in PYTHONPATH
+        env = os.environ.copy()
+        if backend_dir not in env.get("PYTHONPATH", ""):
+            env["PYTHONPATH"] = backend_dir + os.pathsep + env.get("PYTHONPATH", "")
+
         try:
-            # Check for IDA
-            # If user provided --ida-path, we might want to use it?
-            # Current ida_export_worker.py relies on being run within python env that has access to ida.
-            # Or if it's a wrapper that calls headless.
-            # Assuming current env is capable for now.
+            # We don't check for IDA specifically here, assuming user environment is set up
+            # as they claimed "aida_cli.cli export command works"
             
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+            logger.info(f"Export command finished with return code {result.returncode}")
+            
+            # Print stdout and stderr for debugging as requested
+            if result.stdout:
+                logger.info(f"STDOUT:\n{result.stdout}")
+            if result.stderr:
+                logger.info(f"STDERR:\n{result.stderr}")
+                
             if result.returncode != 0:
-                logger.error(f"Export script failed:\n{result.stderr}")
-                logger.warning("Please run export manually using IDA Pro.")
+                logger.error(f"Export command failed:\n{result.stderr}\n{result.stdout}")
                 return False
+            
+            # Check if DB was created and is valid
+            if not os.path.exists(db_path):
+                logger.error(f"Export command succeeded but DB not found: {db_path}")
+                return False
+                
+            size = os.path.getsize(db_path)
+            logger.info(f"DB file size: {size} bytes")
+            if size == 0:
+                logger.error(f"Export command succeeded but DB is empty: {db_path}")
+                return False
+
+            # Verify tables exist
+            try:
+                import sqlite3
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                tables = cursor.fetchall()
+                logger.info(f"Tables in DB: {tables}")
+                conn.close()
+            except Exception as e:
+                logger.error(f"Failed to inspect DB tables: {e}")
+
             return True
         except Exception as e:
             logger.error(f"Failed to run export: {e}")
@@ -184,6 +266,11 @@ class TestRunner:
                 continue
                 
             self.execute_case_tests(case_data)
+            
+            # Post-cleanup to ensure clean environment
+            binary_name = case_data.get("binary_name")
+            if binary_name:
+                self.cleanup_case_files(case_path, binary_name)
         
         self.print_summary()
 

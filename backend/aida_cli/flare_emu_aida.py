@@ -23,7 +23,7 @@ class AidaAnalysisHelper(flare_emu.AnalysisHelper):
         super(AidaAnalysisHelper, self).__init__()
         self.eh = eh
         self.db = BinaryDatabase(db_path)
-        self.db.connect()
+        self.db.connect(reset=False)
         self.logger = logging.getLogger(__name__)
         
         # Caches

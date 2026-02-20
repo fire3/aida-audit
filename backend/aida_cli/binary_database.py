@@ -15,9 +15,9 @@ class BinaryDatabase:
         else:
             print(f"[DB] {msg}")
 
-    def connect(self):
+    def connect(self, reset=True):
         # Remove existing db if it exists to start fresh
-        if os.path.exists(self.db_path):
+        if reset and os.path.exists(self.db_path):
             try:
                 os.remove(self.db_path)
             except OSError:
