@@ -1,5 +1,7 @@
 import logging
 import struct
+import json
+import time
 from .flare_emu import EmuHelper
 
 logger = logging.getLogger(__name__)
@@ -7,7 +9,16 @@ logger = logging.getLogger(__name__)
 class DSLRunner:
     def __init__(self, emu_helper):
         self.eh = emu_helper
-        self.variables = {}  # Store variables for reuse across steps (e.g., allocated pointers)
+        self.variables = {}  # Store variables for reuse across steps
+        # Analysis data
+        self.coverage_data = set() # Set of executed addresses
+        self.trace_log = [] # List of trace events
+        self.crash_context = None # Context if crash occurs
+        self.features = {
+            "coverage": False,
+            "trace": False,
+            "trace_mem": False
+        }
 
     def run(self, scenario):
         """
@@ -15,24 +26,146 @@ class DSLRunner:
         scenario: dict containing 'name', 'steps', etc.
         """
         logger.info(f"Running scenario: {scenario.get('name', 'Unnamed')}")
+        
+        # Configure features
+        options = scenario.get("options", {})
+        self.features.update(options)
+        
         steps = scenario.get("steps", [])
         
-        for i, step in enumerate(steps):
-            step_type = step.get("type")
-            logger.info(f"Executing step {i+1}: {step_type}")
+        try:
+            for i, step in enumerate(steps):
+                step_type = step.get("type")
+                logger.info(f"Executing step {i+1}: {step_type}")
+                
+                if step_type == "call":
+                    self._handle_call(step)
+                elif step_type == "emulate":
+                    self._handle_emulate(step)
+                elif step_type == "write":
+                    self._handle_write(step)
+                elif step_type == "assert":
+                    self._handle_assert(step)
+                elif step_type == "alloc":
+                    self._handle_alloc(step)
+                elif step_type == "report":
+                    self._handle_report(step)
+                else:
+                    logger.warning(f"Unknown step type: {step_type}")
+                    
+        except Exception as e:
+            # Capture context on crash/exception if not already captured
+            if not self.crash_context:
+                self._capture_crash_context(e)
+            raise e
+
+    def _capture_crash_context(self, exception):
+        """Capture emulator state when an error occurs"""
+        ctx = {
+            "exception": str(exception),
+            "registers": {},
+            "stack_top": []
+        }
+        
+        # Capture registers based on arch
+        try:
+            arch = self.eh.analysisHelper.getArch()
+            regs_to_dump = []
+            if arch == "X86":
+                if self.eh.analysisHelper.getBitness() == 64:
+                    regs_to_dump = ["rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp", "rip", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"]
+                else:
+                    regs_to_dump = ["eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp", "eip"]
+            elif arch == "ARM":
+                regs_to_dump = [f"r{i}" for i in range(13)] + ["sp", "lr", "pc"]
+                
+            for reg in regs_to_dump:
+                ctx["registers"][reg] = hex(self.eh.getRegVal(reg))
+                
+            # Capture stack top (16 words)
+            sp_val = self.eh.getRegVal("rsp" if arch == "X86" and self.eh.analysisHelper.getBitness() == 64 else "esp" if arch == "X86" else "sp")
+            stack_data = self.eh.getEmuBytes(sp_val, 16 * 8) # generous read
+            # Just hex dump it roughly
+            ctx["stack_top"] = stack_data.hex()
             
-            if step_type == "call":
-                self._handle_call(step)
-            elif step_type == "emulate":
-                self._handle_emulate(step)
-            elif step_type == "write":
-                self._handle_write(step)
-            elif step_type == "assert":
-                self._handle_assert(step)
-            elif step_type == "alloc":
-                self._handle_alloc(step)
-            else:
-                logger.warning(f"Unknown step type: {step_type}")
+        except Exception as capture_err:
+            ctx["capture_error"] = str(capture_err)
+            
+        self.crash_context = ctx
+        logger.error(f"Crash Context Captured: {json.dumps(ctx, indent=2)}")
+
+    def _trace_hook(self, uc, address, size, user_data):
+        """Hook for code execution tracing and coverage"""
+        if self.features["coverage"]:
+            self.coverage_data.add(address)
+            
+        if self.features["trace"]:
+            # Log execution trace (can be verbose!)
+            # Maybe restrict to basic blocks? For now instruction level if enabled
+            self.trace_log.append({
+                "type": "exec",
+                "addr": hex(address),
+                "size": size
+            })
+            
+    def _mem_trace_hook(self, uc, access, address, size, value, user_data):
+        """Hook for memory access tracing"""
+        if self.features["trace_mem"]:
+            # 16 = READ, 17 = WRITE (Unicorn constants mapping)
+            # Actually unicorn exposes constants, but let's just log type
+            access_type = "READ" if access == 16 else "WRITE"
+            self.trace_log.append({
+                "type": "mem",
+                "access": access_type,
+                "addr": hex(address),
+                "size": size,
+                "val": hex(value)
+            })
+
+    def _setup_analysis_hooks(self):
+        """Setup internal hooks for analysis if features enabled"""
+        # We need to add these hooks to unicorn instance
+        # Flare-emu manages hooks, so we should be careful not to conflict
+        # But we can add our own raw unicorn hooks
+        
+        import unicorn
+        
+        if self.features["coverage"] or self.features["trace"]:
+            self.eh.uc.hook_add(unicorn.UC_HOOK_CODE, self._trace_hook)
+            
+        if self.features["trace_mem"]:
+            self.eh.uc.hook_add(unicorn.UC_HOOK_MEM_READ | unicorn.UC_HOOK_MEM_WRITE, self._mem_trace_hook)
+
+    def _handle_report(self, step):
+        """Output analysis report"""
+        report_file = step.get("file")
+        report_type = step.get("format", "json")
+        
+        report = {
+            "coverage_count": len(self.coverage_data),
+            "trace_events": len(self.trace_log),
+            "crash_context": self.crash_context,
+            "coverage_addresses": [hex(x) for x in sorted(list(self.coverage_data))],
+            # "trace_log": self.trace_log # Optional, can be huge
+        }
+        
+        if step.get("include_trace", False):
+            report["trace_log"] = self.trace_log
+            
+        content = ""
+        if report_type == "json":
+            content = json.dumps(report, indent=2)
+        else:
+            content = f"Coverage: {len(self.coverage_data)} instructions\n"
+            if self.crash_context:
+                content += f"CRASH DETECTED: {self.crash_context['exception']}\n"
+                
+        if report_file:
+            with open(report_file, "w") as f:
+                f.write(content)
+            logger.info(f"Report written to {report_file}")
+        else:
+            logger.info(f"Analysis Report:\n{content}")
 
     def _resolve_value(self, val):
         """
@@ -249,6 +382,10 @@ class DSLRunner:
         # Handle hooks
         hooks_config = step.get("hooks", [])
         instr_hook = None
+        
+        # Setup internal analysis hooks first if needed
+        self._setup_analysis_hooks()
+        
         if hooks_config:
             instr_hook = self._setup_hooks(hooks_config, {})
             
@@ -282,6 +419,10 @@ class DSLRunner:
         
         hooks_config = step.get("hooks", [])
         instr_hook = None
+        
+        # Setup internal analysis hooks first if needed
+        self._setup_analysis_hooks()
+        
         if hooks_config:
             instr_hook = self._setup_hooks(hooks_config, {})
             
