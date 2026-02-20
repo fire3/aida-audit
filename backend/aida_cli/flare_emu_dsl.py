@@ -210,6 +210,26 @@ class DSLRunner:
                         reg = hook.get("register")
                         val = self._resolve_value(hook.get("value"))
                         self.eh.uc.reg_write(self.eh.regs[reg], val)
+                    elif action == "read_reg":
+                        reg = hook.get("register")
+                        var_name = hook.get("var")
+                        if var_name:
+                            val = self.eh.getRegVal(reg)
+                            self.variables[var_name] = val
+                            logger.info(f"Hook: Read {reg} = {hex(val)} -> ${var_name}")
+                    elif action == "read_mem":
+                        # Support resolving address from register or variable
+                        addr_val = self._resolve_value(hook.get("addr_read") or hook.get("mem_addr"))
+                        # If addr_read is a register name like "esp" or "rsp", we should read that register value first
+                        if isinstance(addr_val, str) and addr_val in self.eh.regs:
+                            addr_val = self.eh.getRegVal(addr_val)
+                            
+                        size = hook.get("size")
+                        var_name = hook.get("var")
+                        if var_name and addr_val and size:
+                            val = self.eh.getEmuBytes(addr_val, size)
+                            self.variables[var_name] = val
+                            logger.info(f"Hook: Read {size} bytes from {hex(addr_val)} -> ${var_name}")
                     elif action == "stop":
                         self.eh.stopEmulation(user_data)
         

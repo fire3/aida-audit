@@ -1,0 +1,130 @@
+{
+  "binary": "test_verification",
+  "source": "test_verification.c",
+  "targets": {
+    "linux": {
+      "build_cmd": "gcc -g -O0 -shared -fPIC -o test_verification test_verification.c",
+      "binary": "test_verification"
+    }
+  },
+  "tests": [
+    {
+      "name": "verify_call_return",
+      "description": "Verify function call and return value check",
+      "steps": [
+        {
+          "type": "call",
+          "function": "test_ret_val",
+          "return_var": "ret_val"
+        },
+        {
+          "type": "assert",
+          "checks": [
+            {
+              "type": "variable",
+              "name": "ret_val",
+              "value": 42
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "verify_memory_write",
+      "description": "Verify memory allocation and modification by function",
+      "steps": [
+        {
+          "type": "alloc",
+          "size": 20,
+          "content": "original",
+          "var": "buffer"
+        },
+        {
+          "type": "call",
+          "function": "test_memory_write",
+          "args": [{"type": "ptr", "value": "$buffer"}]
+        },
+        {
+          "type": "assert",
+          "checks": [
+            {
+              "type": "memory",
+              "addr": "$buffer",
+              "content": "modified"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "verify_register_hook",
+      "description": "Verify hook modifying register (input arg)",
+      "steps": [
+        {
+          "type": "call",
+          "function": "test_local_var",
+          "args": [5],
+          "hooks": [
+            {
+              "addr": "test_local_var",
+              "action": "write_reg",
+              "register": "edi", 
+              "value": 6
+            }
+          ],
+          "return_var": "hooked_val"
+        },
+        {
+          "type": "assert",
+          "checks": [
+            {
+              "type": "variable",
+              "name": "hooked_val",
+              "value": 12
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "verify_local_var_check",
+      "description": "Verify checking local variable via Hook (read_reg/read_mem)",
+      "steps": [
+        {
+            "type": "setup",
+            "note": "We call test_local_var(5). It calculates 5*2=10. We want to verify this intermediate value."
+        },
+        {
+          "type": "call",
+          "function": "test_local_var",
+          "args": [5],
+          "hooks": [
+            {
+                "note": "Hook at function start is too early for result, but let's check input arg in RDI (Linux x64)",
+                "addr": "test_local_var",
+                "action": "read_reg",
+                "register": "rdi",
+                "var": "input_arg"
+            }
+          ],
+          "return_var": "result"
+        },
+        {
+            "type": "assert",
+            "checks": [
+                {
+                    "type": "variable",
+                    "name": "input_arg",
+                    "value": 5
+                },
+                {
+                    "type": "variable",
+                    "name": "result",
+                    "value": 10
+                }
+            ]
+        }
+      ]
+    }
+  ]
+}
