@@ -1,76 +1,81 @@
 # Flare-Emu AIDA Test Suite
 
-This directory contains test cases and scripts to verify the functionality of `flare_emu_aida`, which allows emulation of binaries using `flare_emu` backed by an AIDA exported SQLite database instead of IDA Pro.
+This directory contains the test framework and test cases for `flare_emu_aida`. The framework automates the process of compiling test binaries, exporting them to AIDA databases (using IDA Pro), and running emulation tests defined in YAML/DSL.
 
 ## Directory Structure
 
-*   `src/`: Contains C/C++ source code for test binaries.
-*   `bin/`: (To be created) Contains compiled binaries and exported databases.
-*   `run_tests.py`: Python script to run emulation tests using `flare_emu_aida`.
-
-## Prerequisites
-
-1.  **Python 3.x**
-2.  **Unicorn Engine** (`pip install unicorn`)
-3.  **AIDA Backend** (installed or in PYTHONPATH)
-4.  **C Compiler** (GCC, Clang, or MSVC) to compile test cases.
-5.  **IDA Pro + AIDA Plugin** to export the test binary to SQLite.
+*   `test_runner.py`: The main test execution script.
+*   `cases/`: Directory containing test cases.
+    *   `linux/`, `windows/`: Platform-specific test cases.
+    *   Each test case is a directory (e.g., `cases/linux/dsl_demo/`) containing:
+        *   `test_config.yaml`: Test configuration file.
+        *   `*.c`: Source code for the test binary.
+        *   `*.dsl`: Flare-Emu Text DSL scripts.
 
 ## How to Run Tests
 
-### 1. Compile the Test Binary
+Ensure you have the necessary dependencies installed (Python 3, Unicorn, PyYAML) and IDA Pro available if you need to re-export databases.
 
-Compile `src/test_basic.c` into a binary (e.g., `test_basic.exe` or `test_basic.o`).
-
-**Windows (MSVC):**
-```cmd
-cl /Fe:bin\test_basic.exe src\test_basic.c /LD
-```
-(Using `/LD` to create a DLL is recommended so functions are exported and easy to find, but EXE with symbols also works if PDB is available or functions are not stripped).
-
-**Linux (GCC):**
-```bash
-gcc -shared -o bin/test_basic.so src/test_basic.c
-```
-
-### 2. Export to AIDA Database
-
-Use IDA Pro with the AIDA plugin to export the binary to a SQLite database.
+### Run All Tests
 
 ```bash
-# Using the CLI tool (if configured) or IDA GUI
-python backend/aida_cli/ida_export_worker.py bin/test_basic.exe --output bin/test_basic.db
+python backend/tests/flare_emu_tests/test_runner.py
 ```
 
-### 3. Run the Test Runner
+### Run Specific Test Case
 
-Set the `AIDA_TEST_DB` environment variable to the path of the exported database and run the python script.
+Use the `--case` argument to filter by test case directory name.
 
-**Windows (PowerShell):**
-```powershell
-$env:AIDA_TEST_DB = "bin\test_basic.db"
-python run_tests.py
-```
-
-**Linux/Mac:**
 ```bash
-export AIDA_TEST_DB=bin/test_basic.db
-python run_tests.py
+python backend/tests/flare_emu_tests/test_runner.py --case dsl_demo
 ```
 
-## Test Cases
+### Options
 
-The `run_tests.py` script includes several test cases defined in `TEST_CASES` list:
+*   `--force-build`: Force recompilation of the test binary.
+*   `--force-export`: Force re-export of the AIDA database (requires IDA Pro).
+*   `--ida-path`: Specify path to IDA executable (if not in PATH).
 
-*   `test_add`: Simple addition (Argument passing in registers).
-*   `test_strlen`: String length calculation (Memory reading).
-*   `test_xor_crypt`: XOR encryption (Memory writing).
-*   `test_fib`: Fibonacci sequence (Recursion and stack usage).
-*   `test_complex_path`: Loop and conditional logic (Control flow).
+## Creating New Tests
 
-## Extending Tests
+1.  **Create a Directory**: Create a new directory in `cases/<platform>/<test_name>`.
+2.  **Add Source Code**: Create a C file (e.g., `test.c`) with functions you want to test. Ensure functions are exported (e.g., not `static`).
+3.  **Create DSL Scripts**: Write `.dsl` files for your test logic. See [DSL Syntax Guide](../../aida_cli/templates/flare_emu_dsl_guide.md) for details.
+4.  **Create Configuration**: Create `test_config.yaml` to define build steps and test definitions.
 
-To add more tests:
-1.  Add a new function to `src/test_basic.c`.
-2.  Recompile and re-export the binary.
-3.  Add a new entry to `TEST_CASES` in `run_tests.py` with the function name, arguments, and expected result.
+### Configuration File (`test_config.yaml`)
+
+The configuration file defines how to build the binary and maps tests to DSL scripts.
+
+```yaml
+binary: test_demo              # Target binary name
+source: test_demo.c            # Source file (for reference/build)
+targets:                       # Build configurations per platform
+  linux:
+    build_cmd: gcc -g -O0 -shared -fPIC -o test_demo test_demo.c
+    binary: test_demo
+  windows:
+    build_cmd: cl /Fe:test_demo.exe test_demo.c /LD
+    binary: test_demo.exe
+
+tests:
+  - name: test_basic_add       # Test name
+    description: Test addition function
+    script_file: test_add.dsl  # Path to DSL script (relative to case directory)
+  
+  - name: test_inline          # You can also use inline scripts
+    script: |
+      $res = call test_add(10, 20)
+      assert $res == 30
+```
+
+### DSL Script (`.dsl`)
+
+DSL scripts define the emulation steps.
+
+```text
+$res = call test_add(10, 20)
+assert $res == 30
+```
+
+For full DSL syntax documentation, refer to `backend/aida_cli/templates/flare_emu_dsl_guide.md`.

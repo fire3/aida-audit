@@ -1,241 +1,193 @@
-# Flare-Emu DSL 指南
+# Flare-Emu Text DSL 指南
 
-本文档详细介绍了如何使用 Flare-Emu DSL 来驱动二进制仿真测试。这套 DSL 旨在提供一种简单但表达能力强的方式来编写仿真场景，支持函数调用、内存操作、变量管理以及结果验证。
+本文档详细介绍了 **Flare-Emu Text DSL** 的语法和特性。这套文本 DSL 旨在提供一种简洁、直观的方式来编写二进制仿真场景，支持函数调用、内存操作、变量管理以及结果验证。
 
 ## 目录
 
 1. [概述](#概述)
-2. [基本结构](#基本结构)
-3. [变量系统](#变量系统)
-4. [步骤详解](#步骤详解)
-   - [call (函数调用)](#call-函数调用)
-   - [alloc (内存分配)](#alloc-内存分配)
-   - [write (写入操作)](#write-写入操作)
-   - [emulate (模拟执行)](#emulate-模拟执行)
-   - [assert (断言验证)](#assert-断言验证)
-5. [Hook 系统](#hook-系统)
-6. [完整示例](#完整示例)
+2. [DSL 语法](#dsl-语法)
+   - [变量系统](#变量系统)
+   - [选项配置 (Option)](#选项配置-option)
+   - [内存分配 (Alloc)](#内存分配-alloc)
+   - [写入操作 (Write)](#写入操作-write)
+   - [函数调用 (Call)](#函数调用-call)
+   - [Hook 系统](#hook-系统)
+   - [模拟执行 (Emulate)](#模拟执行-emulate)
+   - [断言验证 (Assert)](#断言验证-assert)
+   - [生成报告 (Report)](#生成报告-report)
+3. [完整示例](#完整示例)
 
 ## 概述
 
-Flare-Emu DSL 是基于 JSON 的声明式语言，集成在 `test_config.json` 中。每个测试用例包含一个 `steps` 数组，按顺序执行其中的操作。
+Flare-Emu Text DSL 是一种脚本化的声明式语言，用于定义仿真器的执行步骤。它通常作为 `.dsl` 文件编写，并通过测试框架加载执行。
 
-DSL 执行器 (`DSLRunner`) 会维护一个上下文环境，允许在步骤之间共享变量（如分配的内存指针、函数返回值等）。
+## DSL 语法
 
-## 基本结构
+### 变量系统
 
-一个标准的测试用例配置如下：
+变量以 `$` 开头，用于存储内存地址、函数返回值或计算结果。
 
-```json
-{
-  "name": "test_example",
-  "description": "这是一个示例测试",
-  "steps": [
-    { "type": "alloc", ... },
-    { "type": "call", ... },
-    { "type": "assert", ... }
-  ]
-}
+*   **定义变量**: `$var = ...`
+*   **使用变量**: 在参数或断言中直接使用 `$var`。
+
+### 选项配置 (Option)
+
+开启或关闭全局仿真特性。
+
+```text
+option coverage = true   # 开启代码覆盖率收集
+option trace = true      # 开启指令执行跟踪
+option trace_mem = true  # 开启内存访问跟踪
 ```
 
-## 变量系统
-
-DSL 支持简单的变量引用机制。
-
-- **定义变量**：通过 `alloc` 的 `var` 字段或 `call` 的 `return_var` 字段定义变量。
-- **使用变量**：在任何支持值的字段中，使用 `$` 前缀引用变量。例如：`"$my_buffer"`。
-
-**示例**：
-```json
-{
-  "type": "alloc",
-  "content": "hello",
-  "var": "str_ptr" 
-}
-// 后续使用
-{
-  "type": "call",
-  "args": [{"type": "ptr", "value": "$str_ptr"}]
-}
-```
-
-## 步骤详解
-
-### call (函数调用)
-
-调用二进制文件中的导出函数或指定地址的函数。
-
-**字段**：
-- `type`: 固定为 `"call"`。
-- `function`: (String) 函数名或十六进制地址。
-- `args`: (Array) 参数列表。
-  - 直接值：`10`, `"0x10"`
-  - 复杂类型：`{"type": "ptr", "value": "$var"}`
-  - 字符串自动分配：`{"type": "string", "value": "hello"}` (会自动分配内存并传入指针)
-- `return_var`: (String, 可选) 将返回值存储到指定变量中。
-- `convention`: (String, 可选) 调用约定，如 `"ms64"`, `"cdecl"`。默认根据架构自动推断。
-- `hooks`: (Array, 可选) 函数执行期间的 Hook 配置。
-
-**示例**：
-```json
-{
-  "type": "call",
-  "function": "test_add",
-  "args": [10, 20],
-  "return_var": "sum"
-}
-```
-
-### alloc (内存分配)
+### 内存分配 (Alloc)
 
 在模拟器内存中分配空间，并可初始化内容。
 
-**字段**：
-- `type`: 固定为 `"alloc"`。
-- `size`: (Integer, 可选) 分配大小（字节）。
-- `content`: (String/Bytes, 可选) 初始化内容。如果是字符串会自动计算大小。支持 `hex:aabbcc` 格式。
-- `var`: (String, 必填) 用于存储分配地址的变量名。
+**语法**:
+*   `$var = alloc(SIZE)`: 分配指定大小（字节）的内存。
+*   `$var = alloc("STRING")`: 分配内存并写入字符串（自动计算大小，包含 null 结尾）。
+*   `$var = alloc(hex"AABBCC")`: 分配内存并写入十六进制数据。
 
-**示例**：
-```json
-{
-  "type": "alloc",
-  "content": "hello world",
-  "var": "my_str"
-}
+**示例**:
+```text
+$buf = alloc(1024)
+$str = alloc("Hello World")
+$bytes = alloc(hex"11223344")
 ```
 
-### write (写入操作)
+### 写入操作 (Write)
 
 直接修改寄存器或内存。
 
-**字段**：
-- `type`: 固定为 `"write"`。
-- `registers`: (Object, 可选) 键为寄存器名，值为要写入的数据。
-- `memory`: (Array, 可选) 内存写入操作列表。
-  - `addr`: 写入地址（支持变量）。
-  - `data`: 写入数据（支持字符串或 `hex:` 格式）。
+**语法**:
+*   `write reg.NAME = VALUE`: 修改寄存器。
+*   `write mem[ADDR] = VALUE`: 修改内存。
 
-**示例**：
-```json
-{
-  "type": "write",
-  "registers": {
-    "eax": 100
-  },
-  "memory": [
-    {
-      "addr": "$buffer",
-      "data": "new data"
+**示例**:
+```text
+write reg.eax = 0x100
+write mem[$buf] = "New Data"
+write mem[0x400000] = hex"909090"
+```
+
+### 函数调用 (Call)
+
+调用二进制文件中的导出函数或指定地址的函数。
+
+**语法**:
+*   `call FUNC_NAME(ARG1, ARG2, ...)`: 调用函数，不保存返回值。
+*   `$res = call FUNC_NAME(...)`: 调用函数并将返回值保存到 `$res`。
+
+**参数支持**:
+*   整数: `10`, `0x10`
+*   字符串: `"hello"` (会自动分配临时内存并传入指针)
+*   变量: `$var` (通常作为指针传递)
+
+**示例**:
+```text
+call printf("Result: %d\n", 100)
+$len = call strlen("test string")
+$res = call my_add(10, 20)
+```
+
+### Hook 系统
+
+在 `call` 语句后可以附加 Hook 代码块，用于在特定地址或函数入口/出口拦截执行。
+
+**语法**:
+```text
+call FUNC_NAME(...) {
+    hook ADDRESS_OR_NAME {
+        action: ACTION_TYPE PARAMS...
     }
-  ]
 }
 ```
 
-### emulate (模拟执行)
+**支持的 Action**:
+*   `write_reg reg.NAME = VALUE`: 修改寄存器。
+*   `read_reg reg.NAME -> $VAR`: 读取寄存器到变量。
+*   `read_mem mem[ADDR] size=N -> $VAR`: 读取内存到变量。
+*   `skip`: 跳过当前指令。
+*   `stop`: 停止模拟。
+
+**示例**:
+```text
+$res = call test_add(10, 20) {
+    # 在 test_add 函数入口处修改 edi 寄存器 (第一个参数)
+    hook test_add {
+        action: write_reg reg.edi = 100
+    }
+}
+# 此时结果应该是 100 + 20 = 120
+assert $res == 120
+```
+
+### 模拟执行 (Emulate)
 
 模拟指定范围的指令，比 `call` 更底层的控制。
 
-**字段**：
-- `type`: 固定为 `"emulate"`。
-- `start`: (String/Int) 起始地址。
-- `end`: (String/Int) 结束地址。
-- `count`: (Int, 可选) 最大指令数。
-- `registers`: (Object, 可选) 初始寄存器状态。
-- `stack`: (Array, 可选) 初始栈内容。
+**语法**:
+`emulate start=ADDR end=ADDR [count=N]`
 
-### assert (断言验证)
+**示例**:
+```text
+emulate start=0x401000 end=0x401050
+```
+
+### 断言验证 (Assert)
 
 验证模拟结果是否符合预期。
 
-**字段**：
-- `type`: 固定为 `"assert"`。
-- `checks`: (Array) 检查列表。每个检查包含：
-  - `type`: `"register"`, `"variable"`, 或 `"memory"`。
-  - `name` / `register`: 要检查的变量或寄存器名。
-  - `addr`: (仅 memory) 内存地址。
-  - `value` / `content`: 预期值。
-    - 对于寄存器/变量：整数值。
-    - 对于内存：字符串或 `hex:` 格式。
+**语法**:
+*   `assert $VAR == VALUE`: 验证变量值。
+*   `assert reg.NAME == VALUE`: 验证寄存器值。
+*   `assert mem[ADDR] == "CONTENT"`: 验证内存内容。
 
-**示例**：
-```json
-{
-  "type": "assert",
-  "checks": [
-    {
-      "type": "variable",
-      "name": "sum",
-      "value": 30
-    },
-    {
-      "type": "memory",
-      "addr": "$buffer",
-      "content": "expected data"
-    }
-  ]
-}
+**示例**:
+```text
+assert $res == 30
+assert reg.eax == 0
+assert mem[$str] == "Hello World"
 ```
 
-## Hook 系统
+### 生成报告 (Report)
 
-在 `call` 或 `emulate` 步骤中，可以定义 `hooks` 来干预执行流程。
+将分析结果（覆盖率、Trace 等）输出到文件。
 
-**Hook 字段**：
-- `addr`: (String/Int) 触发 Hook 的地址（函数名或偏移）。
-- `action`: (String) 触发时的动作。
-  - `"skip"`: 跳过当前指令。
-  - `"write_reg"`: 修改寄存器值。需配合 `register` 和 `value` 字段。
-  - `"stop"`: 停止模拟。
+**语法**:
+`report "FILENAME" [include_trace=true]`
 
-**示例**：
-```json
-"hooks": [
-  {
-    "action": "write_reg",
-    "register": "eax", 
-    "value": 999,
-    "addr": "test_add" 
-  }
-]
+**示例**:
+```text
+report "coverage.json"
+report "trace.json" include_trace=true
 ```
 
 ## 完整示例
 
-```json
-{
-  "name": "test_complex_scenario",
-  "description": "演示分配内存、调用函数、修改返回值和验证结果",
-  "steps": [
-    {
-      "type": "alloc",
-      "content": "Initial Data",
-      "var": "data_ptr"
-    },
-    {
-      "type": "call",
-      "function": "process_data",
-      "args": [
-        {"type": "ptr", "value": "$data_ptr"},
-        12  // length
-      ],
-      "return_var": "result_code"
-    },
-    {
-      "type": "assert",
-      "checks": [
-        {
-          "type": "variable",
-          "name": "result_code",
-          "value": 0
-        },
-        {
-          "type": "memory",
-          "addr": "$data_ptr",
-          "content": "Processed"
-        }
-      ]
+**complex.dsl**:
+```text
+# 开启追踪
+option trace = true
+
+# 准备数据
+$input = alloc("Sensitive Data")
+$output = alloc(128)
+
+# 调用处理函数
+# 假设 process(input_ptr, output_ptr)
+$ret = call process_data($input, $output) {
+    # Hook 监控关键点
+    hook 0x401234 {
+        action: read_reg reg.eax -> $mid_val
     }
-  ]
 }
+
+# 验证结果
+assert $ret == 0
+assert mem[$output] == "Encrypted: Sensitive Data"
+
+# 输出报告
+report "analysis_result.json" include_trace=true
 ```
