@@ -28,6 +28,7 @@ try:
     import idautils
     import idc
     import ida_ida
+    import ida_ua
 except ImportError:
     pass # Expecting to run inside IDA
 
@@ -187,6 +188,9 @@ class IDAExporter:
             self.export_xrefs()
             self.export_call_edges()
             self.export_local_types()
+            self.export_segment_content()
+            self.export_cfg()
+            self.export_instructions()
         except Exception as e:
             self.log(f"Error during export: {e}")
             import traceback
@@ -768,3 +772,141 @@ class IDAExporter:
         else:
              self.log("No local types found.")
         self.timer.end_step("LocalTypes")
+
+    def export_segment_content(self):
+        self.timer.start_step("SegmentContent")
+        self.log("Exporting segment content...")
+        
+        # We need seg_id from the database to link content.
+        # So we query segments table first.
+        self.db.cursor.execute("SELECT seg_id, start_va, end_va, name FROM segments")
+        segments = self.db.cursor.fetchall()
+        
+        for seg_id, start_va, end_va, name in segments:
+            try:
+                size = end_va - start_va
+                if size > 0:
+                    # Limit size if needed? flare_emu might need huge segments.
+                    # SQLite limit is usually 1GB per row. 
+                    # If segment is huge (e.g. 100MB), it's fine.
+                    content = ida_bytes.get_bytes(start_va, size)
+                    if content:
+                        self.db.insert_segment_content(seg_id, content)
+            except Exception as e:
+                self.log(f"Error exporting content for segment {name}: {e}")
+                
+        self.timer.end_step("SegmentContent")
+
+    def export_cfg(self):
+        self.timer.start_step("CFG")
+        self.log("Exporting CFG...")
+        
+        total_funcs = ida_funcs.get_func_qty()
+        tracker = ProgressTracker(total_funcs, self.log, "CFG")
+        
+        all_blocks = []
+        block_successors_map = {} # start_va -> [succ_start_va]
+        
+        for i, func_ea in enumerate(idautils.Functions()):
+            tracker.update(i + 1)
+            func = ida_funcs.get_func(func_ea)
+            if not func: continue
+            
+            flowchart = idaapi.FlowChart(func)
+            for block in flowchart:
+                start = block.start_ea
+                end = block.end_ea
+                btype = block.type
+                all_blocks.append((func_ea, start, end, btype))
+                
+                succs = []
+                for succ in block.succs():
+                    succs.append(succ.start_ea)
+                if succs:
+                    block_successors_map[start] = succs
+                    
+            if len(all_blocks) >= 1000:
+                 self.db.insert_basic_blocks(all_blocks)
+                 all_blocks = []
+
+        if all_blocks:
+            self.db.insert_basic_blocks(all_blocks)
+            
+        # Resolve successors
+        self.log("Resolving CFG successors...")
+        # Get mapping of start_va -> block_id
+        # Note: If multiple blocks have same start_va (overlays?), this might be ambiguous.
+        # But usually start_va is unique for basic blocks.
+        self.db.cursor.execute("SELECT start_va, block_id FROM basic_blocks")
+        va_to_id = dict(self.db.cursor.fetchall())
+        
+        succ_data = []
+        for src_va, succ_vas in block_successors_map.items():
+            src_id = va_to_id.get(src_va)
+            if not src_id: continue
+            for dst_va in succ_vas:
+                dst_id = va_to_id.get(dst_va)
+                if dst_id:
+                    succ_data.append((src_id, dst_id))
+                    
+            if len(succ_data) >= 1000:
+                self.db.insert_basic_block_successors(succ_data)
+                succ_data = []
+                
+        if succ_data:
+            self.db.insert_basic_block_successors(succ_data)
+            
+        self.timer.end_step("CFG")
+
+    def export_instructions(self):
+        self.timer.start_step("Instructions")
+        self.log("Exporting instructions...")
+        
+        # Iterate all heads that are code
+        min_ea = ida_ida.inf_get_min_ea()
+        max_ea = ida_ida.inf_get_max_ea()
+        tracker = ProgressTracker(max_ea - min_ea, self.log, "Instructions")
+        
+        insn_data = []
+        op_data = []
+        BATCH_SIZE = 1000
+        
+        for head in idautils.Heads(min_ea, max_ea):
+            tracker.update(head - min_ea)
+            flags = ida_bytes.get_flags(head)
+            if not ida_bytes.is_code(flags):
+                continue
+            
+            mnem = idc.print_insn_mnem(head)
+            if not mnem: continue
+            
+            size = ida_bytes.get_item_size(head)
+            func = ida_funcs.get_func(head)
+            sp_delta = 0
+            if func:
+                sp_delta = idaapi.get_sp_delta(func, head)
+            
+            insn_data.append((head, mnem, size, sp_delta))
+            
+            # Operands (0 to 8 usually)
+            for i in range(8):
+                op_type = idc.get_operand_type(head, i)
+                if op_type == 0: # o_void
+                    break
+                
+                op_val = idc.get_operand_value(head, i)
+                op_text = idc.print_operand(head, i)
+                
+                op_data.append((head, i, op_type, op_val, op_text))
+            
+            if len(insn_data) >= BATCH_SIZE:
+                self.db.insert_instructions(insn_data)
+                self.db.insert_instruction_operands(op_data)
+                insn_data = []
+                op_data = []
+        
+        if insn_data:
+            self.db.insert_instructions(insn_data)
+            self.db.insert_instruction_operands(op_data)
+            
+        self.timer.end_step("Instructions")

@@ -234,11 +234,112 @@ class BinaryDatabase:
             )
         """)
         
+        # 6.11 Segment Content
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS segment_content (
+                seg_id INTEGER PRIMARY KEY,
+                content BLOB,
+                FOREIGN KEY(seg_id) REFERENCES segments(seg_id)
+            )
+        """)
+
+        # 6.12 Basic Blocks
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS basic_blocks (
+                block_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                function_va INTEGER,
+                start_va INTEGER,
+                end_va INTEGER,
+                type INTEGER
+            )
+        """)
+        self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_basic_blocks_func ON basic_blocks(function_va)")
+        self.cursor.execute("CREATE INDEX IF NOT EXISTS idx_basic_blocks_start ON basic_blocks(start_va)")
+
+        # 6.13 Basic Block Successors
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS basic_block_successors (
+                src_block_id INTEGER,
+                dst_block_id INTEGER,
+                PRIMARY KEY (src_block_id, dst_block_id),
+                FOREIGN KEY(src_block_id) REFERENCES basic_blocks(block_id),
+                FOREIGN KEY(dst_block_id) REFERENCES basic_blocks(block_id)
+            )
+        """)
+
+        # 6.14 Instructions
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS instructions (
+                address INTEGER PRIMARY KEY,
+                mnemonic TEXT,
+                size INTEGER,
+                sp_delta INTEGER
+            )
+        """)
+
+        # 6.15 Instruction Operands
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS instruction_operands (
+                address INTEGER,
+                op_index INTEGER,
+                type INTEGER,
+                value INTEGER,
+                text TEXT,
+                PRIMARY KEY (address, op_index),
+                FOREIGN KEY(address) REFERENCES instructions(address)
+            )
+        """)
+
         self.conn.commit()
         self.log("Schema created successfully.")
 
     # Data Insertion Methods
     
+    def insert_segment_content(self, seg_id, content):
+        self.cursor.execute("""
+            INSERT OR REPLACE INTO segment_content (seg_id, content)
+            VALUES (?, ?)
+        """, (seg_id, content))
+        self.conn.commit()
+
+    def insert_basic_blocks(self, blocks_data):
+        # blocks_data: list of (function_va, start_va, end_va, type)
+        # Returns list of inserted block_ids to map successors
+        self.cursor.executemany("""
+            INSERT INTO basic_blocks (function_va, start_va, end_va, type)
+            VALUES (?, ?, ?, ?)
+        """, blocks_data)
+        self.conn.commit()
+        
+    def get_basic_block_id(self, start_va):
+        self.cursor.execute("SELECT block_id FROM basic_blocks WHERE start_va = ?", (start_va,))
+        row = self.cursor.fetchone()
+        return row[0] if row else None
+
+    def insert_basic_block_successors(self, successors_data):
+        # successors_data: list of (src_block_id, dst_block_id)
+        self.cursor.executemany("""
+            INSERT OR IGNORE INTO basic_block_successors (src_block_id, dst_block_id)
+            VALUES (?, ?)
+        """, successors_data)
+        self.conn.commit()
+
+    def insert_instructions(self, instructions_data):
+        # instructions_data: list of (address, mnemonic, size, sp_delta)
+        self.cursor.executemany("""
+            INSERT OR REPLACE INTO instructions (address, mnemonic, size, sp_delta)
+            VALUES (?, ?, ?, ?)
+        """, instructions_data)
+        self.conn.commit()
+
+    def insert_instruction_operands(self, operands_data):
+        # operands_data: list of (address, op_index, type, value, text)
+        self.cursor.executemany("""
+            INSERT OR REPLACE INTO instruction_operands (address, op_index, type, value, text)
+            VALUES (?, ?, ?, ?, ?)
+        """, operands_data)
+        self.conn.commit()
+
     def insert_metadata_json(self, json_content):
         self.cursor.execute("""
             INSERT OR REPLACE INTO metadata_json (id, content)
