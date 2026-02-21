@@ -273,7 +273,25 @@ export const auditApi = {
         id: Number(t.id)
     })) as AuditPlan[];
   },
-  
+
+  getCompletedTasks: async () => {
+    const res = await apiClient.get<AuditTask[]>('/audit/tasks', { params: { status: 'completed' } });
+    return res.data.map(t => ({
+        ...t,
+        plan_type: t.task_type === 'verification_task' ? 'verification_plan' : 'agent_plan',
+        id: Number(t.id)
+    })) as AuditPlan[];
+  },
+
+  getTask: async (taskId: number) => {
+    const res = await apiClient.get<AuditTask>(`/audit/task/${taskId}`);
+    return {
+      ...res.data,
+      plan_type: res.data.task_type === 'verification_task' ? 'verification_plan' : 'agent_plan',
+      id: Number(res.data.id)
+    } as AuditPlan;
+  },
+   
   getLogs: async (limit = 50) => {
     const res = await apiClient.get<AuditLog[]>('/audit/logs', { params: { limit } });
     return res.data;

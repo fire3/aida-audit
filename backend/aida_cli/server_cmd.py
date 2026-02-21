@@ -700,6 +700,15 @@ def get_audit_tasks(status: Optional[str] = None, task_type: Optional[str] = Non
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.get("/audit/task/{task_id}")
+def get_audit_task(task_id: int = Path(..., description="Task ID")):
+    try:
+        if not audit_db:
+             return {"error": "Database not initialized"}
+        return audit_mcp_tools.audit_get_task(task_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @api_router.get("/audit/logs")
 def get_audit_logs(limit: int = 50):
     if not audit_db:
