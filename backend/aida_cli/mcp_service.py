@@ -564,7 +564,7 @@ class McpService:
     def get_binary_function_callers(self, binary_name: str, function_address: Union[str, int], offset: int = 0, limit: int = 50) -> Dict[str, Any]:
         """Identify which functions call a specific function (unique callers).
 
-        Use this tool to find which functions depend on the target function.
+        Use this tool to find which functions call the target function.
         Returns a list of unique caller functions with call counts.
 
         Args:
@@ -610,7 +610,7 @@ class McpService:
         except Exception as e:
             raise McpError("INTERNAL_ERROR", str(e))
 
-    def get_binary_cross_references_to_address(self, binary_name: str, address: Union[str, int], offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_binary_cross_references_to_address(self, binary_name: str, address: Union[str, int], offset: int = 0, limit: int = 50, summary: bool = False) -> List[Dict[str, Any]]:
         """Get cross references to an address.
 
         Args:
@@ -618,12 +618,13 @@ class McpService:
             address: Target address (hex string or integer).
             offset: Start index for pagination (default: 0).
             limit: Maximum number of xrefs to return (default: 50).
+            summary: If True, returns grouped summary.
         Returns:
             list: List of dictionaries, each representing a cross reference.
         """
-        return self._get_binary(binary_name).get_xrefs_to_address(address, offset, limit, None)
+        return self._get_binary(binary_name).get_xrefs_to_address(address, offset, limit, None, summary)
 
-    def get_binary_cross_references_from_address(self, binary_name: str, address: Union[str, int], offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_binary_cross_references_from_address(self, binary_name: str, address: Union[str, int], offset: int = 0, limit: int = 50, summary: bool = False) -> List[Dict[str, Any]]:
         """Get cross references from an address.
 
         Args:
@@ -631,13 +632,14 @@ class McpService:
             address: Source address (hex string or integer).
             offset: Start index for pagination (default: 0).
             limit: Maximum number of xrefs to return (default: 50).
+            summary: If True, returns grouped summary.
         Returns:
             list: List of dictionaries, each representing a cross reference.
         """
-        return self._get_binary(binary_name).get_xrefs_from_address(address, offset, limit)
+        return self._get_binary(binary_name).get_xrefs_from_address(address, offset, limit, summary)
 
     @mcp_tool(name="get_binary_cross_references")
-    def get_binary_cross_references(self, binary_name: str, address: Union[str, int], offset: int = 0, limit: int = 50) -> Dict[str, List[Dict[str, Any]]]:
+    def get_binary_cross_references(self, binary_name: str, address: Union[str, int], offset: int = 0, limit: int = 50, detail: bool = False) -> Dict[str, List[Dict[str, Any]]]:
         """Retrieve cross-references (xrefs) to and from a specific address.
 
         Use this tool to find:
@@ -650,14 +652,15 @@ class McpService:
             address: The memory address to analyze. MUST be a string if using hex (e.g., "0x401000").
             offset: Pagination offset for the results list (default: 0).
             limit: Max number of xrefs to return per direction (max 50).
+            detail: If True, returns detailed list of all xrefs (callsites). If False (default), returns a summary grouped by function (callers).
 
         Returns:
             dict: An object with 'to' (incoming references) and 'from' (outgoing references) lists.
         """
         try:
             return {
-                "to": self.get_binary_cross_references_to_address(binary_name, address, offset, limit),
-                "from": self.get_binary_cross_references_from_address(binary_name, address, offset, limit)
+                "to": self.get_binary_cross_references_to_address(binary_name, address, offset, limit, summary=not detail),
+                "from": self.get_binary_cross_references_from_address(binary_name, address, offset, limit, summary=not detail)
             }
         except LookupError as e:
             raise McpError("NOT_FOUND", str(e))
@@ -1190,7 +1193,6 @@ class McpService:
         """
         return audit_mcp_tools.audit_get_summary(plan_id)
 
-    @mcp_tool(name="audit_plan_list")
     def audit_plan_list(self, status: str = None, plan_type: str = None) -> List[Dict[str, Any]]:
         """List audit plans or agent tasks.
         
@@ -1202,6 +1204,30 @@ class McpService:
             list: List of plan objects.
         """
         return audit_mcp_tools.audit_plan_list(status, plan_type)
+
+    @mcp_tool(name="audit_get_macro_plans")
+    def audit_get_macro_plans(self, status: str = None) -> List[Dict[str, Any]]:
+        """Get the list of high-level macro plans (Audit Plans).
+
+        Args:
+            status: Filter by status ('pending', 'in_progress', 'completed', 'failed').
+
+        Returns:
+            list: List of macro plan objects.
+        """
+        return audit_mcp_tools.audit_plan_list(status, plan_type='audit_plan')
+
+    @mcp_tool(name="audit_get_agent_tasks")
+    def audit_get_agent_tasks(self, status: str = None) -> List[Dict[str, Any]]:
+        """Get the list of agent tasks (Agent Plans).
+
+        Args:
+            status: Filter by status ('pending', 'in_progress', 'completed', 'failed').
+
+        Returns:
+            list: List of agent task objects.
+        """
+        return audit_mcp_tools.audit_plan_list(status, plan_type='agent_plan')
 
     @mcp_tool(name="audit_delete_plan")
     def audit_delete_plan(self, plan_id: int) -> Dict[str, Any]:

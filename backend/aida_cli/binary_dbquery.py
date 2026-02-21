@@ -804,7 +804,7 @@ class BinaryDbQuery:
             )
         return out
 
-    def get_xrefs_to_address(self, address, offset=None, limit=None, filters=None):
+    def get_xrefs_to_address(self, address, offset=None, limit=None, filters=None, summary=False):
         if not self._table_exists("xrefs"):
             return []
         va = _parse_address(address)
@@ -818,50 +818,123 @@ class BinaryDbQuery:
         if filters.get("data_only"):
             wh.append("xref_type NOT IN ('call','jmp')")
         where = " AND ".join(wh)
-        rows = self._fetchall(
-            f"SELECT from_va, from_function_va, xref_type, operand_index FROM xrefs WHERE {where} ORDER BY from_va ASC LIMIT ? OFFSET ?",
-            tuple(params + [limit, offset]),
-        )
-        out = []
-        for r in rows:
-            from_func_va = r["from_function_va"]
-            func_name = None
-            if from_func_va and self._table_exists("functions"):
-                 f_row = self._fetchone("SELECT name FROM functions WHERE function_va=?", (from_func_va,))
-                 if f_row:
-                     func_name = f_row["name"]
-
-            out.append(
-                {
-                    "from_address": _format_address(r["from_va"]),
-                    "from_function": _format_address(from_func_va),
+        
+        if summary:
+            # Summary mode: Group by from_function_va
+            query = f"""
+                SELECT from_function_va, COUNT(*) as count, MAX(from_va) as last_from_va
+                FROM xrefs 
+                WHERE {where} 
+                GROUP BY from_function_va 
+                ORDER BY count DESC, from_function_va ASC 
+                LIMIT ? OFFSET ?
+            """
+            rows = self._fetchall(query, tuple(params + [limit, offset]))
+            out = []
+            for r in rows:
+                from_func_va = r["from_function_va"]
+                func_name = None
+                if from_func_va and self._table_exists("functions"):
+                    f_row = self._fetchone("SELECT name FROM functions WHERE function_va=?", (from_func_va,))
+                    if f_row:
+                        func_name = f_row["name"]
+                out.append({
+                    "from_function": _format_address(from_func_va) if from_func_va else None,
                     "from_function_name": func_name,
-                    "xref_type": r["xref_type"],
-                    "operand_index": r["operand_index"],
-                }
+                    "count": r["count"],
+                    "last_from_address": _format_address(r["last_from_va"])
+                })
+            return out
+        else:
+            # Detailed mode
+            rows = self._fetchall(
+                f"SELECT from_va, from_function_va, xref_type, operand_index FROM xrefs WHERE {where} ORDER BY from_va ASC LIMIT ? OFFSET ?",
+                tuple(params + [limit, offset]),
             )
-        return out
+            out = []
+            for r in rows:
+                from_func_va = r["from_function_va"]
+                func_name = None
+                if from_func_va and self._table_exists("functions"):
+                    f_row = self._fetchone("SELECT name FROM functions WHERE function_va=?", (from_func_va,))
+                    if f_row:
+                        func_name = f_row["name"]
 
-    def get_xrefs_from_address(self, address, offset=None, limit=None):
+                out.append(
+                    {
+                        "from_address": _format_address(r["from_va"]),
+                        "from_function": _format_address(from_func_va),
+                        "from_function_name": func_name,
+                        "xref_type": r["xref_type"],
+                        "operand_index": r["operand_index"],
+                    }
+                )
+            return out
+
+    def get_xrefs_from_address(self, address, offset=None, limit=None, summary=False):
         if not self._table_exists("xrefs"):
             return []
         va = _parse_address(address)
         offset = _clamp_offset(offset)
         limit = _clamp_limit(limit)
-        rows = self._fetchall(
-            "SELECT to_va, to_function_va, xref_type FROM xrefs WHERE from_va=? ORDER BY to_va ASC LIMIT ? OFFSET ?",
-            (va, limit, offset),
-        )
-        out = []
-        for r in rows:
-            out.append(
-                {
-                    "to_address": _format_address(r["to_va"]),
-                    "to_function": _format_address(r["to_function_va"]),
-                    "xref_type": r["xref_type"],
-                }
+        
+        if summary:
+             # Summary mode: Group by to_function_va (if code) or just count?
+             # For outgoing xrefs, we might want to see "what functions does this address call?"
+             # So grouping by to_function_va makes sense for code refs.
+             # For data refs, it might be accessing a global variable.
+             
+             # Let's try to group by to_function_va first, and if null, group by to_va?
+             # Or simpler: just group by to_function_va where it exists.
+             # But if it's a data ref, to_function_va might be null or point to the function containing the data?
+             # In IDA/Binary Ninja, 'to_function_va' usually means the function that starts at 'to_va' or contains it?
+             # In this schema, 'to_function_va' likely means the function being called.
+             
+             query = f"""
+                SELECT to_function_va, COUNT(*) as count, MAX(to_va) as last_to_va, MAX(xref_type) as last_type
+                FROM xrefs 
+                WHERE from_va=? 
+                GROUP BY to_function_va 
+                ORDER BY count DESC, to_function_va ASC 
+                LIMIT ? OFFSET ?
+            """
+             rows = self._fetchall(query, (va, limit, offset))
+             out = []
+             for r in rows:
+                to_func_va = r["to_function_va"]
+                func_name = None
+                if to_func_va and self._table_exists("functions"):
+                    f_row = self._fetchone("SELECT name FROM functions WHERE function_va=?", (to_func_va,))
+                    if f_row:
+                        func_name = f_row["name"]
+                
+                # If to_function_va is None, it might be a data reference to a global variable
+                # In that case, we might want to show the variable name/address instead of function
+                # But for now, let's stick to the schema.
+                
+                out.append({
+                    "to_function": _format_address(to_func_va) if to_func_va else None,
+                    "to_function_name": func_name,
+                    "count": r["count"],
+                    "last_to_address": _format_address(r["last_to_va"]),
+                    "last_type": r["last_type"]
+                })
+             return out
+        else:
+            rows = self._fetchall(
+                "SELECT to_va, to_function_va, xref_type FROM xrefs WHERE from_va=? ORDER BY to_va ASC LIMIT ? OFFSET ?",
+                (va, limit, offset),
             )
-        return out
+            out = []
+            for r in rows:
+                out.append(
+                    {
+                        "to_address": _format_address(r["to_va"]),
+                        "to_function": _format_address(r["to_function_va"]),
+                        "xref_type": r["xref_type"],
+                    }
+                )
+            return out
 
     def get_callees(self, function_address, offset=0, limit=50, depth=1):
         if not self._table_exists("call_edges"):
