@@ -83,9 +83,9 @@ export interface BinaryFunction {
 }
 
 export interface FunctionCallerRef {
-  call_site_address: string;
   caller_address: string;
   caller_name?: string | null;
+  call_count: number;
 }
 
 export interface FunctionCalleeRef {
@@ -93,6 +93,12 @@ export interface FunctionCalleeRef {
   callee_address: string;
   callee_name?: string | null;
   call_type?: string | null;
+}
+
+export interface PaginatedResponse<T> {
+  results: T[];
+  has_more: boolean;
+  next_offset?: number | null;
 }
 
 export interface PseudocodeResult {
@@ -462,9 +468,9 @@ export const binaryApi = {
   resolveAddress: (binaryName: string, address: string) =>
     apiClient.get<ResolveAddressResult>(`/binary/${binaryName}/address/${address}`).then(res => res.data),
   getCallers: (binaryName: string, address: string, depth = 1, limit = 50) =>
-    apiClient.get<FunctionCallerRef[]>(`/binary/${binaryName}/function/${address}/callers`, { params: { depth, limit } }).then(res => res.data),
+    apiClient.get<PaginatedResponse<FunctionCallerRef>>(`/binary/${binaryName}/function/${address}/callers`, { params: { depth, limit } }).then(res => res.data),
   getCallees: (binaryName: string, address: string, depth = 1, limit = 50) =>
-    apiClient.get<FunctionCalleeRef[]>(`/binary/${binaryName}/function/${address}/callees`, { params: { depth, limit } }).then(res => res.data),
+    apiClient.get<PaginatedResponse<FunctionCalleeRef>>(`/binary/${binaryName}/function/${address}/callees`, { params: { depth, limit } }).then(res => res.data),
   getXrefsTo: (binaryName: string, address: string, offset = 0, limit = 50) =>
     apiClient.get<XrefToItem[]>(`/binary/${binaryName}/xrefs/to/${address}`, { params: { offset, limit } }).then(res => res.data),
   getXrefsFrom: (binaryName: string, address: string, offset = 0, limit = 50) =>

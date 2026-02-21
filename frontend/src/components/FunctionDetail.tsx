@@ -71,12 +71,12 @@ export function FunctionDetail({ binaryName, address, onNavigate }: FunctionDeta
     queryFn: () => binaryApi.getFunctionCallees(binaryName, address),
   });
 
-  const filteredCallers = callers?.filter((ref: FunctionCallerRef) => 
+  const filteredCallers = callers?.results?.filter((ref: FunctionCallerRef) => 
     (ref.caller_name?.toLowerCase().includes(callerSearch.toLowerCase()) || 
      ref.caller_address.toLowerCase().includes(callerSearch.toLowerCase()))
   );
 
-  const filteredCallees = callees?.filter((ref: FunctionCalleeRef) => 
+  const filteredCallees = callees?.results?.filter((ref: FunctionCalleeRef) => 
     (ref.callee_name?.toLowerCase().includes(calleeSearch.toLowerCase()) || 
      ref.callee_address.toLowerCase().includes(calleeSearch.toLowerCase()))
   );
@@ -218,7 +218,7 @@ export function FunctionDetail({ binaryName, address, onNavigate }: FunctionDeta
               <div className="divide-y divide-border">
                 {filteredCallers?.map((ref) => (
                   <div
-                    key={`${ref.caller_address}-${ref.call_site_address}`}
+                    key={`${ref.caller_address}`}
                     className="p-2 hover:bg-muted/50 cursor-pointer transition-colors group"
                     onClick={() => onNavigate?.(ref.caller_address)}
                   >
@@ -231,7 +231,7 @@ export function FunctionDetail({ binaryName, address, onNavigate }: FunctionDeta
                       </div>
                     </div>
                     <div className="text-xs text-muted-foreground mt-0.5 font-mono">
-                      callsite {formatAddress(ref.call_site_address)}
+                      {ref.call_count} calls
                     </div>
                   </div>
                 ))}
