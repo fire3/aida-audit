@@ -138,6 +138,17 @@ class VulnerabilityCreate(BaseModel):
     cvss: Optional[float] = None
     exploitability: Optional[str] = None
 
+class MacroPlanCreate(BaseModel):
+    title: str
+    description: str
+
+class TaskCreate(BaseModel):
+    title: str
+    description: str
+    plan_id: int
+    binary_name: str
+    task_type: str = "agent_task"
+
 # --- REST API Implementation ---
 
 api_router = APIRouter(prefix="/api/v1")
@@ -691,12 +702,33 @@ def get_audit_macro_plans(status: Optional[str] = None):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.post("/audit/macro-plans")
+def create_audit_macro_plan(plan: MacroPlanCreate):
+    try:
+        if not audit_db:
+             return {"error": "Database not initialized"}
+        return audit_mcp_tools.audit_create_macro_plan(plan.title, plan.description)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @api_router.get("/audit/tasks")
 def get_audit_tasks():
     try:
         if not audit_db:
              return []
         return audit_mcp_tools.audit_list_tasks()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/audit/tasks")
+def create_audit_task(task: TaskCreate):
+    try:
+        if not audit_db:
+             return {"error": "Database not initialized"}
+        if task.task_type == 'verification_task':
+            return audit_mcp_tools.audit_create_verification_task(task.title, task.description, task.plan_id, task.binary_name)
+        else:
+            return audit_mcp_tools.audit_create_agent_task(task.title, task.description, task.plan_id, task.binary_name)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

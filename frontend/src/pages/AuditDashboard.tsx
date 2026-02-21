@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { auditApi, type AuditPlan, type AuditMessage, type Vulnerability, type Note } from '../api/client';
+import { auditApi, projectApi, type AuditPlan, type AuditMessage, type Vulnerability, type Note } from '../api/client';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { useState, useMemo, useEffect, useRef } from 'react';
@@ -17,11 +17,16 @@ import {
   AlertTriangle,
   Code,
   Archive,
-  ShieldCheck
+  ShieldCheck,
+  Plus
 } from 'lucide-react';
 import { formatAddress } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Modal } from '../components/ui/modal';
+import { Input } from '../components/ui/input';
+import { Textarea } from '../components/ui/textarea';
+import { Select } from '../components/ui/select';
 
 function Badge({ children, variant }: { children: React.ReactNode, variant: string }) {
     const colors = {
@@ -149,6 +154,7 @@ function UserPromptConfig() {
 }
 
 function PlanView({ plans }: { plans: AuditPlan[] }) {
+    const queryClient = useQueryClient();
     const macroPlans = useMemo(() => plans.filter(p => p.plan_type === 'audit_plan'), [plans]);
     const agentTasks = useMemo(() => 
         plans.filter(p => p.plan_type === 'agent_plan').sort((a, b) => b.id - a.id), 
@@ -164,14 +170,100 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
         [agentTasks, verificationTasks]
     );
 
+    // State for creating Macro Plan
+    const [isMacroModalOpen, setIsMacroModalOpen] = useState(false);
+    const [newMacroTitle, setNewMacroTitle] = useState("");
+    const [newMacroDesc, setNewMacroDesc] = useState("");
+
+    // State for creating Task
+    const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+    const [newTaskTitle, setNewTaskTitle] = useState("");
+    const [newTaskDesc, setNewTaskDesc] = useState("");
+    const [selectedPlanId, setSelectedPlanId] = useState<string>("");
+    const [newTaskBinary, setNewTaskBinary] = useState("");
+    const [newTaskType, setNewTaskType] = useState<'agent_task' | 'verification_task'>('agent_task');
+
+    const { data: binaries } = useQuery({
+        queryKey: ['projectBinaries'],
+        queryFn: () => projectApi.listBinaries(0, 100),
+        staleTime: 30000
+    });
+
+    // Mutations
+    const createMacroPlanMutation = useMutation({
+        mutationFn: auditApi.createMacroPlan,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['auditMacroPlans'] });
+            setIsMacroModalOpen(false);
+            setNewMacroTitle("");
+            setNewMacroDesc("");
+        }
+    });
+
+    const createTaskMutation = useMutation({
+        mutationFn: auditApi.createTask,
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['auditTasks'] });
+            setIsTaskModalOpen(false);
+            setNewTaskTitle("");
+            setNewTaskDesc("");
+            setSelectedPlanId("");
+            setNewTaskBinary("");
+            setNewTaskType('agent_task');
+        }
+    });
+
+    const handleCreateMacroPlan = () => {
+        if (!newMacroTitle || !newMacroDesc) return;
+        createMacroPlanMutation.mutate({
+            title: newMacroTitle,
+            description: newMacroDesc
+        });
+    };
+
+    const handleCreateTask = () => {
+        if (!newTaskTitle || !newTaskDesc || !selectedPlanId || !newTaskBinary) return;
+        createTaskMutation.mutate({
+            title: newTaskTitle,
+            description: newTaskDesc,
+            plan_id: parseInt(selectedPlanId),
+            binary_name: newTaskBinary,
+            task_type: newTaskType
+        });
+    };
+
     return (
         <div className="h-full flex gap-4">
             <div className="w-1/3 border-r pr-4 overflow-auto">
                 <UserPromptConfig />
-                <h3 className="font-semibold mb-4 flex items-center gap-2">
-                    <ListTodo className="w-4 h-4 text-purple-500" />
-                    Audit Strategy
-                </h3>
+                <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-semibold flex items-center gap-2">
+                        <ListTodo className="w-4 h-4 text-purple-500" />
+                        Audit Strategy
+                    </h3>
+                    <div className="flex gap-1">
+                        <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-6 w-6" 
+                            onClick={() => setIsMacroModalOpen(true)}
+                            title="Add Audit Strategy (Macro Plan)"
+                        >
+                            <Plus className="w-4 h-4" />
+                        </Button>
+                        <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-6 w-6" 
+                            onClick={() => setIsTaskModalOpen(true)}
+                            title="Add Task"
+                            disabled={macroPlans.length === 0}
+                        >
+                            <ListTodo className="w-4 h-4" />
+                        </Button>
+                    </div>
+                </div>
+                
                 <div className="space-y-4">
                     {macroPlans.map(plan => (
                         <div key={plan.id} className="border rounded-lg p-3 bg-purple-50/30 dark:bg-purple-900/10">
@@ -294,6 +386,106 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
                     )}
                 </div>
             </div>
+
+            {/* Macro Plan Modal */}
+            <Modal
+                isOpen={isMacroModalOpen}
+                onClose={() => setIsMacroModalOpen(false)}
+                title="Create Audit Strategy (Macro Plan)"
+            >
+                <div className="space-y-4">
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Title</label>
+                        <Input 
+                            value={newMacroTitle} 
+                            onChange={(e) => setNewMacroTitle(e.target.value)} 
+                            placeholder="e.g., Attack Surface Enumeration"
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Description</label>
+                        <Textarea 
+                            value={newMacroDesc} 
+                            onChange={(e) => setNewMacroDesc(e.target.value)} 
+                            placeholder="Describe the high-level goal of this phase..."
+                            className="h-24"
+                        />
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="ghost" onClick={() => setIsMacroModalOpen(false)}>Cancel</Button>
+                        <Button onClick={handleCreateMacroPlan} disabled={createMacroPlanMutation.isPending || !newMacroTitle || !newMacroDesc}>
+                            {createMacroPlanMutation.isPending ? "Creating..." : "Create Strategy"}
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Task Modal */}
+            <Modal
+                isOpen={isTaskModalOpen}
+                onClose={() => setIsTaskModalOpen(false)}
+                title="Create Task"
+            >
+                <div className="space-y-4">
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Task Type</label>
+                        <Select 
+                            value={newTaskType}
+                            onChange={(e) => setNewTaskType(e.target.value as 'agent_task' | 'verification_task')}
+                        >
+                            <option value="agent_task">Analysis Task (Agent)</option>
+                            <option value="verification_task">Verification Task</option>
+                        </Select>
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Parent Strategy</label>
+                        <Select 
+                            value={selectedPlanId}
+                            onChange={(e) => setSelectedPlanId(e.target.value)}
+                        >
+                            <option value="" disabled>Select a strategy...</option>
+                            {macroPlans.map(p => (
+                                <option key={p.id} value={p.id}>{p.title}</option>
+                            ))}
+                        </Select>
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Target Binary</label>
+                        <Select 
+                            value={newTaskBinary}
+                            onChange={(e) => setNewTaskBinary(e.target.value)}
+                        >
+                            <option value="" disabled>Select a binary...</option>
+                            {binaries?.map((b: { binary_name: string }) => (
+                                <option key={b.binary_name} value={b.binary_name}>{b.binary_name}</option>
+                            ))}
+                        </Select>
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Title</label>
+                        <Input 
+                            value={newTaskTitle} 
+                            onChange={(e) => setNewTaskTitle(e.target.value)} 
+                            placeholder="e.g., Analyze login function"
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Description</label>
+                        <Textarea 
+                            value={newTaskDesc} 
+                            onChange={(e) => setNewTaskDesc(e.target.value)} 
+                            placeholder="Detailed instructions for the agent..."
+                            className="h-24"
+                        />
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="ghost" onClick={() => setIsTaskModalOpen(false)}>Cancel</Button>
+                        <Button onClick={handleCreateTask} disabled={createTaskMutation.isPending || !newTaskTitle || !newTaskDesc || !selectedPlanId || !newTaskBinary}>
+                            {createTaskMutation.isPending ? "Creating..." : "Create Task"}
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
         </div>
     );
 }

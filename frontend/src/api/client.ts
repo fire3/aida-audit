@@ -138,6 +138,19 @@ export interface AuditMacroPlan {
   type: 'audit_plan';
 }
 
+export interface MacroPlanCreate {
+  title: string;
+  description: string;
+}
+
+export interface TaskCreate {
+  title: string;
+  description: string;
+  plan_id: number;
+  binary_name: string;
+  task_type?: 'agent_task' | 'verification_task';
+}
+
 export interface AuditTask {
   id: number;
   plan_id: number;
@@ -262,6 +275,11 @@ export const auditApi = {
     })) as AuditPlan[];
   },
 
+  createMacroPlan: async (data: MacroPlanCreate) => {
+    const res = await apiClient.post<{ plan_id: number }>('/audit/macro-plans', data);
+    return res.data;
+  },
+
   getTasks: async () => {
     const res = await apiClient.get<AuditTask[]>('/audit/tasks');
     return res.data.map(t => ({
@@ -269,6 +287,11 @@ export const auditApi = {
         plan_type: t.task_type === 'verification_task' ? 'verification_plan' : 'agent_plan',
         id: Number(t.id)
     })) as AuditPlan[];
+  },
+
+  createTask: async (data: TaskCreate) => {
+    const res = await apiClient.post<{ task_id: number }>('/audit/tasks', data);
+    return res.data;
   },
 
   getCompletedTasks: async () => {
