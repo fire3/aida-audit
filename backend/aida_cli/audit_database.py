@@ -563,7 +563,7 @@ class AuditDatabase:
         results = []
         for row in cursor.fetchall():
             note = {
-                "id": row[0],
+                "note_id": row[0],
                 "binary_name": row[1],
                 "function_name": row[2],
                 "address": row[3],
