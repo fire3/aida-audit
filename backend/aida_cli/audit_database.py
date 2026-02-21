@@ -586,6 +586,54 @@ class AuditDatabase:
 
         return results
 
+    def update_note(self, note_id: int, content: Optional[str] = None, title: Optional[str] = None, tags: Optional[List[str]] = None) -> bool:
+        cursor = self.conn.cursor()
+        
+        updates = []
+        params = []
+        
+        if content is not None:
+            updates.append("content = ?")
+            params.append(content)
+            
+        if title is not None:
+            updates.append("title = ?")
+            params.append(title)
+            
+        if tags is not None:
+            updates.append("tags = ?")
+            params.append(json.dumps(tags))
+            
+        if not updates:
+            return False
+            
+        updates.append("updated_at = CURRENT_TIMESTAMP")
+        
+        query = f"UPDATE notes SET {', '.join(updates)} WHERE note_id = ?"
+        params.append(note_id)
+        
+        cursor.execute(query, params)
+        
+        if tags is not None:
+            # Update tags relation
+            cursor.execute("DELETE FROM note_tags WHERE note_id = ?", (note_id,))
+            for tag in tags:
+                cursor.execute("SELECT tag_id FROM tags WHERE name = ?", (tag,))
+                row = cursor.fetchone()
+                if row:
+                    tag_id = row[0]
+                    cursor.execute("INSERT OR IGNORE INTO note_tags (note_id, tag_id) VALUES (?, ?)", (note_id, tag_id))
+        
+        self.commit()
+        return cursor.rowcount > 0
+
+    def delete_note(self, note_id: int) -> bool:
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM note_tags WHERE note_id = ?", (note_id,))
+        cursor.execute("DELETE FROM notes WHERE note_id = ?", (note_id,))
+        self.commit()
+        return cursor.rowcount > 0
+
     # ========== Vulnerability Operations ==========
     def add_vulnerability(self, binary_name: str, severity: str, category: str, 
                           description: str, title: Optional[str] = None,
@@ -674,3 +722,32 @@ class AuditDatabase:
             }
             for row in rows
         ]
+
+    def get_analysis_progress(self, binary_name: str) -> Dict[str, Any]:
+        cursor = self.conn.cursor()
+        
+        # Count notes
+        cursor.execute("SELECT COUNT(*) FROM notes WHERE binary_name = ?", (binary_name,))
+        row = cursor.fetchone()
+        total_notes = row[0] if row else 0
+        
+        # Count notes by type
+        cursor.execute("SELECT note_type, COUNT(*) FROM notes WHERE binary_name = ? GROUP BY note_type", (binary_name,))
+        notes_by_type = {row[0]: row[1] for row in cursor.fetchall()}
+        
+        # Count findings (vulnerabilities)
+        cursor.execute("SELECT COUNT(*) FROM vulnerabilities WHERE binary_name = ?", (binary_name,))
+        row = cursor.fetchone()
+        findings_count = row[0] if row else 0
+        
+        # Count findings by severity
+        cursor.execute("SELECT severity, COUNT(*) FROM vulnerabilities WHERE binary_name = ? GROUP BY severity", (binary_name,))
+        findings_by_severity = {row[0]: row[1] for row in cursor.fetchall()}
+        
+        return {
+            "binary_name": binary_name,
+            "total_notes": total_notes,
+            "notes_by_type": notes_by_type,
+            "findings_count": findings_count,
+            "findings_by_severity": findings_by_severity
+        }

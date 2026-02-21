@@ -1,5 +1,6 @@
 from typing import Dict, Any, List, Optional, Union
 from .audit_database import AuditDatabase
+import json
 
 _audit_db: Optional[AuditDatabase] = None
 
@@ -144,3 +145,117 @@ def audit_list_tasks(status: Optional[str] = None, task_type: Optional[str] = No
         t['parent_id'] = t['plan_id']
     return tasks
 
+# ========== Note Tools ==========
+
+def audit_create_note(binary_name: str, content: str, note_type: str,
+                      title: str = None, function_name: str = None, address = None,
+                      tags: str = None, confidence: str = "medium") -> Dict[str, Any]:
+    """Create a new analysis note."""
+    db = get_audit_db()
+    
+    # Parse tags
+    tag_list = None
+    if tags:
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+        
+    note_id = db.add_note(
+        binary_name=binary_name,
+        note_type=note_type,
+        content=content,
+        title=title,
+        function_name=function_name,
+        address=address,
+        confidence=confidence,
+        tags=tag_list
+    )
+    return {"note_id": note_id, "status": "success"}
+
+def audit_get_notes(binary_name: str = None, query: str = None,
+                    note_type: str = None, tags: str = None, limit: int = 50) -> List[Dict[str, Any]]:
+    """Query analysis notes."""
+    db = get_audit_db()
+    
+    tag_list = None
+    if tags:
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+        
+    # Note: 'query' parameter is currently ignored by DB implementation in get_notes
+    # We could implement client-side filtering or update DB method
+    
+    return db.get_notes(
+        binary_name=binary_name,
+        note_type=note_type,
+        tags=tag_list,
+        limit=limit
+    )
+
+def audit_update_note(note_id: int, content: str = None, title: str = None, tags: str = None) -> Dict[str, Any]:
+    """Update an existing note's content or tags."""
+    db = get_audit_db()
+    
+    tag_list = None
+    if tags is not None:
+        tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+        
+    success = db.update_note(
+        note_id=note_id,
+        content=content,
+        title=title,
+        tags=tag_list
+    )
+    return {"success": success}
+
+def audit_delete_note(note_id: int) -> Dict[str, Any]:
+    """Delete a note."""
+    db = get_audit_db()
+    success = db.delete_note(note_id)
+    return {"success": success}
+
+# ========== Vulnerability Tools ==========
+
+def audit_report_vulnerability(binary_name: str, severity: str, category: str, title: str, description: str,
+                       function_name: str = None, address = None,
+                       evidence: str = None, cvss: float = None,
+                       exploitability: str = None) -> Dict[str, Any]:
+    """Report a confirmed or suspected security vulnerability."""
+    db = get_audit_db()
+    
+    vuln_id = db.add_vulnerability(
+        binary_name=binary_name,
+        severity=severity,
+        category=category,
+        title=title,
+        description=description,
+        function_name=function_name,
+        address=address,
+        evidence=evidence,
+        cvss=cvss,
+        exploitability=exploitability
+    )
+    return {"vulnerability_id": vuln_id, "status": "success"}
+
+def audit_get_vulnerabilities(binary_name: str = None, severity: str = None,
+                       category: str = None, verification_status: str = None) -> List[Dict[str, Any]]:
+    """Query reported security vulnerabilities."""
+    db = get_audit_db()
+    return db.get_vulnerabilities(
+        binary_name=binary_name,
+        severity=severity,
+        category=category,
+        verification_status=verification_status
+    )
+
+def audit_update_vulnerability_verification(id: int, status: str, details: str = None) -> Dict[str, Any]:
+    """Update the verification status of a vulnerability."""
+    db = get_audit_db()
+    success = db.update_vulnerability_verification(
+        vuln_id=id,
+        status=status,
+        details=details if details else ""
+    )
+    return {"success": success}
+
+def audit_get_analysis_progress(binary_name: str) -> Dict[str, Any]:
+    """Get analysis progress statistics for a binary."""
+    db = get_audit_db()
+    return db.get_analysis_progress(binary_name)
