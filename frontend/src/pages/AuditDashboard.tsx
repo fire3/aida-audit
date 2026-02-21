@@ -184,7 +184,7 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
                             <div className="space-y-1 mt-3 pl-2 border-l-2 border-slate-200 dark:border-slate-800">
                                 <div className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Tasks</div>
                                 
-                                {agentTasks.filter(t => t.parent_id === plan.id).map(task => (
+                                {agentTasks.filter(t => t.plan_id === plan.id).map(task => (
                                     <div key={task.id} className="flex items-center gap-2 text-xs py-1">
                                         <StatusIcon status={task.status} />
                                         <span className={`${task.status === 'completed' ? 'line-through text-muted-foreground' : ''}`}>
@@ -193,7 +193,7 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
                                     </div>
                                 ))}
 
-                                {verificationTasks.filter(t => t.parent_id === plan.id).map(task => (
+                                {verificationTasks.filter(t => t.plan_id === plan.id).map(task => (
                                     <div key={task.id} className="flex items-center gap-2 text-xs py-1">
                                         <StatusIcon status={task.status} />
                                         <ShieldCheck className="w-3 h-3 text-blue-500" />
@@ -203,7 +203,7 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
                                     </div>
                                 ))}
 
-                                {agentTasks.filter(t => t.parent_id === plan.id).length === 0 && verificationTasks.filter(t => t.parent_id === plan.id).length === 0 && (
+                                {agentTasks.filter(t => t.plan_id === plan.id).length === 0 && verificationTasks.filter(t => t.plan_id === plan.id).length === 0 && (
                                     <div className="text-[10px] text-muted-foreground italic">No tasks assigned yet</div>
                                 )}
                             </div>
@@ -225,7 +225,7 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
                 <div className="space-y-3">
                     {allExecutionTasks.length > 0 ? (
                         allExecutionTasks.map(task => {
-                            const parentPlan = macroPlans.find(p => p.id === task.parent_id);
+                            const parentPlan = macroPlans.find(p => p.id === task.plan_id);
                             const isVerification = task.plan_type === 'verification_plan';
                             return (
                              <div key={task.id} className={`group relative border rounded-lg p-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all hover:shadow-sm bg-white dark:bg-slate-900 ${isVerification ? 'border-l-4 border-l-blue-400' : ''}`}>
@@ -318,7 +318,7 @@ function FinishedPlansView({ plans }: { plans: AuditPlan[] }) {
     }, [selectedPlanId, completedPlans]);
     
     const selectedPlan = plans.find(p => p.id === selectedPlanId);
-    const relatedTasks = completedAgentTasks.filter(t => t.parent_id === selectedPlanId);
+    const relatedTasks = completedAgentTasks.filter(t => t.plan_id === selectedPlanId);
     
     return (
         <div className="h-full flex gap-4">
@@ -829,10 +829,8 @@ export function AuditDashboard() {
       // Start new stream
       streamRef.current = auditApi.streamMessages(
         effectiveSessionId,
-        (msg: { role?: string; content?: string; type?: string; chunk_type?: string }) => {
-          console.log('SSE received:', msg);
-          
-          // Handle raw chunk for real-time display
+          (msg: { role?: string; content?: string; type?: string; chunk_type?: string }) => {
+            // Handle raw chunk for real-time display
           if (msg.type === 'chunk') {
             const chunkContent = msg.content || '';
             
@@ -952,7 +950,6 @@ export function AuditDashboard() {
         },
         () => {
           // Session ended
-          console.log('Session stream ended');
           queryClient.invalidateQueries({ queryKey: ['auditSessions'] });
           queryClient.invalidateQueries({ queryKey: ['auditStatus'] });
           setLiveChunkContent({ reasoning: '', content: '', inThinking: false, pending: '' });
@@ -1011,13 +1008,6 @@ export function AuditDashboard() {
     const content = typeof lastLiveMessage.content === 'string' ? lastLiveMessage.content : String(lastLiveMessage.content ?? '');
     const hasThinkTag = /<think\s*>/i.test(content) || /<\/think\s*>/i.test(content);
     const hasEscapedThink = /&lt;think&gt;/i.test(content) || /&lt;\/think&gt;/i.test(content);
-    console.log('LiveStream think check:', {
-      sessionId: lastLiveMessage.session_id,
-      role: lastLiveMessage.role,
-      hasThinkTag,
-      hasEscapedThink,
-      preview: content.slice(0, 200)
-    });
   }, [lastLiveMessage]);
 
   useEffect(() => {
@@ -1025,13 +1015,6 @@ export function AuditDashboard() {
     const content = typeof lastHistoryMessage.content === 'string' ? lastHistoryMessage.content : String(lastHistoryMessage.content ?? '');
     const hasThinkTag = /<think\s*>/i.test(content) || /<\/think\s*>/i.test(content);
     const hasEscapedThink = /&lt;think&gt;/i.test(content) || /&lt;\/think&gt;/i.test(content);
-    console.log('ChatHistory think check:', {
-      sessionId: lastHistoryMessage.session_id,
-      role: lastHistoryMessage.role,
-      hasThinkTag,
-      hasEscapedThink,
-      preview: content.slice(0, 200)
-    });
   }, [lastHistoryMessage]);
 
   const { data: notes } = useQuery({ queryKey: ['auditNotes'], queryFn: () => auditApi.getNotes(), refetchInterval: autoRefresh ? 5000 : false });

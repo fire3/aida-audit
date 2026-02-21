@@ -25,7 +25,6 @@ def _validate_option(name: str, value: Optional[str], options: List[str]):
 def audit_create_macro_plan(title: str, description: str) -> Dict[str, Any]:
     """Create a high-level audit plan (Audit Plan)."""
     db = get_audit_db()
-    # Note: parent_id removed in new schema for macro plans
     plan_id = db.create_plan(title, description)
     return {"plan_id": plan_id, "status": "success", "type": "audit_plan"}
 
@@ -65,7 +64,6 @@ def audit_list_macro_plans(status: Optional[str] = None) -> List[Dict[str, Any]]
     plans = db.get_plans(status)
     for p in plans:
         p['type'] = 'audit_plan'
-        p['parent_id'] = None # For compatibility
     return plans
 
 # ========== Task (Micro) Tools ==========
@@ -142,7 +140,6 @@ def audit_list_tasks(status: Optional[str] = None, task_type: Optional[str] = No
     tasks = db.get_tasks(status=status, task_type=internal_type)
     for t in tasks:
         t['type'] = t['task_type']
-        t['parent_id'] = t['plan_id']
     return tasks
 
 # ========== Note Tools ==========

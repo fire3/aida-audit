@@ -120,7 +120,6 @@ export interface AuditPlan {
   notes?: string;
   
   // Specific to Tasks (Agent/Verification)
-  parent_id?: number | null; // For compatibility or explicit linking
   plan_id?: number; // The new field for parent link
   plan_type?: string; // 'audit_plan', 'agent_plan', 'verification_plan' (legacy/compat)
   task_type?: 'agent_task' | 'verification_task'; // New field
@@ -154,7 +153,6 @@ export interface AuditTask {
   
   // Computed/Compat fields
   type?: string;
-  parent_id?: number;
 }
 
 export interface AuditLog {
@@ -272,7 +270,6 @@ export const auditApi = {
     return res.data.map(t => ({
         ...t,
         plan_type: t.task_type === 'verification_task' ? 'verification_plan' : 'agent_plan',
-        parent_id: t.plan_id,
         id: Number(t.id)
     })) as AuditPlan[];
   },
