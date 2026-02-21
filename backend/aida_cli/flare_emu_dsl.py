@@ -22,8 +22,17 @@ class DSLRunner:
             "trace": False,
             "trace_mem": False,
             "trace_calls": False,
-            "stack_check": False
+            "stack_check": False,
+            "skip_calls": True,
+            "hook_apis": True,
+            "strict": True
         }
+        self.limits = {
+            "max_instructions": None,
+            "timeout_ms": None
+        }
+        self._step_start_time = None
+        self._step_instruction_count = 0
         self.shadow_stack = [] # For stack integrity checking
 
     def run(self, script_or_scenario):
@@ -42,6 +51,16 @@ class DSLRunner:
         # Configure features
         options = scenario.get("options", {})
         self.features.update(options)
+        if "max_instructions" in options:
+            try:
+                self.limits["max_instructions"] = int(options["max_instructions"])
+            except Exception:
+                self.limits["max_instructions"] = None
+        if "timeout_ms" in options:
+            try:
+                self.limits["timeout_ms"] = int(options["timeout_ms"])
+            except Exception:
+                self.limits["timeout_ms"] = None
         
         steps = scenario.get("steps", [])
         
@@ -123,6 +142,25 @@ class DSLRunner:
 
     def _trace_hook(self, uc, address, size, user_data):
         """Hook for code execution tracing and coverage"""
+        self._step_instruction_count += 1
+        if self.limits.get("max_instructions"):
+            if self._step_instruction_count >= self.limits["max_instructions"]:
+                if not self.crash_context:
+                    self.crash_context = {
+                        "error": "MaxInstructionsExceeded",
+                        "count": self._step_instruction_count
+                    }
+                self.eh.stopEmulation(user_data)
+                return
+        if self.limits.get("timeout_ms") and self._step_start_time:
+            if (time.time() - self._step_start_time) * 1000 >= self.limits["timeout_ms"]:
+                if not self.crash_context:
+                    self.crash_context = {
+                        "error": "TimeoutExceeded",
+                        "timeout_ms": self.limits["timeout_ms"]
+                    }
+                self.eh.stopEmulation(user_data)
+                return
         if self.features["coverage"]:
             self.coverage_data.add(address)
             
@@ -259,11 +297,11 @@ class DSLRunner:
                 "val": hex(value)
             })
 
-    def _setup_analysis_hooks(self):
+    def _setup_analysis_hooks(self, force_trace=False):
         """Setup internal hooks for analysis if features enabled"""
         import unicorn
         
-        if self.features["coverage"] or self.features["trace"] or self.features["trace_calls"] or self.features["stack_check"]:
+        if force_trace or self.features["coverage"] or self.features["trace"] or self.features["trace_calls"] or self.features["stack_check"] or self.limits.get("max_instructions") or self.limits.get("timeout_ms"):
             self.eh.uc.hook_add(unicorn.UC_HOOK_CODE, self._trace_hook)
             
         if self.features["trace_mem"]:
@@ -575,6 +613,9 @@ class DSLRunner:
             
         args = self._prepare_args(step.get("args", []))
         convention = step.get("convention")
+        count = step.get("count")
+        if count is None:
+            count = self.limits.get("max_instructions") or 0
         
         registers, stack = self._setup_call_context(args, convention)
         
@@ -583,14 +624,25 @@ class DSLRunner:
         instr_hook = None
         
         # Setup internal analysis hooks first if needed
-        self._setup_analysis_hooks()
+        self._step_start_time = time.time()
+        self._step_instruction_count = 0
+        self._setup_analysis_hooks(force_trace=bool(count or self.limits.get("timeout_ms")))
         
         if hooks_config:
             instr_hook = self._setup_hooks(hooks_config, {})
             
         # Run emulation
         # We use flare_emu's context setup which resets SP to self.stack and writes stack args
-        self.eh.emulateRange(addr, registers=registers, stack=stack, instructionHook=instr_hook)
+        self.eh.emulateRange(
+            addr,
+            registers=registers,
+            stack=stack,
+            instructionHook=instr_hook,
+            skipCalls=self.features.get("skip_calls", True),
+            hookApis=self.features.get("hook_apis", True),
+            strict=self.features.get("strict", True),
+            count=count
+        )
         
         # Check stack integrity
         # In flare_emu, SP is reset to self.eh.stack at start of emulateRange
@@ -665,6 +717,8 @@ class DSLRunner:
         start = self._resolve_value(step.get("start"))
         end = self._resolve_value(step.get("end"))
         count = step.get("count", 0)
+        if not count:
+            count = self.limits.get("max_instructions") or 0
         
         if start is None:
              raise ValueError("Emulate step requires start address")
@@ -676,12 +730,24 @@ class DSLRunner:
         instr_hook = None
         
         # Setup internal analysis hooks first if needed
-        self._setup_analysis_hooks()
+        self._step_start_time = time.time()
+        self._step_instruction_count = 0
+        self._setup_analysis_hooks(force_trace=bool(count or self.limits.get("timeout_ms")))
         
         if hooks_config:
             instr_hook = self._setup_hooks(hooks_config, {})
             
-        self.eh.emulateRange(start, endAddr=end, registers=registers, stack=stack, count=count, instructionHook=instr_hook)
+        self.eh.emulateRange(
+            start,
+            endAddr=end,
+            registers=registers,
+            stack=stack,
+            count=count,
+            instructionHook=instr_hook,
+            skipCalls=self.features.get("skip_calls", True),
+            hookApis=self.features.get("hook_apis", True),
+            strict=self.features.get("strict", True)
+        )
 
     def _handle_assert(self, step):
         checks = step.get("checks", [])
@@ -811,8 +877,15 @@ class TextDSLParser:
         if match:
             key = match.group(1)
             val = match.group(2)
-            if val.lower() == "true": val = True
-            elif val.lower() == "false": val = False
+            if val.lower() == "true":
+                val = True
+            elif val.lower() == "false":
+                val = False
+            else:
+                try:
+                    val = self._parse_value(val)
+                except Exception:
+                    pass
             options[key] = val
 
     def _parse_alloc(self, line):
@@ -865,6 +938,14 @@ class TextDSLParser:
             has_block = True
             call_part = call_part.rstrip("{").strip()
             
+        count = None
+        if " count=" in call_part:
+            call_part, count_part = call_part.rsplit(" count=", 1)
+            try:
+                count = int(count_part.strip(), 0)
+            except Exception:
+                count = None
+        
         # Parse func and args
         match = re.match(r"([\w\.]+)\((.*)\)", call_part)
         if not match:
@@ -929,6 +1010,8 @@ class TextDSLParser:
         }
         if ret_var:
             step["return_var"] = ret_var
+        if count is not None:
+            step["count"] = count
             
         if has_block:
             step["hooks"] = self._parse_hooks_block()
