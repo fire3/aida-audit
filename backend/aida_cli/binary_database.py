@@ -283,7 +283,7 @@ class BinaryDatabase:
                 address INTEGER,
                 op_index INTEGER,
                 type INTEGER,
-                value INTEGER,
+                value TEXT,
                 text TEXT,
                 PRIMARY KEY (address, op_index),
                 FOREIGN KEY(address) REFERENCES instructions(address)

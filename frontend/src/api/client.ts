@@ -495,6 +495,9 @@ export const binaryApi = {
     
   listSegments: (binaryName: string) =>
     binaryApi.getSegments(binaryName),
+
+  executeDSL: (binaryName: string, script: string) =>
+    apiClient.post<any>(`/binary/${binaryName}/dsl/execute`, { script }).then(res => res.data),
 };
 
 export const notesApi = {

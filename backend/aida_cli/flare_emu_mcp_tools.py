@@ -67,7 +67,13 @@ def run_flare_emu_dsl_impl(project_store: ProjectStore, binary_name: str, script
         dsl_logger.addHandler(handler)
         dsl_logger.setLevel(logging.INFO)
         
-        runner = DSLRunner(eh)
+        dsl_logger.info(f"DSL Script Input:\n{script}")
+
+        captured_reports = []
+        def report_cb(filename, content):
+            captured_reports.append({"file": filename, "content": content})
+        
+        runner = DSLRunner(eh, report_callback=report_cb)
         success = True
         error_msg = None
         
@@ -84,6 +90,7 @@ def run_flare_emu_dsl_impl(project_store: ProjectStore, binary_name: str, script
         result = {
             "success": success,
             "logs": logs,
+            "reports": captured_reports,
             "variables": runner.variables,
             "coverage_count": len(runner.coverage_data),
             "trace_events_count": len(runner.trace_log),

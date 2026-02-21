@@ -8,8 +8,9 @@ from .flare_emu import EmuHelper
 logger = logging.getLogger(__name__)
 
 class DSLRunner:
-    def __init__(self, emu_helper):
+    def __init__(self, emu_helper, report_callback=None):
         self.eh = emu_helper
+        self.report_callback = report_callback
         self.variables = {}  # Store variables for reuse across steps
         # Analysis data
         self.coverage_data = set() # Set of executed addresses
@@ -294,7 +295,10 @@ class DSLRunner:
             if self.crash_context:
                 content += f"CRASH DETECTED: {self.crash_context['exception']}\n"
                 
-        if report_file:
+        if self.report_callback:
+            self.report_callback(report_file, content)
+            logger.info(f"Report captured via callback (intended for {report_file})")
+        elif report_file:
             with open(report_file, "w") as f:
                 f.write(content)
             logger.info(f"Report written to {report_file}")

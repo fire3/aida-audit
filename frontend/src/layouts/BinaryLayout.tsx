@@ -1,6 +1,6 @@
 import { Outlet, NavLink, useParams } from 'react-router-dom';
 import { cn } from '../lib/utils';
-import { FileCode, Braces, AlignLeft, ArrowRightLeft, Database, Box } from 'lucide-react';
+import { FileCode, Braces, AlignLeft, ArrowRightLeft, Database, Box, Play } from 'lucide-react';
 
 export function BinaryLayout() {
   const { binaryName } = useParams();
@@ -13,6 +13,7 @@ export function BinaryLayout() {
     { to: 'exports', icon: ArrowRightLeft, label: 'Exports' },
     { to: 'symbols', icon: Database, label: 'Symbols' },
     { to: 'segments', icon: Box, label: 'Segments' },
+    { to: 'simulation', icon: Play, label: 'Simulation' },
   ];
 
   return (

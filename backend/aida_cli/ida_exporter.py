@@ -28,6 +28,7 @@ try:
     import idautils
     import idc
     import ida_ida
+    import idaapi
     import ida_ua
 except ImportError:
     pass # Expecting to run inside IDA
@@ -943,7 +944,7 @@ class IDAExporter:
                 op_val = idc.get_operand_value(head, i)
                 op_text = idc.print_operand(head, i)
                 
-                op_data.append((head, i, op_type, op_val, op_text))
+                op_data.append((head, i, op_type, str(op_val), op_text))
             
             if len(insn_data) >= BATCH_SIZE:
                 self.db.insert_instructions(insn_data)
