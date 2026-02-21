@@ -9,10 +9,6 @@ from typing import Any, Dict, List, Optional, Union, get_type_hints
 from .project_store import ProjectStore
 from . import audit_mcp_tools
 
-# Delayed imports for Flare-Emu to avoid circular dependencies or heavy loading if not used
-# form .flare_emu_dsl import TextDSLParser, DSLRunner
-# from .flare_emu_aida import AidaEmuHelper
-
 def mcp_tool(name=None):
     """Decorator to mark a method as an MCP tool."""
     def decorator(func):
@@ -136,7 +132,7 @@ class McpService:
 
     # --- Tool Definitions ---
 
-    @mcp_tool(name="get_flare_emu_dsl_guide")
+    #@mcp_tool(name="get_flare_emu_dsl_guide")
     def get_flare_emu_dsl_guide(self) -> str:
         """Retrieve the official guide for writing Flare-Emu Text DSL scripts.
 
@@ -149,7 +145,7 @@ class McpService:
         from .flare_emu_mcp_tools import get_flare_emu_dsl_guide_impl
         return get_flare_emu_dsl_guide_impl()
 
-    @mcp_tool(name="run_flare_emu_dsl")
+    #@mcp_tool(name="run_flare_emu_dsl")
     def run_flare_emu_dsl(self, binary_name: str, script: str) -> Dict[str, Any]:
         """Execute a Flare-Emu Text DSL script on a specific binary.
 
@@ -177,6 +173,7 @@ class McpService:
             raise McpError("NOT_FOUND", str(e))
         except Exception as e:
             raise McpError("INTERNAL_ERROR", f"Emulation failed: {str(e)}\n{traceback.format_exc()}")
+
     @mcp_tool(name="get_project_overview")
     def get_project_overview(self) -> Dict[str, Any]:
         """Retrieve a high-level overview of the current analysis project.
