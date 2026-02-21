@@ -31,7 +31,7 @@
    - **参数要求**：
      - `title`: 任务简短标题
      - `description`: 具体的执行指令
-     - `parent_plan_id`: 关联的 Audit Plan ID
+     - `plan_id`: 关联的 Macro Plan ID
      - `binary_name`: 目标二进制文件名
 
 4. **结束会话**：
