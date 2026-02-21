@@ -752,7 +752,10 @@ export function AuditDashboard() {
   
   const { data: inProgressAgentPlans } = useQuery({ 
     queryKey: ['auditTasks', 'in_progress', 'agent_task'], 
-    queryFn: () => auditApi.getTasks('in_progress', 'agent_task'),
+    queryFn: async () => {
+      const allTasks = await auditApi.getTasks();
+      return allTasks.filter((t: any) => t.status === 'in_progress' && t.task_type === 'agent_task');
+    },
     enabled: isAuditAgent,
     refetchInterval: autoRefresh ? 5000 : false
   });

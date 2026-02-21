@@ -1210,17 +1210,13 @@ class McpService:
         return audit_mcp_tools.audit_list_macro_plans(status)
 
     @mcp_tool(name="audit_list_tasks")
-    def audit_list_tasks(self, status: str = None, task_type: str = None) -> List[Dict[str, Any]]:
-        """List agent execution tasks.
+    def audit_list_tasks(self) -> List[Dict[str, Any]]:
+        """List all agent execution tasks with basic status.
         
-        Args:
-            status: Filter by status ('pending', 'in_progress', 'completed', 'failed').
-            task_type: Filter by type ('agent_task', 'verification_task').
-
         Returns:
-            list: List of task objects.
+            list: List of task objects with basic status (id, plan_id, title, status, binary_name, task_type).
         """
-        return audit_mcp_tools.audit_list_tasks(status, task_type)
+        return audit_mcp_tools.audit_list_tasks()
 
     @mcp_tool(name="audit_delete_macro_plan")
     def audit_delete_macro_plan(self, plan_id: int) -> Dict[str, Any]:

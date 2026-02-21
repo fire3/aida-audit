@@ -692,11 +692,11 @@ def get_audit_macro_plans(status: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/audit/tasks")
-def get_audit_tasks(status: Optional[str] = None, task_type: Optional[str] = None):
+def get_audit_tasks():
     try:
         if not audit_db:
              return []
-        return audit_mcp_tools.audit_list_tasks(status, task_type)
+        return audit_mcp_tools.audit_list_tasks()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

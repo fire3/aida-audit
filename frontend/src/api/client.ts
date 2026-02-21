@@ -262,11 +262,8 @@ export const auditApi = {
     })) as AuditPlan[];
   },
 
-  getTasks: async (status?: string, taskType?: string) => {
-    const params: Record<string, string> = {};
-    if (status) params.status = status;
-    if (taskType) params.task_type = taskType;
-    const res = await apiClient.get<AuditTask[]>('/audit/tasks', { params });
+  getTasks: async () => {
+    const res = await apiClient.get<AuditTask[]>('/audit/tasks');
     return res.data.map(t => ({
         ...t,
         plan_type: t.task_type === 'verification_task' ? 'verification_plan' : 'agent_plan',
@@ -275,8 +272,9 @@ export const auditApi = {
   },
 
   getCompletedTasks: async () => {
-    const res = await apiClient.get<AuditTask[]>('/audit/tasks', { params: { status: 'completed' } });
-    return res.data.map(t => ({
+    const res = await apiClient.get<AuditTask[]>('/audit/tasks');
+    const completed = res.data.filter(t => t.status === 'completed');
+    return completed.map(t => ({
         ...t,
         plan_type: t.task_type === 'verification_task' ? 'verification_plan' : 'agent_plan',
         id: Number(t.id)

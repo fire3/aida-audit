@@ -120,26 +120,13 @@ def audit_delete_task(task_id: int) -> Dict[str, Any]:
     success = db.delete_task(task_id)
     return {"success": success}
 
-def audit_list_tasks(status: Optional[str] = None, task_type: Optional[str] = None) -> List[Dict[str, Any]]:
-    if status:
-        _validate_option("status", status, VALID_PLAN_STATUSES)
-    
-    # Map old plan_type to new task_type if necessary, or just use values
-    # VALID_PLAN_TYPES = ["audit_plan", "agent_plan", "verification_plan"]
-    # Internal types: agent_task, verification_task
-    
-    internal_type = None
-    if task_type == 'agent_plan':
-        internal_type = 'agent_task'
-    elif task_type == 'verification_plan':
-        internal_type = 'verification_task'
-    elif task_type in ['agent_task', 'verification_task']:
-        internal_type = task_type
-        
+def audit_list_tasks() -> List[Dict[str, Any]]:
     db = get_audit_db()
-    tasks = db.get_tasks(status=status, task_type=internal_type)
+    tasks = db.get_tasks()
     for t in tasks:
         t['type'] = t['task_type']
+        t.pop('summary', None)
+        t.pop('notes', None)
     return tasks
 
 # ========== Note Tools ==========
