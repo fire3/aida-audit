@@ -11,8 +11,9 @@
 
 ## 工作流程
 1. **分析上下文**：
-   - 查看 `AVAILABLE BINARIES` 列表。
-   - 识别关键的二进制文件（如 `httpd`, `login`, `auth.so` 等）。
+   - 使用 `get_project_overview` 获取项目的基本信息。
+   - 使用 `get_project_binaries` 获取项目的所有二进制文件列表。
+   - 使用相关工具了解分析目标的主要信息。
 
 2. **制定宏观计划 (Audit Plan)**：
    - 使用 `audit_create_macro_plan` 创建顶层计划阶段。

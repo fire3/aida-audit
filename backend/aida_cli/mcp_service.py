@@ -1134,40 +1134,40 @@ class McpService:
         return audit_mcp_tools.audit_create_macro_plan(title, description)
 
     @mcp_tool(name="audit_create_agent_task")
-    def audit_create_agent_task(self, title: str, description: str, parent_plan_id: int, binary_name: str) -> Dict[str, Any]:
+    def audit_create_agent_task(self, title: str, description: str, plan_id: int, binary_name: str) -> Dict[str, Any]:
         """Create a specific executable task for the Audit Agent (Agent Task).
         
         Use this for assigning concrete work (e.g., 'Analyze login() function').
-        MUST be linked to a parent Macro Plan.
+        MUST be linked to a Macro Plan.
         
         Args:
             title: The title of the task.
             description: Specific instructions for the agent (function name, address, goal).
-            parent_plan_id: The ID of the parent Macro Plan this task belongs to.
+            plan_id: The ID of the Macro Plan this task belongs to.
             binary_name: The name of the binary to analyze.
 
         Returns:
             dict: Contains 'task_id' of the created task.
         """
-        return audit_mcp_tools.audit_create_agent_task(title, description, parent_plan_id, binary_name)
+        return audit_mcp_tools.audit_create_agent_task(title, description, plan_id, binary_name)
 
     @mcp_tool(name="audit_create_verification_task")
-    def audit_create_verification_task(self, title: str, description: str, parent_plan_id: int, binary_name: str) -> Dict[str, Any]:
+    def audit_create_verification_task(self, title: str, description: str, plan_id: int, binary_name: str) -> Dict[str, Any]:
         """Create a verification task for a specific finding.
         
         Use this to create a task specifically for verifying a suspected vulnerability (finding).
-        MUST be linked to a parent Macro Plan.
+        MUST be linked to a Macro Plan.
         
         Args:
             title: The title of the verification task.
             description: Detailed instructions for verification (e.g., 'Construct PoC for buffer overflow').
-            parent_plan_id: The ID of the parent Macro Plan.
+            plan_id: The ID of the Macro Plan.
             binary_name: The name of the binary.
 
         Returns:
             dict: Contains 'task_id' of the created task and 'type'='verification_task'.
         """
-        return audit_mcp_tools.audit_create_verification_task(title, description, parent_plan_id, binary_name)
+        return audit_mcp_tools.audit_create_verification_task(title, description, plan_id, binary_name)
 
     @mcp_tool(name="audit_submit_task_summary")
     def audit_submit_task_summary(self, task_id: int, summary: str) -> Dict[str, Any]:

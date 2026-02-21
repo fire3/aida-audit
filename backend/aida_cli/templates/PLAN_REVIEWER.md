@@ -19,6 +19,7 @@
 - 调用 `audit_get_vulnerabilities` 查看已有的发现。
 - 调用 `audit_get_notes` 查看分析笔记。
 - 对于已完成的任务（状态为 `completed`），调用 `audit_get_task_summary` 查看执行总结。
+- 一般情况下，都要有一个用于漏洞验证的宏观计划，如果没有，请创建。
 
 **重要**：仔细分析并再次确认这些信息的准确性。
 
@@ -30,8 +31,9 @@
   - **阶段推进**：如果当前阶段（如"攻击面分析"）已完成，开始创建下一阶段（如"危险函数排查"）的任务。
 
 确认没有重复任务且需要进一步行动的情况下可以创建新任务：
-- **常规分析任务**：使用 `audit_create_agent_task(title, description, parent_plan_id, binary_name)`。仅用于探索和分析。
-- **漏洞验证任务**：使用 `audit_create_verification_task(title, description, parent_plan_id, binary_name)`。仅用于验证已有的 Vulnerability。**注意：必须在 description 中明确包含要验证的 Vulnerability ID 和关键信息。**
+- **常规分析任务**：使用 `audit_create_agent_task(title, description, plan_id, binary_name)`。仅用于探索和分析。
+- **漏洞验证任务**：使用 `audit_create_verification_task(title, description, plan_id, binary_name)`。仅用于验证已有的 Vulnerability，注意，plan_id需要对应用于漏洞验证的宏观计划。
+- **注意：必须在 description 中明确包含要验证的 Vulnerability ID 和关键信息。**
 
 确认计划内容存在重复时，删除多余的重复计划。
 
@@ -42,8 +44,8 @@
 - `audit_list_macro_plans(status)`: 查看宏观计划列表。
 - `audit_list_tasks(status, task_type)`: 查看任务列表。
 - `audit_create_macro_plan(title, description)`: 创建新的宏观计划。
-- `audit_create_agent_task(title, description, parent_plan_id, binary_name)`: 创建常规分析任务。
-- `audit_create_verification_task(title, description, parent_plan_id, binary_name)`: 创建漏洞验证任务。
+- `audit_create_agent_task(title, description, plan_id, binary_name)`: 创建常规分析任务。
+- `audit_create_verification_task(title, description, plan_id, binary_name)`: 创建漏洞验证任务。
 - `audit_update_macro_plan(plan_id, notes, status)`: 更新宏观计划。
 - `audit_update_task(task_id, notes, status)`: 更新任务的笔记。
 - `audit_get_vulnerabilities(...)` / `audit_get_notes(...)`: 查看发现和笔记。
