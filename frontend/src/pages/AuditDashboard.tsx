@@ -779,14 +779,22 @@ export function AuditDashboard() {
   const streamRef = useRef<{ close: () => void } | null>(null);
   
   const { data: status } = useQuery({ queryKey: ['auditStatus'], queryFn: auditApi.getStatus, refetchInterval: autoRefresh ? 2000 : false });
-  const { data: plans } = useQuery({ queryKey: ['auditPlans'], queryFn: () => auditApi.getPlans(), refetchInterval: autoRefresh ? 5000 : false });
+  
+  // Use new split APIs
+  const { data: macroPlans } = useQuery({ queryKey: ['auditMacroPlans'], queryFn: () => auditApi.getMacroPlans(), refetchInterval: autoRefresh ? 5000 : false });
+  const { data: tasks } = useQuery({ queryKey: ['auditTasks'], queryFn: () => auditApi.getTasks(), refetchInterval: autoRefresh ? 5000 : false });
+  
+  // Merge for compatibility with existing views
+  const plans = useMemo(() => [...(macroPlans || []), ...(tasks || [])], [macroPlans, tasks]);
+
   const { data: logs } = useQuery({ queryKey: ['auditLogs'], queryFn: () => auditApi.getLogs(), refetchInterval: autoRefresh ? 2000 : false });
   
   const { data: sessions } = useQuery({ queryKey: ['auditSessions'], queryFn: auditApi.getSessions, refetchInterval: autoRefresh ? 3000 : false });
   const isAuditAgent = status?.current_agent === 'AUDIT_AGENT';
+  
   const { data: inProgressAgentPlans } = useQuery({ 
-    queryKey: ['auditPlans', 'in_progress', 'agent_plan'], 
-    queryFn: () => auditApi.getPlans('in_progress', 'agent_plan'),
+    queryKey: ['auditTasks', 'in_progress', 'agent_task'], 
+    queryFn: () => auditApi.getTasks('in_progress', 'agent_task'),
     enabled: isAuditAgent,
     refetchInterval: autoRefresh ? 5000 : false
   });

@@ -392,7 +392,7 @@ class PlanAgent(BaseAgent):
     @property
     def name(self) -> str:
         try:
-            plans = self.audit_db.get_plans(plan_type='audit_plan')
+            plans = self.audit_db.get_plans()
             if not plans:
                 return "Initial Plan Agent"
             else:
@@ -404,7 +404,7 @@ class PlanAgent(BaseAgent):
     def get_system_prompt(self) -> str:
         base_prompt = ""
         try:
-            plans = self.audit_db.get_plans(plan_type='audit_plan')
+            plans = self.audit_db.get_plans()
             if not plans:
                 base_prompt = load_agent_prompt("PLAN_AGENT_INITIAL")
             else:
@@ -456,9 +456,10 @@ class AuditAgent(BaseAgent):
         return "AUDIT_AGENT"
         
     def get_tools(self) -> List[Dict]:
-        exclude_tools = {'audit_create_macro_plan', 
-            'audit_plan_update', 'audit_plan_list', 
-            'audit_create_verification_task',
+        exclude_tools = {
+            'audit_create_macro_plan', 'audit_delete_macro_plan', 'audit_update_macro_plan',
+            'audit_create_agent_task', 'audit_create_verification_task',
+            'audit_delete_task', 'audit_list_macro_plans',
             'audit_update_vulnerability_verification'
         }
         tools = [
@@ -485,12 +486,17 @@ class VerificationAgent(AuditAgent):
         return "VERIFICATION_AGENT"
 
     def get_tools(self) -> List[Dict]:
-        exclude_tools = {'audit_create_macro_plan', 'audit_plan_update', 'audit_plan_list', 'audit_create_agent_task', 'audit_mark_vulnerability'}
+        exclude_tools = {
+            'audit_create_macro_plan', 'audit_delete_macro_plan', 'audit_update_macro_plan',
+            'audit_create_agent_task', 'audit_create_verification_task',
+            'audit_delete_task', 'audit_list_macro_plans',
+            'audit_report_vulnerability'
+        }
         tools = [
             t for t in self.all_tools 
             if t['function']['name'] not in exclude_tools
         ]
-        self.audit_db.log_progress(f"验证代理: 使用 {len(tools)} 个工具")
+        self.audit_db.log_progress(f"验证代理: 使用 {len(tools)} 个工具 (排除: {len(self.all_tools) - len(tools)})")
         return tools
 
 class AuditService:
@@ -511,10 +517,14 @@ class AuditService:
         if self.status == "running":
             return
         
-        # Reset any stuck in_progress plans to pending
-        count = self.audit_db.reset_in_progress_plans()
-        if count > 0:
-            self.audit_db.log_progress(f"系统启动: 重置了 {count} 个未完成的任务为 pending 状态。")
+        # Reset any stuck in-progress tasks
+        if self.audit_db:
+            try:
+                count = self.audit_db.reset_in_progress_tasks()
+                if count > 0:
+                    self.audit_db.log_progress(f"已重置 {count} 个异常中断的任务状态为 pending")
+            except Exception as e:
+                print(f"Failed to reset tasks: {e}")
         
         self._stop_event.clear()
         self.status = "running"
@@ -591,8 +601,8 @@ class AuditService:
 
             while not self._stop_event.is_set():
                 # 获取当前所有 Pending 任务
-                pending_verifications = self.audit_db.get_plans(status="pending", plan_type="verification_plan")
-                pending_audits = self.audit_db.get_plans(status="pending", plan_type="agent_plan")
+                pending_verifications = self.audit_db.get_tasks(status="pending", task_type="verification_task")
+                pending_audits = self.audit_db.get_tasks(status="pending", task_type="agent_task")
                 total_pending = len(pending_verifications) + len(pending_audits)
 
                 # Step 1: Run Plan Agent (Conditional)
@@ -623,8 +633,8 @@ class AuditService:
 
                 # 重新从数据库获取最新的 Pending 任务列表，确保任务数据最新
                 # (注意：LLM agent 执行过程中可能会添加新的 plan，因此每轮都需重新获取)
-                pending_verifications = self.audit_db.get_plans(status="pending", plan_type="verification_plan")
-                pending_audits = self.audit_db.get_plans(status="pending", plan_type="agent_plan")
+                pending_verifications = self.audit_db.get_tasks(status="pending", task_type="verification_task")
+                pending_audits = self.audit_db.get_tasks(status="pending", task_type="agent_task")
                 
                 task = None
                 AgentClass = None
@@ -643,7 +653,7 @@ class AuditService:
                     self.audit_db.log_progress(f"正在分配任务给 {AgentClass.__name__}: {task['title']} (ID: {task['id']})")
                     
                     # Mark task as in_progress
-                    self.audit_db.update_plan_status(task['id'], "in_progress")
+                    self.audit_db.update_task_status(task['id'], "in_progress")
 
                     agent_instance = AgentClass(
                         llm_client,
@@ -661,14 +671,14 @@ class AuditService:
                     
                     # Only mark task as completed if success (normal completion and not stopped)
                     if success:
-                        self.audit_db.update_plan_status(task['id'], "completed")
+                        self.audit_db.update_task_status(task['id'], "completed")
                     elif self._stop_event.is_set():
                         self.audit_db.log_progress(f"任务 '{task['title']}' 被用户停止，重置为 pending")
-                        self.audit_db.update_plan_status(task['id'], "pending")
+                        self.audit_db.update_task_status(task['id'], "pending")
                     else:
                         # Loop detection or other failure
                         self.audit_db.log_progress(f"任务 '{task['title']}' 执行异常 (可能因循环输出)，重置为 failed")
-                        self.audit_db.update_plan_status(task['id'], "failed")
+                        self.audit_db.update_task_status(task['id'], "failed")
 
                 # Optional: Sleep briefly between sessions
                 time.sleep(2)

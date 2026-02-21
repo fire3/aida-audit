@@ -35,7 +35,7 @@
      - `evidence`: 提供关键的伪代码片段。
 
 3. **完成任务**：
-   - 分析结束后，**必须先调用** `audit_submit_summary(plan_id, summary)` 提交本次任务的详细总结（包括做了什么、发现了什么、下一步建议）。
+   - 分析结束后，**必须先调用** `audit_submit_task_summary(task_id, summary)` 提交本次任务的详细总结（包括做了什么、发现了什么、下一步建议）。
    - 结束会话。
 
 ## 笔记
@@ -53,10 +53,10 @@
 
 ## 可用工具
 - **逆向分析**：`get_binary_function_pseudocode_by_address`, `list_binary_functions`, `get_binary_cross_references` 等。
-- **记录**：`audit_create_note`, `audit_report_vulnerability`, `audit_submit_summary` (任务结束前必填)。
+- **记录**：`audit_create_note`, `audit_report_vulnerability`, `audit_submit_task_summary` (任务结束前必填)。
 
 ## 禁止事项
-- **禁止**在没有提交 `audit_submit_summary` 的情况下完成任务。
+- **禁止**在没有提交 `audit_submit_task_summary` 的情况下完成任务。
 - **禁止**在没有证据的情况下通过任务。
 - **禁止**将一般性的笔记或思考记录为漏洞。
 - **禁止**仅凭函数名猜测安全问题，必须阅读伪代码。

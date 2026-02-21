@@ -518,9 +518,14 @@ class McpService:
             binary_name: The unique name of the binary.
             addresses: The entry address(es) of the function(s) to decompile. MUST be a string if using hex (e.g., "0x401000"). Can be a single value or a list.
             options: Decompilation settings (optional).
+                - max_lines (int): Limit the number of lines returned.
+                - start_line (int): Start reading from this line number (1-based).
+                - end_line (int): Stop reading at this line number (1-based, exclusive).
 
         Returns:
-            list: A list of results, each containing the 'pseudocode' string for the requested function.
+            list: A list of results, each containing:
+                - 'pseudocode': The decompiled code string.
+                - 'total_lines': The total number of lines in the function (useful for pagination).
         """
         try:
             if isinstance(addresses, (str, int)):
@@ -1114,24 +1119,23 @@ class McpService:
     # --- Audit Management Tools ---
 
     @mcp_tool(name="audit_create_macro_plan")
-    def audit_create_macro_plan(self, title: str, description: str, parent_id: Optional[int] = None) -> Dict[str, Any]:
-        """Create a high-level macro audit plan.
+    def audit_create_macro_plan(self, title: str, description: str) -> Dict[str, Any]:
+        """Create a high-level macro audit plan (Audit Plan).
         
         Use this for structural, phased planning (e.g., 'Reconnaissance', 'Auth Module Analysis').
         
         Args:
             title: The title of the macro plan.
             description: Detailed description of the audit phase.
-            parent_id: Optional parent macro plan ID (for nesting).
 
         Returns:
             dict: Contains 'plan_id' of the created plan.
         """
-        return audit_mcp_tools.audit_create_macro_plan(title, description, parent_id)
+        return audit_mcp_tools.audit_create_macro_plan(title, description)
 
     @mcp_tool(name="audit_create_agent_task")
     def audit_create_agent_task(self, title: str, description: str, parent_plan_id: int, binary_name: str) -> Dict[str, Any]:
-        """Create a specific executable task for the Audit Agent.
+        """Create a specific executable task for the Audit Agent (Agent Task).
         
         Use this for assigning concrete work (e.g., 'Analyze login() function').
         MUST be linked to a parent Macro Plan.
@@ -1143,7 +1147,7 @@ class McpService:
             binary_name: The name of the binary to analyze.
 
         Returns:
-            dict: Contains 'plan_id' of the created task.
+            dict: Contains 'task_id' of the created task.
         """
         return audit_mcp_tools.audit_create_agent_task(title, description, parent_plan_id, binary_name)
 
@@ -1161,85 +1165,86 @@ class McpService:
             binary_name: The name of the binary.
 
         Returns:
-            dict: Contains 'plan_id' of the created task and 'type'='verification_plan'.
+            dict: Contains 'task_id' of the created task and 'type'='verification_task'.
         """
         return audit_mcp_tools.audit_create_verification_task(title, description, parent_plan_id, binary_name)
 
-    @mcp_tool(name="audit_submit_summary")
-    def audit_submit_summary(self, plan_id: int, summary: str) -> Dict[str, Any]:
+    @mcp_tool(name="audit_submit_task_summary")
+    def audit_submit_task_summary(self, task_id: int, summary: str) -> Dict[str, Any]:
         """Submit a final summary for a completed task.
         
         Use this to record the final outcome, key findings, and conclusion of the task.
         This should be called BEFORE marking the task as completed.
 
         Args:
-            plan_id: The ID of the task.
+            task_id: The ID of the task.
             summary: The summary text.
 
         Returns:
             dict: Contains 'success' boolean.
         """
-        return audit_mcp_tools.audit_submit_summary(plan_id, summary)
+        return audit_mcp_tools.audit_submit_task_summary(task_id, summary)
 
-    @mcp_tool(name="audit_get_summary")
-    def audit_get_summary(self, plan_id: int) -> Dict[str, Any]:
-        """Get the summary of a plan task.
+    @mcp_tool(name="audit_get_task_summary")
+    def audit_get_task_summary(self, task_id: int) -> Dict[str, Any]:
+        """Get the summary of a task.
 
         Args:
-            plan_id: The ID of the task.
+            task_id: The ID of the task.
 
         Returns:
             dict: Contains 'summary' text.
         """
-        return audit_mcp_tools.audit_get_summary(plan_id)
+        return audit_mcp_tools.audit_get_task_summary(task_id)
 
-    def audit_plan_list(self, status: str = None, plan_type: str = None) -> List[Dict[str, Any]]:
-        """List audit plans or agent tasks.
+    @mcp_tool(name="audit_list_macro_plans")
+    def audit_list_macro_plans(self, status: str = None) -> List[Dict[str, Any]]:
+        """List high-level macro audit plans.
         
-        Args:
-            status: Filter by status ('pending', 'in_progress', 'completed', 'failed').
-            plan_type: Filter by type ('audit_plan' for macro, 'agent_plan' for tasks, 'verification_plan' for verification tasks).
-
-        Returns:
-            list: List of plan objects.
-        """
-        return audit_mcp_tools.audit_plan_list(status, plan_type)
-
-    @mcp_tool(name="audit_get_macro_plans")
-    def audit_get_macro_plans(self, status: str = None) -> List[Dict[str, Any]]:
-        """Get the list of high-level macro plans (Audit Plans).
-
         Args:
             status: Filter by status ('pending', 'in_progress', 'completed', 'failed').
 
         Returns:
             list: List of macro plan objects.
         """
-        return audit_mcp_tools.audit_plan_list(status, plan_type='audit_plan')
+        return audit_mcp_tools.audit_list_macro_plans(status)
 
-    @mcp_tool(name="audit_get_agent_tasks")
-    def audit_get_agent_tasks(self, status: str = None) -> List[Dict[str, Any]]:
-        """Get the list of agent tasks (Agent Plans).
-
+    @mcp_tool(name="audit_list_tasks")
+    def audit_list_tasks(self, status: str = None, task_type: str = None) -> List[Dict[str, Any]]:
+        """List agent execution tasks.
+        
         Args:
             status: Filter by status ('pending', 'in_progress', 'completed', 'failed').
+            task_type: Filter by type ('agent_task', 'verification_task').
 
         Returns:
-            list: List of agent task objects.
+            list: List of task objects.
         """
-        return audit_mcp_tools.audit_plan_list(status, plan_type='agent_plan')
+        return audit_mcp_tools.audit_list_tasks(status, task_type)
 
-    @mcp_tool(name="audit_delete_plan")
-    def audit_delete_plan(self, plan_id: int) -> Dict[str, Any]:
-        """Delete an audit plan and its associated data.
+    @mcp_tool(name="audit_delete_macro_plan")
+    def audit_delete_macro_plan(self, plan_id: int) -> Dict[str, Any]:
+        """Delete a macro audit plan and its associated tasks.
 
         Args:
-            plan_id: The ID of the plan to delete.
+            plan_id: The ID of the macro plan to delete.
 
         Returns:
             dict: Contains 'success' boolean.
         """
-        return audit_mcp_tools.audit_delete_plan(plan_id)
+        return audit_mcp_tools.audit_delete_macro_plan(plan_id)
+
+    @mcp_tool(name="audit_delete_task")
+    def audit_delete_task(self, task_id: int) -> Dict[str, Any]:
+        """Delete an agent task.
+
+        Args:
+            task_id: The ID of the task to delete.
+
+        Returns:
+            dict: Contains 'success' boolean.
+        """
+        return audit_mcp_tools.audit_delete_task(task_id)
 
     @mcp_tool(name="audit_update_vulnerability_verification")
     def audit_update_vulnerability_verification(self, id: int, status: str, details: str = None) -> Dict[str, Any]:
@@ -1259,18 +1264,30 @@ class McpService:
             details=details
         )
 
-    def audit_plan_update(self, plan_id: int, notes: str = None) -> Dict[str, Any]:
-        """Update the notes of a plan task.
+    @mcp_tool(name="audit_update_macro_plan")
+    def audit_update_macro_plan(self, plan_id: int, notes: str = None, status: str = None) -> Dict[str, Any]:
+        """Update a macro audit plan.
         
-        Note: You cannot change the status (pending/in_progress/completed) via this tool.
-        Status is managed automatically by the Audit Service.
-        Use this tool to add progress notes or findings to a task.
-
         Args:
-            plan_id: The ID of the plan task to update.
-            notes: Optional progress notes describing what was done.
+            plan_id: The ID of the macro plan.
+            notes: Optional notes to append.
+            status: Optional new status.
 
         Returns:
             dict: Contains 'success' boolean.
         """
-        return audit_mcp_tools.audit_plan_update(plan_id, notes)
+        return audit_mcp_tools.audit_update_macro_plan(plan_id, notes, status)
+
+    @mcp_tool(name="audit_update_task")
+    def audit_update_task(self, task_id: int, notes: str = None, status: str = None) -> Dict[str, Any]:
+        """Update an agent task.
+        
+        Args:
+            task_id: The ID of the task.
+            notes: Optional notes to append.
+            status: Optional new status (though status is usually managed by the system).
+
+        Returns:
+            dict: Contains 'success' boolean.
+        """
+        return audit_mcp_tools.audit_update_task(task_id, notes, status)

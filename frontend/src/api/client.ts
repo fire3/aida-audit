@@ -111,15 +111,50 @@ export interface PseudocodeResult {
 
 export interface AuditPlan {
   id: number;
-  parent_id?: number | null;
+  // Common fields
   title: string;
   description: string;
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
-  plan_type?: string;
-  binary_name?: string;
-  summary?: string;
   created_at: number;
   updated_at: number;
+  notes?: string;
+  
+  // Specific to Tasks (Agent/Verification)
+  parent_id?: number | null; // For compatibility or explicit linking
+  plan_id?: number; // The new field for parent link
+  plan_type?: string; // 'audit_plan', 'agent_plan', 'verification_plan' (legacy/compat)
+  task_type?: 'agent_task' | 'verification_task'; // New field
+  binary_name?: string;
+  summary?: string;
+}
+
+export interface AuditMacroPlan {
+  id: number;
+  title: string;
+  description: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  notes?: string;
+  created_at: number;
+  updated_at: number;
+  type: 'audit_plan';
+}
+
+export interface AuditTask {
+  id: number;
+  plan_id: number;
+  title: string;
+  description: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  binary_name?: string;
+  task_type: 'agent_task' | 'verification_task';
+  summary?: string;
+  notes?: string;
+  created_at: number;
+  updated_at: number;
+  
+  // Computed/Compat fields
+  type?: string;
+  parent_id?: number;
 }
 
 export interface AuditLog {
@@ -217,12 +252,29 @@ export interface Vulnerability {
 }
 
 export const auditApi = {
-  getPlans: async (status?: string, planType?: string) => {
+  getMacroPlans: async (status?: string) => {
     const params: Record<string, string> = {};
     if (status) params.status = status;
-    if (planType) params.plan_type = planType;
-    const res = await apiClient.get<AuditPlan[]>('/audit/plans', { params });
-    return res.data;
+    const res = await apiClient.get<AuditMacroPlan[]>('/audit/macro-plans', { params });
+    return res.data.map(p => ({
+        ...p,
+        plan_type: 'audit_plan',
+        // Ensure id is number
+        id: Number(p.id)
+    })) as AuditPlan[];
+  },
+
+  getTasks: async (status?: string, taskType?: string) => {
+    const params: Record<string, string> = {};
+    if (status) params.status = status;
+    if (taskType) params.task_type = taskType;
+    const res = await apiClient.get<AuditTask[]>('/audit/tasks', { params });
+    return res.data.map(t => ({
+        ...t,
+        plan_type: t.task_type === 'verification_task' ? 'verification_plan' : 'agent_plan',
+        parent_id: t.plan_id,
+        id: Number(t.id)
+    })) as AuditPlan[];
   },
   
   getLogs: async (limit = 50) => {

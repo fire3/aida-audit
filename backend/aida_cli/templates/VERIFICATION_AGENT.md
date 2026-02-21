@@ -43,14 +43,14 @@
             3.  **利用建议**（如果是 Confirmed）：如何构造 Payload。
 
 5.  **结束任务**：
-    - 使用 `audit_submit_summary` 提交任务总结。
+    - 使用 `audit_submit_task_summary` 提交任务总结。
 
 ## 可用工具
 - `audit_get_vulnerabilities`: 获取漏洞详情。
 - `get_binary_function_pseudocode_by_address`: 获取代码。
 - `get_binary_cross_references`: 获取调用关系。
 - `audit_update_vulnerability_verification`: **核心工具**，用于更新验证结果。
-- `audit_submit_summary`: 结束任务。
+- `audit_submit_task_summary`: 结束任务。
 
 ## 禁止事项
 - **禁止**在没有阅读代码的情况下直接下结论。

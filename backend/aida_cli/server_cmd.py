@@ -552,12 +552,23 @@ def get_binary_disassembly_context(
 @api_router.get("/binary/{binary_name}/function/{address}/pseudocode")
 def get_binary_function_pseudocode(
     binary_name: str,
-    address: str
+    address: str,
+    max_lines: int = None,
+    start_line: int = None,
+    end_line: int = None,
 ):
     svc = get_service()
     try:
+        options = {}
+        if max_lines is not None:
+            options["max_lines"] = max_lines
+        if start_line is not None:
+            options["start_line"] = start_line
+        if end_line is not None:
+            options["end_line"] = end_line
+            
         # returns list of dicts, but we usually ask for one function here
-        res = svc.get_binary_function_pseudocode_by_address(binary_name, address)
+        res = svc.get_binary_function_pseudocode_by_address(binary_name, address, options)
         if not res:
             raise HTTPException(status_code=404, detail="Pseudocode not found")
         return res[0]
@@ -671,13 +682,21 @@ def get_xrefs(
 
 # Audit Endpoints
 
-@api_router.get("/audit/plans")
-def get_audit_plans(status: Optional[str] = None, plan_type: Optional[str] = None):
+@api_router.get("/audit/macro-plans")
+def get_audit_macro_plans(status: Optional[str] = None):
     try:
-        # Check if DB is initialized
         if not audit_db:
              return []
-        return audit_mcp_tools.audit_plan_list(status, plan_type)
+        return audit_mcp_tools.audit_list_macro_plans(status)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/audit/tasks")
+def get_audit_tasks(status: Optional[str] = None, task_type: Optional[str] = None):
+    try:
+        if not audit_db:
+             return []
+        return audit_mcp_tools.audit_list_tasks(status, task_type)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

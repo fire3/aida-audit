@@ -623,12 +623,27 @@ class BinaryDbQuery:
             return []
         options = options or {}
         max_lines = options.get("max_lines")
+        start_line = options.get("start_line")
+        end_line = options.get("end_line")
+
         try:
             max_lines = int(max_lines) if max_lines is not None else None
         except Exception:
             max_lines = None
         if max_lines is not None and max_lines <= 0:
             max_lines = None
+
+        try:
+            start_line = int(start_line) if start_line is not None else 1
+            if start_line < 1:
+                start_line = 1
+        except Exception:
+            start_line = 1
+
+        try:
+            end_line = int(end_line) if end_line is not None else None
+        except Exception:
+            end_line = None
 
         if isinstance(addresses, (str, int)):
             addresses = [addresses]
@@ -643,13 +658,32 @@ class BinaryDbQuery:
             if not row and f.get("address"):
                 row = self._fetchone("SELECT content FROM pseudocode WHERE function_va=?", (_parse_address(f["address"]),))
             content = row["content"] if row else None
-            if isinstance(content, str) and max_lines is not None:
-                content = "\n".join(content.splitlines()[:max_lines])
+            
+            total_lines = 0
+            if isinstance(content, str):
+                lines = content.splitlines()
+                total_lines = len(lines)
+                
+                # Apply range filtering if start_line/end_line are specified
+                # Note: start_line is 1-based, python slice is 0-based
+                slice_start = start_line - 1
+                slice_end = end_line if end_line is not None else None
+                
+                # If max_lines is set, it overrides end_line if end_line is not set or implies a larger range
+                if max_lines is not None:
+                    if slice_end is None:
+                        slice_end = slice_start + max_lines
+                    else:
+                        slice_end = min(slice_end, slice_start + max_lines)
+                
+                content = "\n".join(lines[slice_start:slice_end])
+
             out.append(
                 {
                     "function_address": f.get("address") or _format_address(va),
                     "name": f.get("name"),
                     "pseudocode": content or "",
+                    "total_lines": total_lines,
                 }
             )
         return out

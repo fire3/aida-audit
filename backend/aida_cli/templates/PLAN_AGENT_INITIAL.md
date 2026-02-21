@@ -37,7 +37,7 @@
    - 确保至少创建了若干个 Audit Plan 和若干个关联的 Agent Plan。
 
 ## 可用工具
-- `audit_create_macro_plan(title, description, parent_id=None)`
+- `audit_create_macro_plan(title, description)`
 - `audit_create_agent_task(title, description, parent_plan_id, binary_name)`
 
 ## 禁止事项

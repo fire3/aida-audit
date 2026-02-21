@@ -12,261 +12,135 @@ def get_audit_db() -> AuditDatabase:
         raise RuntimeError("Audit database not initialized")
     return _audit_db
 
-def _parse_address(addr: Optional[Union[str, int]]) -> Optional[int]:
-    if addr is None:
-        return None
-    if isinstance(addr, int):
-        return addr
-    addr_str = str(addr).strip()
-    if addr_str.startswith("0x") or addr_str.startswith("0X"):
-        return int(addr_str, 16)
-    return int(addr_str)
+VALID_PLAN_STATUSES = ["pending", "in_progress", "completed", "failed"]
+VALID_PLAN_TYPES = ["audit_plan", "agent_plan", "verification_plan"]
 
-# ========== Constants & Validation ==========
+def _validate_option(name: str, value: Optional[str], options: List[str]):
+    if value and value not in options:
+        raise ValueError(f"Invalid {name}: {value}. Must be one of {options}")
 
-VALID_SEVERITIES = {
-    'critical', 'high', 'medium', 'low', 'info'
-}
+# ========== Plan (Macro) Tools ==========
 
-VALID_CATEGORIES = {
-    'buffer_overflow', 'format_string', 'integer_overflow',
-    'use_after_free', 'double_free', 'memory_disclosure',
-    'crypto_weak', 'hardcoded_secret', 'injection',
-    'path_traversal', 'authentication', 'authorization',
-    'anti_debug', 'anti_vm', 'packing', 'other'
-}
-
-VALID_VERIFICATION_STATUSES = {
-    'unverified', 'confirmed', 'false_positive',
-    'needs_review', 'inconclusive'
-}
-
-VALID_NOTE_TYPES = {
-    'vulnerability', 'behavior', 'function_summary',
-    'data_structure', 'control_flow', 'crypto_usage',
-    'obfuscation', 'io_operation', 'general'
-}
-
-VALID_CONFIDENCE_LEVELS = {
-    'high', 'medium', 'low', 'speculative'
-}
-
-VALID_PLAN_STATUSES = {
-    'pending', 'in_progress', 'completed', 'failed'
-}
-
-VALID_PLAN_TYPES = {
-    'audit_plan', 'agent_plan', 'verification_plan'
-}
-
-def _validate_option(name: str, value: Optional[str], valid_options: set):
-    if value is not None and value not in valid_options:
-        raise ValueError(
-            f"Invalid {name}: '{value}'. "
-            f"Valid options are: {', '.join(sorted(valid_options))}"
-        )
-
-# ========== Plan Operations ==========
-
-def audit_create_macro_plan(title: str, description: str, parent_id: Optional[int] = None) -> Dict[str, Any]:
+def audit_create_macro_plan(title: str, description: str) -> Dict[str, Any]:
     """Create a high-level audit plan (Audit Plan)."""
     db = get_audit_db()
-    plan_id = db.add_plan(title, description, parent_id, plan_type='audit_plan')
+    # Note: parent_id removed in new schema for macro plans
+    plan_id = db.create_plan(title, description)
     return {"plan_id": plan_id, "status": "success", "type": "audit_plan"}
 
-def audit_create_agent_task(title: str, description: str, parent_plan_id: int, binary_name: str) -> Dict[str, Any]:
-    """Create a specific executable task for an agent (Agent Plan)."""
+def audit_get_macro_plan(plan_id: int) -> Dict[str, Any]:
     db = get_audit_db()
-    # Verify parent exists and is an audit_plan? (Optional but good practice)
-    # For now, just create it.
-    plan_id = db.add_plan(title, description, parent_id=parent_plan_id, plan_type='agent_plan', binary_name=binary_name)
-    return {"plan_id": plan_id, "status": "success", "type": "agent_plan"}
-
-def audit_submit_summary(plan_id: int, summary: str) -> Dict[str, Any]:
-    """Submit a summary for a completed plan task."""
-    db = get_audit_db()
-    success = db.update_plan_summary(plan_id, summary)
-    return {"success": success}
-
-def audit_get_summary(plan_id: int) -> Dict[str, Any]:
-    """Get the summary of a plan task."""
-    db = get_audit_db()
-    plans = db.get_plans() # This is inefficient but okay for prototype. Better to add get_plan_by_id
-    plan = next((p for p in plans if p['id'] == plan_id), None)
+    plan = db.get_plan(plan_id)
     if plan:
-        return {"plan_id": plan_id, "summary": plan.get("summary")}
-    return {"plan_id": plan_id, "summary": None, "error": "Plan not found"}
+        plan['type'] = 'audit_plan'
+        return plan
+    return {"error": "Plan not found"}
 
-def audit_plan_update(plan_id: int, notes: Optional[str] = None) -> Dict[str, Any]:
+def audit_update_macro_plan(plan_id: int, notes: Optional[str] = None, status: Optional[str] = None) -> Dict[str, Any]:
     db = get_audit_db()
-    plans = db.get_plans()
-    current_plan = next((p for p in plans if p['id'] == plan_id), None)
-    current_status = current_plan['status'] if current_plan else 'pending'
+    if status:
+        _validate_option("status", status, VALID_PLAN_STATUSES)
+    
+    current_plan = db.get_plan(plan_id)
+    if not current_plan:
+        return {"error": "Plan not found"}
+    
+    current_status = status if status else current_plan['status']
     
     success = db.update_plan_status(plan_id, current_status, notes)
     if notes:
-        db.log_progress(f"Plan {plan_id} updated: {notes}", plan_id)
+        db.log_progress(f"Plan {plan_id} updated: {notes}", plan_id=plan_id)
     return {"success": success}
 
-def audit_create_verification_task(
-    title: str,
-    description: str,
-    parent_plan_id: int,
-    binary_name: str
-) -> Dict[str, Any]:
-    """Create a verification task for a specific vulnerability."""
-    db = get_audit_db()
-    # Create a plan with plan_type='verification_plan'
-    plan_id = db.add_plan(
-        title=title, 
-        description=description, 
-        parent_id=parent_plan_id, 
-        plan_type='verification_plan', 
-        binary_name=binary_name
-    )
-    return {"plan_id": plan_id, "status": "success", "type": "verification_plan"}
-
-def audit_update_vulnerability_verification(
-    id: int,
-    status: str,
-    details: Optional[str] = None
-) -> Dict[str, Any]:
-    """Update the verification status of a vulnerability."""
-    _validate_option("verification status", status, VALID_VERIFICATION_STATUSES)
-    if status == 'unverified':
-        raise ValueError("Cannot manually set status back to 'unverified'.")
-    
-    db = get_audit_db()
-    success = db.update_vulnerability_verification(id, status, details)
-    return {"success": success}
-
-def audit_plan_list(status: Optional[str] = None, plan_type: Optional[str] = None) -> List[Dict[str, Any]]:
-    _validate_option("status", status, VALID_PLAN_STATUSES)
-    _validate_option("plan_type", plan_type, VALID_PLAN_TYPES)
-    db = get_audit_db()
-    return db.get_plans(status, plan_type)
-
-def audit_delete_plan(plan_id: int) -> Dict[str, Any]:
-    """Delete an audit plan and its associated data."""
+def audit_delete_macro_plan(plan_id: int) -> Dict[str, Any]:
     db = get_audit_db()
     success = db.delete_plan(plan_id)
     return {"success": success}
 
-# ========== Log Operations ==========
-
-def audit_log_progress(message: str, plan_id: Optional[int] = None) -> Dict[str, Any]:
+def audit_list_macro_plans(status: Optional[str] = None) -> List[Dict[str, Any]]:
+    if status:
+        _validate_option("status", status, VALID_PLAN_STATUSES)
     db = get_audit_db()
-    db.log_progress(message, plan_id)
-    return {"status": "success"}
+    plans = db.get_plans(status)
+    for p in plans:
+        p['type'] = 'audit_plan'
+        p['parent_id'] = None # For compatibility
+    return plans
 
-# ========== Note Operations ==========
+# ========== Task (Micro) Tools ==========
 
-def audit_create_note(
-    binary_name: str,
-    content: str,
-    note_type: str,
-    title: Optional[str] = None,
-    function_name: Optional[str] = None,
-    address: Optional[Union[str, int]] = None,
-    tags: Optional[str] = None,
-    confidence: str = "medium"
-) -> Dict[str, Any]:
-    _validate_option("note_type", note_type, VALID_NOTE_TYPES)
-    _validate_option("confidence", confidence, VALID_CONFIDENCE_LEVELS)
+def audit_create_agent_task(title: str, description: str, parent_plan_id: int, binary_name: str) -> Dict[str, Any]:
+    """Create a specific executable task for an agent (Agent Plan)."""
     db = get_audit_db()
-    addr = _parse_address(address)
-    note_id = db.create_note(
-        binary_name=binary_name,
-        content=content,
-        note_type=note_type,
-        title=title,
-        function_name=function_name,
-        address=addr,
-        tags=tags,
-        confidence=confidence
-    )
-    return {"note_id": note_id}
+    task_id = db.create_task(parent_plan_id, title, description, binary_name, 'agent_task')
+    return {"task_id": task_id, "status": "success", "type": "agent_task"}
 
-def audit_get_notes(
-    binary_name: Optional[str] = None,
-    query: Optional[str] = None,
-    note_type: Optional[str] = None,
-    tags: Optional[str] = None,
-    limit: int = 50
-) -> List[Dict[str, Any]]:
-    _validate_option("note_type", note_type, VALID_NOTE_TYPES)
+def audit_create_verification_task(title: str, description: str, parent_plan_id: int, binary_name: str) -> Dict[str, Any]:
+    """Create a verification task for a specific vulnerability."""
     db = get_audit_db()
-    return db.get_notes(
-        binary_name=binary_name,
-        query=query,
-        note_type=note_type,
-        tags=tags,
-        limit=limit
-    )
+    task_id = db.create_task(parent_plan_id, title, description, binary_name, 'verification_task')
+    return {"task_id": task_id, "status": "success", "type": "verification_task"}
 
-def audit_update_note(
-    note_id: int,
-    content: Optional[str] = None,
-    title: Optional[str] = None,
-    tags: Optional[str] = None
-) -> Dict[str, Any]:
+def audit_get_task(task_id: int) -> Dict[str, Any]:
     db = get_audit_db()
-    success = db.update_note(note_id=note_id, content=content, title=title, tags=tags)
+    task = db.get_task(task_id)
+    if task:
+        return task
+    return {"error": "Task not found"}
+
+def audit_update_task(task_id: int, notes: Optional[str] = None, status: Optional[str] = None) -> Dict[str, Any]:
+    db = get_audit_db()
+    if status:
+        _validate_option("status", status, VALID_PLAN_STATUSES)
+        
+    current_task = db.get_task(task_id)
+    if not current_task:
+        return {"error": "Task not found"}
+        
+    current_status = status if status else current_task['status']
+    
+    success = db.update_task_status(task_id, current_status, notes)
+    if notes:
+        db.log_progress(f"Task {task_id} updated: {notes}", task_id=task_id)
     return {"success": success}
 
-def audit_delete_note(note_id: int) -> Dict[str, Any]:
+def audit_submit_task_summary(task_id: int, summary: str) -> Dict[str, Any]:
     db = get_audit_db()
-    success = db.delete_note(note_id=note_id)
+    success = db.update_task_summary(task_id, summary)
     return {"success": success}
 
-def audit_report_vulnerability(
-    binary_name: str,
-    severity: str,
-    category: str,
-    title: str,
-    description: str,
-    function_name: Optional[str] = None,
-    address: Optional[Union[str, int]] = None,
-    evidence: Optional[str] = None,
-    cvss: Optional[float] = None,
-    exploitability: Optional[str] = None
-) -> Dict[str, Any]:
-    _validate_option("severity", severity, VALID_SEVERITIES)
-    _validate_option("category", category, VALID_CATEGORIES)
+def audit_get_task_summary(task_id: int) -> Dict[str, Any]:
     db = get_audit_db()
-    addr = _parse_address(address)
-    vulnerability_id = db.create_vulnerability(
-        binary_name=binary_name,
-        severity=severity,
-        category=category,
-        title=title,
-        description=description,
-        function_name=function_name,
-        address=addr,
-        evidence=evidence,
-        cvss=cvss,
-        exploitability=exploitability
-    )
-    return {"vulnerability_id": vulnerability_id}
+    task = db.get_task(task_id)
+    if task:
+        return {"task_id": task_id, "summary": task.get("summary")}
+    return {"task_id": task_id, "summary": None, "error": "Task not found"}
 
-def audit_get_vulnerabilities(
-    binary_name: Optional[str] = None,
-    severity: Optional[str] = None,
-    category: Optional[str] = None,
-    verification_status: Optional[str] = None
-) -> List[Dict[str, Any]]:
-    _validate_option("severity", severity, VALID_SEVERITIES)
-    _validate_option("category", category, VALID_CATEGORIES)
-    _validate_option("verification_status", verification_status, VALID_VERIFICATION_STATUSES)
+def audit_delete_task(task_id: int) -> Dict[str, Any]:
     db = get_audit_db()
-    return db.get_vulnerabilities(
-        binary_name=binary_name, 
-        severity=severity, 
-        category=category,
-        verification_status=verification_status
-    )
+    success = db.delete_task(task_id)
+    return {"success": success}
 
-def audit_get_analysis_progress(binary_name: str) -> Dict[str, Any]:
+def audit_list_tasks(status: Optional[str] = None, task_type: Optional[str] = None) -> List[Dict[str, Any]]:
+    if status:
+        _validate_option("status", status, VALID_PLAN_STATUSES)
+    
+    # Map old plan_type to new task_type if necessary, or just use values
+    # VALID_PLAN_TYPES = ["audit_plan", "agent_plan", "verification_plan"]
+    # Internal types: agent_task, verification_task
+    
+    internal_type = None
+    if task_type == 'agent_plan':
+        internal_type = 'agent_task'
+    elif task_type == 'verification_plan':
+        internal_type = 'verification_task'
+    elif task_type in ['agent_task', 'verification_task']:
+        internal_type = task_type
+        
     db = get_audit_db()
-    return db.get_statistics(binary_name=binary_name)
+    tasks = db.get_tasks(status=status, task_type=internal_type)
+    for t in tasks:
+        t['type'] = t['task_type']
+        t['parent_id'] = t['plan_id']
+    return tasks
 
