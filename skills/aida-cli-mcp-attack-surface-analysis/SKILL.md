@@ -77,7 +77,7 @@ This document guides agents on how to use the AIDA MCP toolset to perform Code A
 2.  **Pivot to dispatch points**:
     *   For RPC/COM frameworks, the *real* source is often a **dispatcher** function. Use xrefs on framework APIs to find the dispatcher, then enumerate handlers via callees/callers:
         *   `get_binary_function_callees(binary_name, function_address, depth=2, limit=200)`
-        *   `get_binary_function_callers(binary_name, function_address, depth=2, limit=200)`
+        *   `get_binary_function_callers(binary_name, function_address, offset=0, limit=50)`
 3.  **Confirm message boundaries**:
     *   Identify how message length is computed, whether the code trusts length fields, and whether it copies into fixed-size buffers.
 

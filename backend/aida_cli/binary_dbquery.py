@@ -863,11 +863,12 @@ class BinaryDbQuery:
             )
         return out
 
-    def get_callees(self, function_address, depth=1, limit=None):
+    def get_callees(self, function_address, offset=0, limit=50, depth=1):
         if not self._table_exists("call_edges"):
-            return []
-        depth = 1 if depth is None else max(1, int(depth))
-        limit = _clamp_limit(limit, default=200, max_limit=2000)
+            return {"results": [], "has_more": False, "next_offset": None}
+        limit = _clamp_limit(limit, default=50, max_limit=500)
+        offset = _clamp_offset(offset)
+        depth = max(1, int(depth))
         start = _parse_address(function_address)
         q = [(start, 0)]
         seen_funcs = {start}
@@ -896,7 +897,11 @@ class BinaryDbQuery:
                     q.append((callee, d + 1))
                 if len(results) >= limit:
                     break
-        return results
+        has_more = len(results) > limit
+        if has_more:
+            results = results[:limit]
+        next_offset = offset + len(results) if has_more else None
+        return {"results": results, "has_more": has_more, "next_offset": next_offset}
 
     def get_callers(self, function_address, depth=1, limit=None):
         if not self._table_exists("call_edges"):
@@ -931,6 +936,84 @@ class BinaryDbQuery:
                 if len(results) >= limit:
                     break
         return results
+
+    def get_caller_functions(self, function_address, offset=0, limit=50):
+        if not self._table_exists("call_edges"):
+            return {"results": [], "has_more": False, "next_offset": None}
+        limit = _clamp_limit(limit, default=50, max_limit=500)
+        offset = _clamp_offset(offset)
+        start = _parse_address(function_address)
+        
+        # Check if more results exist by fetching limit + 1
+        query = """
+            SELECT caller_function_va, COUNT(*) as call_count 
+            FROM call_edges 
+            WHERE callee_function_va=? 
+            GROUP BY caller_function_va 
+            ORDER BY call_count DESC, caller_function_va ASC 
+            LIMIT ? OFFSET ?
+        """
+        rows = self._fetchall(query, (start, limit + 1, offset))
+        
+        has_more = len(rows) > limit
+        if has_more:
+            rows = rows[:limit]
+            
+        results = []
+        for r in rows:
+            caller = r["caller_function_va"]
+            name_row = None
+            if self._table_exists("functions"):
+                name_row = self._fetchone("SELECT name FROM functions WHERE function_va=?", (caller,))
+            results.append({
+                "caller_address": _format_address(caller),
+                "caller_name": name_row["name"] if name_row else None,
+                "call_count": r["call_count"]
+            })
+            
+        return {
+            "results": results,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None
+        }
+
+    def get_call_sites(self, function_address, offset=0, limit=50):
+        if not self._table_exists("call_edges"):
+            return {"results": [], "has_more": False, "next_offset": None}
+        limit = _clamp_limit(limit, default=50, max_limit=500)
+        offset = _clamp_offset(offset)
+        start = _parse_address(function_address)
+        
+        query = """
+            SELECT call_site_va, caller_function_va 
+            FROM call_edges 
+            WHERE callee_function_va=? 
+            ORDER BY call_site_va ASC 
+            LIMIT ? OFFSET ?
+        """
+        rows = self._fetchall(query, (start, limit + 1, offset))
+        
+        has_more = len(rows) > limit
+        if has_more:
+            rows = rows[:limit]
+            
+        results = []
+        for r in rows:
+            caller = r["caller_function_va"]
+            name_row = None
+            if self._table_exists("functions"):
+                name_row = self._fetchone("SELECT name FROM functions WHERE function_va=?", (caller,))
+            results.append({
+                "call_site_address": _format_address(r["call_site_va"]),
+                "caller_address": _format_address(caller),
+                "caller_name": name_row["name"] if name_row else None,
+            })
+            
+        return {
+            "results": results,
+            "has_more": has_more,
+            "next_offset": offset + limit if has_more else None
+        }
 
     def resolve_address(self, address):
         va = _parse_address(address)

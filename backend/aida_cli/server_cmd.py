@@ -594,12 +594,25 @@ def resolve_address(
 def get_callers(
     binary_name: str,
     address: str,
-    depth: Optional[int] = None,
-    limit: Optional[int] = None
+    offset: int = 0,
+    limit: int = 50
 ):
     svc = get_service()
     try:
-        return svc.get_binary_function_callers(binary_name, address, depth, limit)
+        return svc.get_binary_function_callers(binary_name, address, offset, limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/binary/{binary_name}/function/{address}/callsites")
+def get_callsites(
+    binary_name: str,
+    address: str,
+    offset: int = 0,
+    limit: int = 50
+):
+    svc = get_service()
+    try:
+        return svc.get_binary_function_callsites(binary_name, address, offset, limit)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -607,12 +620,12 @@ def get_callers(
 def get_callees(
     binary_name: str,
     address: str,
-    depth: Optional[int] = None,
-    limit: Optional[int] = None
+    offset: int = 0,
+    limit: int = 50
 ):
     svc = get_service()
     try:
-        return svc.get_binary_function_callees(binary_name, address, depth, limit)
+        return svc.get_binary_function_callees(binary_name, address, offset, limit)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

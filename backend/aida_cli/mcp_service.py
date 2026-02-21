@@ -536,7 +536,7 @@ class McpService:
             raise McpError("INTERNAL_ERROR", str(e))
 
     @mcp_tool(name="get_binary_function_callees")
-    def get_binary_function_callees(self, binary_name: str, function_address: Union[str, int], depth: int = None, limit: int = None) -> List[Dict[str, Any]]:
+    def get_binary_function_callees(self, binary_name: str, function_address: Union[str, int], offset: int = 0, limit: int = 50) -> Dict[str, Any]:
         """Identify which functions are called by a specific function (outbound calls).
 
         Use this tool to understand the dependencies of a function: what other subroutines does it invoke?
@@ -545,14 +545,14 @@ class McpService:
         Args:
             binary_name: The unique name of the binary.
             function_address: The entry address of the caller function. MUST be a string if using hex (e.g., "0x401000").
-            depth: The depth of the call graph to traverse (default: 1, immediate callees).
-            limit: The maximum number of callees to return.
+            offset: The starting index for pagination (default: 0).
+            limit: The maximum number of callees to return (default: 50).
 
         Returns:
-            list: A list of called functions, including their addresses and names.
+            dict: Contains 'results' (list of called functions), 'has_more', and 'next_offset'.
         """
         try:
-            return self._get_binary(binary_name).get_callees(function_address, depth, limit)
+            return self._get_binary(binary_name).get_callees(function_address, offset, limit)
         except LookupError as e:
             raise McpError("NOT_FOUND", str(e))
         except ValueError as e:
@@ -561,23 +561,48 @@ class McpService:
             raise McpError("INTERNAL_ERROR", str(e))
 
     @mcp_tool(name="get_binary_function_callers")
-    def get_binary_function_callers(self, binary_name: str, function_address: Union[str, int], depth: int = None, limit: int = None) -> List[Dict[str, Any]]:
-        """Identify which functions call a specific function (inbound calls).
+    def get_binary_function_callers(self, binary_name: str, function_address: Union[str, int], offset: int = 0, limit: int = 50) -> Dict[str, Any]:
+        """Identify which functions call a specific function (unique callers).
 
-        Use this tool to find usage examples (X-refs) of a function.
-        This is crucial for understanding how a function is used throughout the program and tracing execution paths upwards.
+        Use this tool to find which functions depend on the target function.
+        Returns a list of unique caller functions with call counts.
 
         Args:
             binary_name: The unique name of the binary.
             function_address: The entry address of the target function. MUST be a string if using hex (e.g., "0x401000").
-            depth: The depth of the call graph to traverse (default: 1, immediate callers).
-            limit: The maximum number of callers to return.
+            offset: The starting index for pagination (default: 0).
+            limit: The maximum number of callers to return (default: 50).
 
         Returns:
-            list: A list of calling functions (call sites), including their addresses and names.
+            dict: Contains 'results' (list of callers with count), 'has_more', and 'next_offset'.
         """
         try:
-            return self._get_binary(binary_name).get_callers(function_address, depth, limit)
+            return self._get_binary(binary_name).get_caller_functions(function_address, offset, limit)
+        except LookupError as e:
+            raise McpError("NOT_FOUND", str(e))
+        except ValueError as e:
+            raise McpError("INVALID_ARGUMENT", str(e))
+        except Exception as e:
+            raise McpError("INTERNAL_ERROR", str(e))
+
+    @mcp_tool(name="get_binary_function_callsites")
+    def get_binary_function_callsites(self, binary_name: str, function_address: Union[str, int], offset: int = 0, limit: int = 50) -> Dict[str, Any]:
+        """Get all call sites where a specific function is called.
+
+        Use this tool to find exact locations (addresses) where the target function is invoked.
+        This provides a detailed list of all call instructions targeting the function.
+
+        Args:
+            binary_name: The unique name of the binary.
+            function_address: The entry address of the target function. MUST be a string if using hex (e.g., "0x401000").
+            offset: The starting index for pagination (default: 0).
+            limit: The maximum number of call sites to return (default: 50).
+
+        Returns:
+            dict: Contains 'results' (list of call sites), 'has_more', and 'next_offset'.
+        """
+        try:
+            return self._get_binary(binary_name).get_call_sites(function_address, offset, limit)
         except LookupError as e:
             raise McpError("NOT_FOUND", str(e))
         except ValueError as e:
@@ -726,7 +751,7 @@ class McpService:
             return hits
         return b.list_strings(query=search_string, offset=0, limit=500)
 
-    @mcp_tool(name="search_immediates_in_binary")
+    #@mcp_tool(name="search_immediates_in_binary")
     def search_immediates_in_binary(self, binary_name: str, value: Any, width: int = None, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
         """Search for constant values (immediates) in the code.
 
@@ -745,7 +770,7 @@ class McpService:
         """
         return self._get_binary(binary_name).search_immediates(value, width, offset, limit)
 
-    @mcp_tool(name="search_bytes_pattern_in_binary")
+    #@mcp_tool(name="search_bytes_pattern_in_binary")
     def search_bytes_pattern_in_binary(self, binary_name: str, pattern: str, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
         """Search for a sequence of bytes (binary signature).
 
