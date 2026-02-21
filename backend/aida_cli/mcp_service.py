@@ -298,6 +298,28 @@ class McpService:
         except Exception as e:
             raise McpError("INTERNAL_ERROR", str(e))
 
+    @mcp_tool(name="resolve_symbol")
+    def resolve_symbol(self, binary_name: str, symbol_name: str) -> List[Dict[str, Any]]:
+        """Resolve a symbol name to its address and details (function or global variable).
+        
+        Use this tool to get information about a symbol, such as a function or global variable.
+        For global variables, it returns the definition, size, and value representation if available.
+        For functions, it returns the address and size.
+        
+        Args:
+            binary_name: The unique name of the binary.
+            symbol_name: The name of the symbol to resolve.
+            
+        Returns:
+            list: A list of matching symbols with their details.
+        """
+        try:
+            return self._get_binary(binary_name).resolve_symbol(symbol_name)
+        except LookupError as e:
+            raise McpError("NOT_FOUND", str(e))
+        except Exception as e:
+            raise McpError("INTERNAL_ERROR", str(e))
+
     #@mcp_tool(name="get_binary_bytes")
     def get_binary_bytes(self, binary_name: str, address: Union[str, int], length: int, format_type: str = None) -> str:
         """Read raw bytes from a specific memory address in the binary.

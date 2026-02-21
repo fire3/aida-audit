@@ -1021,6 +1021,61 @@ class BinaryDbQuery:
             "is_data": is_data,
         }
 
+    def resolve_symbol(self, symbol_name):
+        out = []
+        
+        # 1. Search in functions
+        if self._table_exists("functions"):
+            rows = self._fetchall(
+                "SELECT function_va, name, demangled_name, start_va, end_va, size, is_thunk, is_library "
+                "FROM functions WHERE name=? OR demangled_name=?",
+                (symbol_name, symbol_name)
+            )
+            for r in rows:
+                out.append({
+                    "category": "function",
+                    "name": r["name"],
+                    "demangled_name": r["demangled_name"],
+                    "address": _format_address(r["function_va"]),
+                    "size": r["size"],
+                    "is_thunk": bool(r["is_thunk"]),
+                    "is_library": bool(r["is_library"]),
+                })
+
+        # 2. Search in symbols
+        if self._table_exists("symbols"):
+            rows = self._fetchall(
+                "SELECT name, demangled_name, kind, address, size FROM symbols WHERE name=? OR demangled_name=?",
+                (symbol_name, symbol_name)
+            )
+            for r in rows:
+                # Check if we already have this address as a function
+                addr_str = _format_address(r["address"])
+                existing = next((x for x in out if x["address"] == addr_str and x["category"] == "function"), None)
+                
+                if existing:
+                    existing["symbol_kind"] = r["kind"]
+                else:
+                    item = {
+                        "category": "global_variable" if r["kind"] and "data" in r["kind"].lower() else "symbol",
+                        "name": r["name"],
+                        "demangled_name": r["demangled_name"],
+                        "address": addr_str,
+                        "size": r["size"],
+                        "kind": r["kind"],
+                    }
+                    
+                    # Try to fetch data definition if available
+                    if self._table_exists("data_items"):
+                        d_row = self._fetchone("SELECT type_name, repr FROM data_items WHERE address=?", (r["address"],))
+                        if d_row:
+                            item["data_type"] = d_row["type_name"]
+                            item["value_repr"] = d_row["repr"]
+                    
+                    out.append(item)
+        
+        return out
+
     def get_decoded_data(self, address, length):
         va = _parse_address(address)
         try:
