@@ -55,6 +55,14 @@
 - **逆向分析**：`get_binary_function_pseudocode_by_address`, `list_binary_functions`, `get_binary_cross_references` 等。
 - **记录**：`audit_create_note`, `audit_report_vulnerability`, `audit_submit_task_summary` (任务结束前必填)。
 
+## 审计技巧
+
+### 处理反编译代码的连续栈变量
+
+当你发现潜在的缓冲区溢出（例如 fgets, memcpy, strcpy 操作的长度大于目标变量的大小）时，不要立即判定为漏洞。你必须执行以下检查：
+- 查看目标变量及其后续变量在注释中的栈偏移量（如 [bp-88h], [bp-84h]）。
+- 计算这些连续变量在栈上的实际可用空间。如果溢出部分实际上覆盖的是同一栈帧中连续定义的、无其他特定用途的缓冲区，请将其识别为“反编译器变量拆分导致的假阳性”，并排除溢出风险。
+
 ## 禁止事项
 - **禁止**在没有提交 `audit_submit_task_summary` 的情况下完成任务。
 - **禁止**在没有证据的情况下通过任务。
