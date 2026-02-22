@@ -406,12 +406,12 @@ class PlanAgent(BaseAgent):
         try:
             plans = self.audit_db.get_plans()
             if not plans:
-                base_prompt = load_agent_prompt("INITIAL_PLANNER")
+                base_prompt = load_agent_prompt("INITIAL_PLANER")
             else:
                 base_prompt = load_agent_prompt("PLAN_REVIEWER")
         except Exception as e:
             print(f"Error checking plans: {e}")
-            base_prompt = load_agent_prompt("INITIAL_PLANNER")
+            base_prompt = load_agent_prompt("INITIAL_PLANER")
 
         # Append user prompt if exists
         user_prompt = self.audit_db.get_config("user_prompt", "")
