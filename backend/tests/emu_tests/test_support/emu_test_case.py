@@ -162,6 +162,14 @@ cmd.process_single_file("{self.binary_path}", "{os.path.join(output_dir, self.pr
         if self.emu:
             self.emu.close()
             self.emu = None
+        
+        if self.binary_path and os.path.exists(self.binary_path):
+            try:
+                os.remove(self.binary_path)
+                print(f"[INFO] Removed binary: {self.binary_path}")
+            except Exception as e:
+                print(f"[WARN] Failed to remove binary: {e}")
+        
         print(f"[INFO] Cleaned up: {self.program_name}")
 
 
