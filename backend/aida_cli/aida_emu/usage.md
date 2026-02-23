@@ -31,19 +31,19 @@ pip install unicorn
 
 ## 快速开始
 
-以下示例展示最基本的用法：从数据库加载并调用一个函数。
+以下示例展示最基本的方法：从二进制文件直接加载并调用一个函数。
 
 ```python
 from aida_emu import AidaEmulator
 
-# 1. 从数据库加载模拟器
-emu = AidaEmulator.from_database("program.db")
+# 1. 从二进制文件加载模拟器（自动导出并加载）
+emu = AidaEmulator.from_binary("./program")
 
 # 2. 设置栈和堆
 emu.setup_stack()
 emu.setup_heap()
 
-# 3. 查找函数地址（假设数据库中存在名为 "add" 的函数）
+# 3. 查找函数地址（假设二进制中存在名为 "add" 的函数）
 func_va = None
 for func in emu.db.load_functions():
     if func["name"] == "add":
@@ -58,19 +58,47 @@ print(f"Result: {result}")  # 输出: Result: 8
 emu.close()
 ```
 
+### 从数据库加载
+
+如果不使用自动导出，也可以先使用 AIDA 工具导出数据库，再加载：
+
+```python
+# 从预导出的数据库加载
+emu = AidaEmulator.from_database("program.db")
+
+# 或指定架构
+emu = AidaEmulator.from_database("program.db", arch="x86_64")
+```
+
 ## 基础使用
+
+### 从二进制文件加载
+
+```python
+# 从二进制文件直接加载（自动调用 IDA 导出数据库）
+emu = AidaEmulator.from_binary("./program")
+
+# 保留导出的数据库文件
+emu = AidaEmulator.from_binary("./program", keep_db=True)
+# 数据库保存在同目录下: ./program.db
+
+# 指定输出目录
+emu = AidaEmulator.from_binary("./program", output_dir="/tmp/my_output")
+```
+
+**注意**: 需要 IDA Pro
 
 ### 从数据库加载
 
 ```python
-# 方式一：自动检测架构并加载所有段
+# 从预导出的数据库加载
 emu = AidaEmulator.from_database("program.db")
 # 内部自动完成：
 #   1. 读取数据库元数据（架构、处理器类型等）
 #   2. 加载所有代码段到内存
 #   3. 初始化寄存器
 
-# 方式二：手动指定架构
+# 手动指定架构
 emu = AidaEmulator.from_database("program.db", arch="x86_64")
 ```
 

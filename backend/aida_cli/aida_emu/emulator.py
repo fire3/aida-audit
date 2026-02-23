@@ -1,5 +1,7 @@
 from typing import Optional, Callable, Any, Dict, List
 import os
+import tempfile
+import shutil
 
 try:
     import unicorn
@@ -81,6 +83,73 @@ class AidaEmulator:
         emu._load_segments(db)
         
         return emu
+
+    @classmethod
+    def from_binary(cls, binary_path: str, output_dir: Optional[str] = None,
+                    keep_db: bool = False) -> "AidaEmulator":
+        """
+        从二进制文件直接创建模拟器，内部自动调用 IDA 导出数据库。
+        
+        Args:
+            binary_path: 二进制文件路径
+            output_dir: 输出目录，默认为临时目录
+            keep_db: 是否保留导出的数据库文件
+        
+        Returns:
+            AidaEmulator 实例
+        
+        Note:
+            需要 IDA Pro
+        """
+        if not os.path.exists(binary_path):
+            raise FileNotFoundError(f"Binary file not found: {binary_path}")
+        
+        if output_dir is None:
+            temp_dir = tempfile.mkdtemp(prefix="aida_emu_")
+            cleanup_temp = True
+        else:
+            os.makedirs(output_dir, exist_ok=True)
+            temp_dir = output_dir
+            cleanup_temp = False
+        
+        try:
+            db_path = os.path.join(temp_dir, os.path.basename(binary_path) + ".db")
+            
+            try:
+                from aida_cli.export_cmd import ExportOrchestrator
+            except ImportError:
+                raise ImportError(
+                    "Failed to import aida_cli.export_cmd. "
+                    "Make sure aida_cli is properly installed."
+                )
+            
+            cmd = ExportOrchestrator(workers=1, verbose=False)
+            
+            success = cmd.process_single_file(
+                binary_path,
+                db_path,
+                save_idb=None
+            )
+            
+            if not success:
+                raise RuntimeError(f"Failed to export binary: {binary_path}")
+            
+            emu = cls.from_database(db_path)
+            
+            if not keep_db:
+                try:
+                    os.remove(db_path)
+                except OSError:
+                    pass
+                if cleanup_temp and os.path.exists(temp_dir):
+                    shutil.rmtree(temp_dir)
+            
+            return emu
+            
+        except Exception:
+            if cleanup_temp and os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+            raise
 
     def _load_segments(self, db: DbLoader):
         segments = db.load_segments()
