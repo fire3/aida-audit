@@ -24,7 +24,6 @@ from .audit_database import AuditDatabase
 from .audit_service import AuditService
 from .constants import AUDIT_DB_FILENAME
 from . import audit_mcp_tools
-from .flare_emu_mcp_tools import run_flare_emu_dsl_impl
 from .config import Config
 from .llm_client import LLMClient
 
@@ -837,21 +836,6 @@ def stop_audit():
 
 class ExecuteDSLRequest(BaseModel):
     script: str
-
-@api_router.post("/binary/{binary_name}/dsl/execute")
-async def execute_dsl(binary_name: str, request: ExecuteDSLRequest):
-    if not service:
-        raise HTTPException(status_code=503, detail="Server not initialized")
-    try:
-        # We need access to project_store, which is global 'project_store'
-        result = run_flare_emu_dsl_impl(project_store, binary_name, request.script)
-        return _ok(result)
-    except LookupError:
-        raise HTTPException(status_code=404, detail="Binary not found")
-    except Exception as e:
-        logger.error(f"DSL Execution failed: {e}", exc_info=True)
-        return _err(500, f"Execution failed: {str(e)}")
-
 
 # Include the API router
 app.include_router(api_router)

@@ -131,49 +131,6 @@ class McpService:
         return b
 
     # --- Tool Definitions ---
-
-    #@mcp_tool(name="get_flare_emu_dsl_guide")
-    def get_flare_emu_dsl_guide(self) -> str:
-        """Retrieve the official guide for writing Flare-Emu Text DSL scripts.
-
-        Use this tool to learn the syntax and features of the Flare-Emu DSL, which is used for dynamic emulation tasks.
-        The guide includes examples of memory allocation, function calls, hooking, and assertions.
-
-        Returns:
-            str: The full markdown content of the DSL guide.
-        """
-        from .flare_emu_mcp_tools import get_flare_emu_dsl_guide_impl
-        return get_flare_emu_dsl_guide_impl()
-
-    #@mcp_tool(name="run_flare_emu_dsl")
-    def run_flare_emu_dsl(self, binary_name: str, script: str) -> Dict[str, Any]:
-        """Execute a Flare-Emu Text DSL script on a specific binary.
-
-        Use this tool to perform dynamic analysis tasks such as emulating functions, fuzzing inputs, or verifying behavior.
-        The script should follow the syntax defined in the DSL guide.
-
-        Args:
-            binary_name: The unique name of the binary to analyze.
-            script: The DSL script content to execute.
-
-        Returns:
-            dict: A dictionary containing the execution results:
-                - 'success' (bool): Whether the execution completed without unhandled exceptions.
-                - 'logs' (list): Captured log messages from the emulation session.
-                - 'variables' (dict): Final state of DSL variables.
-                - 'coverage_count' (int): Number of unique instructions executed.
-                - 'trace' (list): Execution trace (if enabled in script).
-                - 'error' (str): Error message if execution failed.
-                - 'crash_context' (dict): Register/stack state if a crash occurred.
-        """
-        try:
-            from .flare_emu_mcp_tools import run_flare_emu_dsl_impl
-            return run_flare_emu_dsl_impl(self.project_store, binary_name, script)
-        except LookupError as e:
-            raise McpError("NOT_FOUND", str(e))
-        except Exception as e:
-            raise McpError("INTERNAL_ERROR", f"Emulation failed: {str(e)}\n{traceback.format_exc()}")
-
     @mcp_tool(name="get_project_overview")
     def get_project_overview(self) -> Dict[str, Any]:
         """Retrieve a high-level overview of the current analysis project.
