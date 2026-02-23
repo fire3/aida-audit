@@ -358,6 +358,48 @@ def int_callback(emu, intno, user_data):
 emu.hook_interrupt(int_callback)
 ```
 
+### Libc Hook
+
+模拟 libc 函数调用，避免执行真实的外部库函数：
+
+```python
+# 1. 启用 libc hook 功能
+emu.enable_libc_hooks()
+
+# 2. 注册 libc 函数地址（从数据库查询或手动指定）
+strlen_addr = 0x7ffff7e5a000  # 从 binary 中查找的实际地址
+emu.hook_libc("strlen", strlen_addr)
+
+strcmp_addr = 0x7ffff7e5b000
+emu.hook_libc("strcmp", strcmp_addr)
+
+malloc_addr = 0x7ffff7e60000
+emu.hook_libc("malloc", malloc_addr)
+
+# 3. 调用函数时会自动拦截并模拟
+str_ptr = emu.alloc(16, b"hello\x00")
+result = emu.call(target_func_va, str_ptr)  # 如果 target_func 调用 strlen，会被模拟
+```
+
+**内置支持的 libc 函数**：strlen, strcmp, strncmp, strcpy, strncpy, memcpy, memset, atoi, atol, malloc, free
+
+**自定义 libc 函数模拟**：
+
+```python
+def my_strlen(emu):
+    addr = emu.regs.get_arg(0)
+    s = ""
+    while True:
+        b = emu.mem.read_u8(addr)
+        if b == 0:
+            break
+        s += chr(b)
+        addr += 1
+    return len(s)
+
+emu.libc.register("my_strlen", my_strlen)
+```
+
 ## 调用约定
 
 ### 自动检测

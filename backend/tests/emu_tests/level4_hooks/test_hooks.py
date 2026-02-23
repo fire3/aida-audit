@@ -291,3 +291,52 @@ class TestHookLibcSimulation:
         
         result = self.test_case.run_function(func["va"], 100)
         assert result != 0, "malloc should return non-null pointer"
+    
+    def test_libc_simulator_direct(self):
+        """直接测试 LibcSimulator"""
+        from aida_emu import LibcSimulator
+        
+        test_str = b"hello\x00"
+        str_ptr = self.test_case.emu.alloc(len(test_str), test_str)
+        
+        libc = LibcSimulator(self.test_case.emu)
+        self.test_case.emu.regs.set_reg("rdi", str_ptr)
+        
+        result = libc.execute("strlen")
+        assert result == 5, f"Expected 5, got {result}"
+    
+    def test_libc_simulator_atoi(self):
+        """测试 atoi 模拟"""
+        from aida_emu import LibcSimulator
+        
+        test_str = b"12345\x00"
+        str_ptr = self.test_case.emu.alloc(len(test_str), test_str)
+        
+        libc = LibcSimulator(self.test_case.emu)
+        self.test_case.emu.regs.set_reg("rdi", str_ptr)
+        
+        result = libc.execute("atoi")
+        assert result == 12345, f"Expected 12345, got {result}"
+    
+    def test_libc_simulator_strcmp(self):
+        """测试 strcmp 模拟"""
+        from aida_emu import LibcSimulator
+        
+        s1 = b"hello\x00"
+        s2 = b"hello\x00"
+        s1_ptr = self.test_case.emu.alloc(len(s1), s1)
+        s2_ptr = self.test_case.emu.alloc(len(s2), s2)
+        
+        libc = LibcSimulator(self.test_case.emu)
+        self.test_case.emu.regs.set_reg("rdi", s1_ptr)
+        self.test_case.emu.regs.set_reg("rsi", s2_ptr)
+        
+        result = libc.execute("strcmp")
+        assert result == 0, f"Expected 0 (equal), got {result}"
+        
+        s3 = b"world\x00"
+        s3_ptr = self.test_case.emu.alloc(len(s3), s3)
+        self.test_case.emu.regs.set_reg("rsi", s3_ptr)
+        
+        result = libc.execute("strcmp")
+        assert result < 0, f"Expected negative, got {result}"

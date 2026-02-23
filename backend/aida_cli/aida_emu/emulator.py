@@ -14,6 +14,7 @@ from .regs import Regs, REGISTER_MAP
 from .memory import MemoryMapper
 from .call_conv import CallConvention, detect_call_convention, get_default_convention
 from .hooks import HookManager
+from .libc_sim import LibcHookManager
 
 
 class AidaEmulator:
@@ -45,6 +46,9 @@ class AidaEmulator:
         self._stack_va: Optional[int] = None
         self._heap_va: Optional[int] = None
         self._heap_current: Optional[int] = None
+        self._libc_auto_hook_setup = False
+        
+        self.libc = LibcHookManager(self)
 
     @classmethod
     def from_database(cls, db_path: str, arch: Optional[str] = None) -> "AidaEmulator":
@@ -278,6 +282,34 @@ class AidaEmulator:
             return callback(self, address, size, user_data)
         
         return self.hooks.add_block_hook(wrapped, user_data) is not None
+
+    def hook_libc(self, func_name: str, address: int) -> bool:
+        self.libc.register_address(func_name, address)
+        return True
+
+    def enable_libc_hooks(self):
+        self.libc.enable()
+        self._setup_libc_auto_hook()
+
+    def disable_libc_hooks(self):
+        self.libc.disable()
+
+    def _setup_libc_auto_hook(self):
+        if hasattr(self, '_libc_auto_hook_setup') and self._libc_auto_hook_setup:
+            return
+        
+        def libc_call_hook(emu, address, size, user_data):
+            if not self.libc.is_enabled():
+                return True
+            
+            handled = self.libc.handle_call(address)
+            if handled:
+                pc = emu.get_pc()
+                emu.set_pc(pc + size)
+            return True
+        
+        self.hook_code(libc_call_hook)
+        self._libc_auto_hook_setup = True
 
     def hook_memory(self, callback: Callable, 
                     mem_type: str = "all", user_data: Any = None) -> bool:

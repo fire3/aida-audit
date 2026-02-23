@@ -4,6 +4,7 @@ from .regs import Regs
 from .call_conv import CallConvention, detect_call_convention
 from .memory import MemoryMapper
 from .hooks import CodeHook, MemoryHook
+from .libc_sim import LibcHookManager, LibcSimulator
 
 __all__ = [
     "AidaEmulator",
@@ -14,4 +15,6 @@ __all__ = [
     "MemoryMapper",
     "CodeHook",
     "MemoryHook",
+    "LibcHookManager",
+    "LibcSimulator",
 ]
