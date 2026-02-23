@@ -749,6 +749,112 @@ emu.hook_code(detect_loop)
 emu.setup_stack(stack_size=0x400000)  # 4MB 栈
 ```
 
+### Q: 如何检测栈溢出？
+
+栈溢出发生在函数使用超过分配的栈空间时，通常发生在深度递归或大数组分配的场景中。模拟器可以通过以下方式检测：
+
+**方式1：监控未映射内存访问**
+
+当栈指针超出栈区域时，后续的内存访问会触发未映射错误：
+
+```python
+unmapped_accesses = []
+
+def detect_stack_overflow(emu, access, address, size, value, user_data):
+    # 检查地址是否在栈区域附近
+    sp = emu.get_sp()
+    stack_base = 0x7fff0000  # 栈底地址
+    
+    if address < stack_base and address > stack_base - 0x1000000:
+        print(f"Potential stack overflow at 0x{address:x}")
+        unmapped_accesses.append(address)
+    return True
+
+emu.hook_memory(detect_stack_overflow, mem_type="unmapped")
+
+try:
+    result = emu.call(func_va, 100)  # 深度递归
+except EmulationError as e:
+    print(f"Stack overflow detected: {e}")
+
+print(f"Total unmapped accesses: {len(unmapped_accesses)}")
+```
+
+**方式2：监控栈指针变化**
+
+通过代码 hook 监控栈指针，检测异常下降：
+
+```python
+sp_values = []
+
+def monitor_stack(emu, address, size, user_data):
+    sp = emu.get_sp()
+    sp_values.append(sp)
+    
+    # 检测栈指针是否低于某个阈值
+    stack_limit = 0x7ffe0000  # 栈空间下限
+    if sp < stack_limit:
+        print(f"Stack pointer 0x{sp:x} below limit 0x{stack_limit:x}")
+        return False  # 停止执行
+    return True
+
+emu.hook_code(monitor_stack)
+emu.call(func_va, 50)
+
+if sp_values:
+    min_sp = min(sp_values)
+    max_sp = max(sp_values)
+    print(f"Stack grew from 0x{max_sp:x} to 0x{min_sp:x}")
+    print(f"Total stack usage: 0x{max_sp - min_sp:x} bytes")
+```
+
+**方式3：结合异常处理和栈大小限制**
+
+设置合理的栈大小，让 Unicorn 自动捕获溢出：
+
+```python
+# 使用较小的栈空间来快速触发溢出
+emu.setup_stack(stack_size=0x1000)  # 4KB 栈
+
+try:
+    result = emu.call(recursive_func_va, 100)
+    print(f"Result: {result}")
+except EmulationError as e:
+    print(f"Execution error (possibly stack overflow): {e}")
+    print(f"PC: 0x{emu.get_pc():x}")
+```
+
+**实际测试示例：递归函数**
+
+对于一个递归函数，每次递归分配局部数组：
+
+```c
+int recursive_func(int n) {
+    int local_array[1024];  // 每次递归 4KB
+    if (n <= 0) return 0;
+    return n + recursive_func(n - 1);
+}
+```
+
+当使用 1MB 栈空间时，可以安全执行约 256 次递归。使用 4KB 栈空间时，约 1 次递归就会触发栈溢出。
+
+```python
+# 大栈空间 - 可以完成
+emu.setup_stack(stack_size=0x100000)  # 1MB
+result = emu.call(func_va, 100)  # 成功
+
+# 小栈空间 - 触发未映射访问
+emu.setup_stack(stack_size=0x1000)  # 4KB
+result = emu.call(func_va, 100)  # 触发 EmulationError
+```
+
+**最佳实践**
+
+1. **预估栈需求**：分析函数调用深度和局部变量大小
+2. **设置合理栈大小**：通常 1MB-4MB 足够大多数函数
+3. **监控异常**：使用 `hook_memory(..., mem_type="unmapped")` 捕获溢出
+4. **调试时使用小栈**：快速发现潜在的栈溢出问题
+
 ## 相关文档
 
 - [Unicorn 官方文档](https://unicorn-engine.org/)
