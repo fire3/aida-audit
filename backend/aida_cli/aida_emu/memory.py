@@ -33,6 +33,12 @@ class MemoryMapper:
             aligned_size = ((size + (va - aligned_va) + 0xFFF) & ~0xFFF)
             
             if va in self._mapped_regions:
+                if content:
+                    offset = va - aligned_va
+                    try:
+                        self.uc.mem_write(aligned_va + offset, content[:size])
+                    except unicorn.UcError as e:
+                        print(f"[DEBUG] memory.map: failed to write content: {e}")
                 return True
             
             if self.is_mapped(aligned_va):
@@ -57,8 +63,8 @@ class MemoryMapper:
                 offset = va - aligned_va
                 try:
                     self.uc.mem_write(aligned_va + offset, content[:size])
-                except unicorn.UcError:
-                    pass
+                except unicorn.UcError as e:
+                    print(f"[DEBUG] memory.map: failed to write content: {e}")
             
             self._mapped_regions[va] = {
                 "id": self._next_map_id,

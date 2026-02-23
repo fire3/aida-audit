@@ -229,22 +229,24 @@ class AidaEmulator:
     
     def _init_got(self, db: DbLoader, segments: List[Dict[str, Any]]):
         got_seg = None
-        plt_seg = None
+        plt_segs = []
         for seg in segments:
-            if seg["name"] == ".got":
+            if seg["name"] == ".got" or seg["name"] == ".got.plt":
                 got_seg = seg
-            elif seg["name"] == ".plt":
-                plt_seg = seg
+            elif seg["name"] in (".plt", ".plt.sec", ".plt.got"):
+                plt_segs.append(seg)
         
-        if not got_seg or not plt_seg:
+        if not got_seg or not plt_segs:
             return
         
         import_funcs = db.get_imports() if hasattr(db, 'get_imports') else []
         
         got_start = got_seg["start_va"]
         got_size = got_seg["size"]
-        plt_start = plt_seg["start_va"]
-        plt_size = plt_seg["end_va"] - plt_seg["start_va"]
+        
+        plt_start = min(seg["start_va"] for seg in plt_segs)
+        plt_end = max(seg["end_va"] for seg in plt_segs)
+        plt_size = plt_end - plt_start
         
         resolved_count = 0
         
@@ -285,7 +287,7 @@ class AidaEmulator:
             print(f"Initialized {resolved_count} GOT entries")
         
         self.plt_start = plt_start
-        self.plt_end = plt_seg["end_va"]
+        self.plt_end = plt_end
         self.got_start = got_start
         self.got_size = got_size
         
@@ -295,25 +297,18 @@ class AidaEmulator:
         if not self.plt_start or not self.got_start:
             return
         
-        imports = db.get_imports() if hasattr(db, 'get_imports') else []
+        funcs = db.load_functions() if hasattr(db, 'load_functions') else []
         
-        plt_size = self.plt_end - self.plt_start
-        num_plt_entries = plt_size // 16
-        
-        import_funcs = []
-        for imp in imports:
-            name = imp.get("name", "")
-            if name.endswith("@plt"):
-                import_funcs.append(name[:-4])
-            elif "@" in name:
-                import_funcs.append(name.split("@")[0])
-            else:
-                import_funcs.append(name)
-        
-        for i in range(1, min(num_plt_entries, len(import_funcs))):
-            plt_entry_addr = self.plt_start + i * 16
-            func_name = import_funcs[i - 1] if i - 1 < len(import_funcs) else f"unknown_{i}"
-            self._plt_to_func[plt_entry_addr] = func_name
+        for func in funcs:
+            name = func.get("name", "")
+            va = func.get("va", 0)
+            if va >= self.plt_start and va < self.plt_end:
+                if '@plt' in name:
+                    clean_name = name.replace('@plt', '')
+                else:
+                    clean_name = name
+                plt_entry = va & ~0xF
+                self._plt_to_func[plt_entry] = clean_name
         
         if self._plt_to_func:
             print(f"Mapped {len(self._plt_to_func)} PLT entries to function names")
@@ -326,43 +321,51 @@ class AidaEmulator:
     def get_plt_function_name(self, addr: int) -> Optional[str]:
         plt_entry = addr & ~0xF
         if plt_entry in self._plt_to_func:
-            return self._plt_to_func[plt_entry]
+            name = self._plt_to_func[plt_entry]
+            if name.startswith('.'):
+                name = name[1:]
+            return name
         
         for plt_addr, name in self._plt_to_func.items():
             if plt_addr <= addr < plt_addr + 16:
+                if name.startswith('.'):
+                    name = name[1:]
                 return name
         
         return None
 
-    def enable_plt_hooks(self, callback: Optional[Callable[["AidaEmulator", int, str], Any]] = None):
+    def enable_plt_hooks(self, callback: Optional[Callable[["AidaEmulator", int, str], Any]] = None, verbose: bool = True):
         if self._plt_hook_setup:
             return
         
         self._plt_hook_callback = callback
-        hooked_functions: set = set()
+        self._plt_verbose = verbose
+        self._hooked_functions: set = set()
         
         def plt_hook(emu: "AidaEmulator", address: int, size: int, user_data: Any):
-            if not emu.is_plt_address(address):
+            is_plt = emu.is_plt_address(address)
+            if not is_plt:
                 return True
             
             func_name = emu.get_plt_function_name(address)
             if not func_name:
                 return True
             
-            if func_name not in hooked_functions:
-                print(f"\n{'='*60}")
-                print(f"[PLT HOOK] Function call intercepted at 0x{address:x}")
-                print(f"{'='*60}")
-                print(f"  Target function: {func_name}")
-                print(f"")
-                print(f"  To handle this call, you need to:")
-                print(f"    emu.hook_libc('{func_name}', <handler_address>)")
-                print(f"  Or provide a custom implementation that returns a value")
-                print(f"{'='*60}\n")
-                hooked_functions.add(func_name)
-                
-                if emu._plt_hook_callback:
-                    emu._plt_hook_callback(emu, address, func_name)
+            if func_name not in emu._hooked_functions:
+                if emu._plt_verbose:
+                    print(f"\n{'='*60}")
+                    print(f"[PLT HOOK] Function call intercepted at 0x{address:x}")
+                    print(f"{'='*60}")
+                    print(f"  Target function: {func_name}")
+                    print(f"")
+                    print(f"  To handle this call, you need to:")
+                    print(f"    emu.hook_libc('{func_name}', <handler_address>)")
+                    print(f"  Or provide a custom implementation that returns a value")
+                    print(f"{'='*60}\n")
+                emu._hooked_functions.add(func_name)
+            
+            if emu._plt_hook_callback:
+                emu._plt_hook_callback(emu, address, func_name)
             
             return True
         
@@ -504,15 +507,18 @@ class AidaEmulator:
             if not emu.libc.is_enabled():
                 return
             
-            registered_addr = emu.libc.libc.get_address_by_name(func_name.lower())
-            if registered_addr is not None:
-                result = emu.libc.libc.execute(func_name.lower())
-                if result is not None:
-                    emu.regs.set_ret_value(result)
-                    emu._libc_intercepted = True
-                    emu.set_pc(address + 4)
+            result = emu.libc.libc.execute(func_name.lower())
+            if result is not None:
+                emu.regs.set_ret_value(result)
+                emu._libc_intercepted = True
+                ret_addr = emu.regs.get_reg("rsp")
+                try:
+                    actual_ret = emu.mem.read_u64(ret_addr)
+                    emu.set_pc(actual_ret)
+                except:
+                    emu.set_pc(address + 16)
         
-        self.enable_plt_hooks(callback=plt_libc_callback)
+        self.enable_plt_hooks(callback=plt_libc_callback, verbose=False)
     
     def _resolve_call_target(self, address: int) -> Optional[int]:
         if not self.db:
