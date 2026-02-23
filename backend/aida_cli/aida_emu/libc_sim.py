@@ -119,7 +119,7 @@ class LibcSimulator:
             return 0
         data = self.emu.mem.read(src_addr, n)
         if data:
-            self.emu.mem.write(dest_addr, data)
+            self.emu.mem.write(dest_addr, bytes(data))
         return dest_addr
     
     def _memset(self) -> int:

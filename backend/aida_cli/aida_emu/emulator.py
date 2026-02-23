@@ -301,22 +301,22 @@ class AidaEmulator:
         call_target_cache = {}
         
         def libc_call_hook(emu, address, size, user_data):
-            if not self.libc.is_enabled():
+            if not emu.libc.is_enabled():
                 return True
             
             if address not in call_target_cache:
-                call_target_cache[address] = self._resolve_call_target(address)
+                call_target_cache[address] = emu._resolve_call_target(address)
             
             target_addr = call_target_cache[address]
             
             if target_addr:
-                name = self.libc.libc.get_name_by_address(target_addr)
+                name = emu.libc.libc.get_name_by_address(target_addr)
                 if name:
-                    result = self.libc.libc.execute(name)
+                    result = emu.libc.libc.execute(name)
                     emu.regs.set_ret_value(result)
+                    emu._libc_intercepted = True
                     emu.set_pc(address + size)
-                    return False
-            
+                    return True
             return True
         
         self.hook_code(libc_call_hook)
@@ -422,9 +422,11 @@ class AidaEmulator:
     def call(self, func_va: int, *args) -> int:
         self.detect_convention(func_va)
         
-        ret_addr = 0xdeadbeef
-        
         sp = self.get_sp()
+        
+        ret_addr = 0x41414141
+        
+        self.mem.map("call_ret", ret_addr, 0x1000, True, True, False, b"\xf4" * 0x1000)
         self.mem.write_u64(sp, ret_addr)
         self.set_sp(sp - 8)
         
@@ -432,12 +434,19 @@ class AidaEmulator:
         
         self.set_pc(func_va)
         
+        self._libc_intercepted = False
+        self._call_return_addr = ret_addr
+        
         try:
             self.run(start=func_va)
         except EmulationError:
             pass
         
-        return self.regs.get_ret_value(signed=True) or 0
+        if self._libc_intercepted:
+            return self.regs.get_ret_value(signed=True) or 0
+        
+        result = self.regs.get_ret_value(signed=True)
+        return result if result is not None else 0
 
     def read_memory(self, va: int, size: int) -> Optional[bytes]:
         return self.mem.read(va, size)

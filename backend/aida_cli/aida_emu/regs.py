@@ -223,8 +223,10 @@ class Regs:
             if value >= 0x8000000000000000:
                 return value - 0x10000000000000000
         elif bits == 32:
-            if value >= 0x80000000:
-                return value - 0x100000000
+            low_32 = value & 0xFFFFFFFF
+            if low_32 >= 0x80000000:
+                return low_32 - 0x100000000
+            return low_32
         elif bits == 16:
             if value >= 0x8000:
                 return value - 0x10000
