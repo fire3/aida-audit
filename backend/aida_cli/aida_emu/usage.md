@@ -598,6 +598,157 @@ rsp = emu.get_sp()
 pc = emu.get_pc()
 ```
 
+### Q: Hook 返回值 True 和 False 有什么区别？
+
+Hook 回调的返回值控制 Unicorn 的执行流程：
+
+- **返回 `True`**: 继续执行，不改变执行流程
+- **返回 `False`**: 停止执行（unicorn 会终止 emu_start）
+
+注意：当在 hook 中调用 `emu.set_pc()` 跳过某些指令后，必须返回 `True` 让 Unicorn 继续从新地址执行，否则会直接停止。
+
+```python
+def my_call_hook(emu, address, size, user_data):
+    # 拦截并模拟函数调用
+    result = emulate_libc_function(emu)
+    emu.regs.set_ret_value(result)  # 设置返回值
+    
+    # 跳过 call 指令，继续执行
+    emu.set_pc(address + size)
+    return True  # 必须返回 True 继续执行
+```
+
+### Q: 32位有符号返回值如何正确获取？
+
+当函数返回 32 位有符号整数（如 C 语言的 `int`）时，直接读取 64 位寄存器会得到零扩展的值。正确做法是使用 `signed=True`：
+
+```python
+result = emu.regs.get_ret_value(signed=True)
+
+# 如果返回 -1，get_ret_value(signed=False) 会得到 0xFFFFFFFF
+# get_ret_value(signed=True) 会正确得到 -1
+```
+
+### Q: 动态链接程序中的 libc 函数调用如何处理？
+
+动态链接的程序通过 PLT (Procedure Linkage Table) 调用 libc 函数。模拟时需要：
+
+1. 找到 PLT 中目标函数的地址
+2. 使用 libc hook 拦截并模拟
+
+```python
+# 从数据库查找 PLT 函数
+for func in emu.db.load_functions():
+    if "strlen@plt" in func.get("name", ""):
+        emu.hook_libc("strlen", func["va"])
+        break
+```
+
+### Q: Hook 中读取的寄存器值不正确？
+
+在代码 hook 中读取寄存器时，需要注意 hook 触发的时机：
+
+- Hook 在每条指令**执行前**触发
+- 此时寄存器状态是**执行该指令之前**的状态
+- 对于 `call` 指令，参数已在寄存器中
+
+```python
+def call_hook(emu, address, size, user_data):
+    # 读取当前指令地址的参数（在 call 执行前，参数已在寄存器）
+    arg0 = emu.regs.get_arg(0)
+    arg1 = emu.regs.get_arg(1)
+    print(f"Calling with args: {arg0}, {arg1}")
+    return True
+```
+
+### Q: 写入负数到内存时 OverflowError？
+
+`write_u32` 等方法只支持无符号整数。写入有符号负数需要转换：
+
+```python
+# 错误方式
+emu.mem.write_u32(address, -5)  # OverflowError
+
+# 正确方式：转换为字节
+emu.mem.write(address, (-5).to_bytes(4, 'little', signed=True))
+
+# 或使用 bytes() 包装 bytearray
+data = emu.mem.read(src, n)
+emu.mem.write(dest, bytes(data))  # 转换 bytearray 为 bytes
+```
+
+### Q: 如何在 Hook 中获取累积的数据？
+
+使用可变容器（如 list 或 dict）存储 hook 捕获的数据：
+
+```python
+executed_addrs = []
+
+def code_hook(emu, address, size, user_data):
+    executed_addrs.append(address)
+    return True
+
+emu.hook_code(code_hook)
+emu.call(func_va, arg1, arg2)
+
+# hook 执行后，executed_addrs 中包含了所有执行过的地址
+print(f"Executed {len(executed_addrs)} instructions")
+```
+
+### Q: 如何测试整个程序（main 函数）？
+
+测试 main 函数时，需要考虑它通常接受 `argc` 和 `argv` 参数：
+
+```python
+func = emu.db.find_function("main")
+assert func is not None
+
+# main 函数签名: int main(int argc, char** argv)
+result = emu.call(func["va"], 1, 0)  # argc=1, argv=NULL
+
+# main 返回值通常是程序退出码
+# 注意：有些架构下返回值会被截断
+exit_code = result & 0xFF  # 取低 8 位
+```
+
+### Q: 运行复杂函数时遇到无限循环怎么办？
+
+设置执行限制防止卡死：
+
+```python
+# 方式1：设置指令数上限
+try:
+    emu.run(start=func_va, count=100000)  # 最多执行 10 万条指令
+except EmulationError:
+    print("Execution limit exceeded")
+
+# 方式2：设置超时
+try:
+    emu.run(start=func_va, timeout=5000)  # 5 秒超时
+except EmulationError:
+    print("Timeout")
+
+# 方式3：在 hook 中检测循环并终止
+loop_count = {}
+def detect_loop(emu, address, size, user_data):
+    loop_count[address] = loop_count.get(address, 0) + 1
+    if loop_count[address] > 10000:  # 同一地址执行超过 10000 次
+        print(f"Infinite loop detected at 0x{address:x}")
+        return False  # 停止执行
+    return True
+
+emu.hook_code(detect_loop)
+```
+
+### Q: 栈空间不足导致崩溃？
+
+复杂函数可能需要更大的栈空间：
+
+```python
+# 分配更大的栈
+emu.setup_stack(stack_size=0x400000)  # 4MB 栈
+```
+
 ## 相关文档
 
 - [Unicorn 官方文档](https://unicorn-engine.org/)
