@@ -35,10 +35,13 @@ class HookHandle:
 
 
 class CodeHook:
-    def __init__(self, uc: Optional["unicorn.Uc"], callback: Callable, user_data: Any = None):
+    def __init__(self, uc: Optional["unicorn.Uc"], callback: Callable, user_data: Any = None, 
+                 begin: int = 1, end: int = 0):
         self.uc = uc
         self.callback = callback
         self.user_data = user_data
+        self.begin = begin
+        self.end = end
         self.handle: Optional[HookHandle] = None
 
     def register(self) -> bool:
@@ -46,7 +49,8 @@ class CodeHook:
             return False
         try:
             self._hook_callback = self._wrap_callback(self.callback)
-            hook_id = self.uc.hook_add(unicorn.UC_HOOK_CODE, self._hook_callback, self.user_data)
+            hook_id = self.uc.hook_add(unicorn.UC_HOOK_CODE, self._hook_callback, self.user_data, 
+                                       self.begin, self.end)
             self.handle = HookHandle(hook_id, HookType.CODE)
             return True
         except unicorn.UcError:
@@ -176,8 +180,9 @@ class HookManager:
         self.uc = uc
         self._hooks: List[HookHandle] = []
 
-    def add_code_hook(self, callback: Callable, user_data: Any = None) -> Optional[HookHandle]:
-        hook = CodeHook(self.uc, callback, user_data)
+    def add_code_hook(self, callback: Callable, user_data: Any = None, 
+                      begin: int = 1, end: int = 0) -> Optional[HookHandle]:
+        hook = CodeHook(self.uc, callback, user_data, begin, end)
         if hook.register():
             self._hooks.append(hook.handle)
             return hook.handle

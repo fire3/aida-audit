@@ -52,11 +52,81 @@ class AidaEmulator:
         self.plt_end: Optional[int] = None
         self.got_start: Optional[int] = None
         self.got_size: Optional[int] = None
-        self._plt_to_func: Dict[int, str] = {}
-        self._plt_hook_setup: bool = False
-        self._plt_hook_callback: Optional[Callable] = None
+        
+        self._external_hooks_map: Dict[int, str] = {}
+        self._external_hook_handle = None
         
         self.libc = LibcHookManager(self)
+        
+        if self.arch == "x86_64":
+            self._setup_linux_tls()
+        elif self.arch == "x86_32":
+            self._setup_linux_tls()
+        elif self.arch == "arm":
+            self._setup_linux_tls_arm()
+        elif self.arch == "arm64":
+            self._setup_linux_tls_arm64()
+
+    def _setup_linux_tls(self):
+        try:
+            # Allocate TLS memory manually to avoid heap dependency this early
+            tls_addr = 0x500000
+            self.mem.map("tls", tls_addr, 0x1000, True, True, False)
+            
+            # Initialize canary at offset 0x28 (x86_64) or 0x14 (x86_32)
+            # We use a fixed value for reproducibility
+            canary = 0xDEADBEEFCAFEBABE
+            
+            if self.arch == "x86_64":
+                # Set FS base
+                self.uc.reg_write(unicorn.x86_const.UC_X86_REG_FS_BASE, tls_addr)
+                self.mem.write_u64(tls_addr + 0x28, canary)
+            elif self.arch == "x86_32":
+                # For x86_32, we need to set up a GDT entry for GS
+                # But Unicorn doesn't fully support segment registers in user mode easily
+                # A common workaround is to map the TLS address to where GS points?
+                # Actually Unicorn DOES support setting GS_BASE on some versions, but let's try
+                # to just set the register if possible.
+                # Note: UC_X86_REG_GS_BASE might not be available or effective in 32-bit mode
+                # depending on Unicorn version and mode.
+                # Simpler approach: many 32-bit Linux binaries access GS:0x14 for canary.
+                # If we can't set GS base, we might be in trouble.
+                # Let's try setting GS_BASE anyway.
+                try:
+                    self.uc.reg_write(unicorn.x86_const.UC_X86_REG_GS_BASE, tls_addr)
+                except:
+                    pass
+                self.mem.write_u32(tls_addr + 0x14, canary & 0xFFFFFFFF)
+                
+        except Exception as e:
+            print(f"Warning: Failed to setup TLS: {e}")
+
+    def _setup_linux_tls_arm(self):
+        try:
+            tls_addr = 0x500000
+            self.mem.map("tls", tls_addr, 0x1000, True, True, False)
+            # CP15 C13 is Thread ID register
+            # Unicorn maps this to UC_ARM_REG_C13_C0_3
+            self.uc.reg_write(unicorn.arm_const.UC_ARM_REG_C13_C0_3, tls_addr)
+            
+            # Canary is usually at offset 0x14 from TPIDRURW (which is what we set above)
+            canary = 0xDEADBEEF
+            self.mem.write_u32(tls_addr + 0x14, canary)
+        except Exception as e:
+            print(f"Warning: Failed to setup ARM TLS: {e}")
+
+    def _setup_linux_tls_arm64(self):
+        try:
+            tls_addr = 0x500000
+            self.mem.map("tls", tls_addr, 0x1000, True, True, False)
+            # TPIDR_EL0
+            self.uc.reg_write(unicorn.arm64_const.UC_ARM64_REG_TPIDR_EL0, tls_addr)
+            
+            # Canary is at offset 0x28
+            canary = 0xDEADBEEFCAFEBABE
+            self.mem.write_u64(tls_addr + 0x28, canary)
+        except Exception as e:
+            print(f"Warning: Failed to setup ARM64 TLS: {e}")
 
     @classmethod
     def from_database(cls, db_path: str, arch: Optional[str] = None) -> "AidaEmulator":
@@ -93,6 +163,8 @@ class AidaEmulator:
         emu.metadata = metadata
         
         emu._load_segments(db)
+        emu._setup_plt_got_map(db)
+        emu._setup_external_hooks(db)
         
         return emu
 
@@ -229,149 +301,208 @@ class AidaEmulator:
     
     def _init_got(self, db: DbLoader, segments: List[Dict[str, Any]]):
         got_seg = None
-        plt_segs = []
         for seg in segments:
             if seg["name"] == ".got" or seg["name"] == ".got.plt":
                 got_seg = seg
-            elif seg["name"] in (".plt", ".plt.sec", ".plt.got"):
-                plt_segs.append(seg)
+                break
         
-        if not got_seg or not plt_segs:
-            return
-        
-        import_funcs = db.get_imports() if hasattr(db, 'get_imports') else []
-        
-        got_start = got_seg["start_va"]
-        got_size = got_seg["size"]
-        
-        plt_start = min(seg["start_va"] for seg in plt_segs)
-        plt_end = max(seg["end_va"] for seg in plt_segs)
-        plt_size = plt_end - plt_start
-        
-        resolved_count = 0
-        
-        # The GOT structure is:
-        # GOT[0] = resolver address
-        # GOT[1..n] = addresses of imported functions
-        # 
-        # PLT entries are at plt_start + i*16
-        # Each PLT[i] should have GOT[i+1] point to the function address
-        #
-        # For unresolved symbols, GOT[i+1] should point to PLT[i] (to jump to resolver)
-        # For resolved symbols, GOT[i+1] should point to the actual function address
-        
-        # We need to figure out which GOT entry corresponds to which import
-        # The import "address" field seems to be the address in the binary where the
-        # pointer to the function is stored, not the GOT offset
-        
-        # Let's use a simpler approach: iterate through PLT entries and set up
-        # the corresponding GOT entries
-        
-        # First, compute how many PLT entries we have
-        num_plt_entries = plt_size // 16
-        
-        # Check if there's a symbol table that maps PLT to imports
-        # Otherwise, we'll just leave GOT entries pointing to PLT stubs
-        
-        # Initialize all GOT entries (except GOT[0]) to point to their PLT entries
-        for i in range(1, num_plt_entries):
-            got_addr = got_start + i * 4
-            plt_entry_addr = plt_start + i * 16
+        if got_seg:
+            self.got_start = got_seg["start_va"]
+            self.got_size = got_seg["size"]
             
-            if got_start <= got_addr < got_start + got_size:
-                # Write PLT entry address to GOT
-                self.mem.write_u32(got_addr, plt_entry_addr)
-                resolved_count += 1
-        
-        if resolved_count > 0:
-            print(f"Initialized {resolved_count} GOT entries")
-        
-        self.plt_start = plt_start
-        self.plt_end = plt_end
-        self.got_start = got_start
-        self.got_size = got_size
-        
-        self._setup_plt_function_map(db)
+    def _get_ret_insn(self) -> bytes:
+        if self.arch == "x86_64":
+            return b"\xC3"  # ret
+        elif self.arch == "x86_32":
+            return b"\xC3"  # ret
+        elif self.arch == "arm":
+            if self.mode == unicorn.UC_MODE_THUMB:
+                return b"\x70\x47"  # bx lr
+            return b"\x1e\xff\x2f\xe1"  # bx lr
+        elif self.arch == "arm64":
+            return b"\xc0\x03\x5f\xd6"  # ret
+        elif self.arch == "mips":
+            return b"\x03\xe0\x00\x08\x00\x00\x00\x00"  # jr ra; nop
+        elif self.arch == "mipsel":
+            return b"\x08\x00\xe0\x03\x00\x00\x00\x00"  # jr ra; nop (check endianness?)
+            # Actually mipsel is little endian, opcode is 0x03e00008.
+            # Little endian bytes: 08 00 e0 03. Correct.
+        return b"\xC3"
 
-    def _setup_plt_function_map(self, db: DbLoader):
-        if not self.plt_start or not self.got_start:
+    def load(self, db: DbLoader):
+        self._load_segments(db)
+        # Then setup PLT map and hooks
+        self._setup_plt_got_map(db)
+        self._setup_external_hooks(db)
+        
+        return self
+
+    def _setup_plt_got_map(self, db: DbLoader):
+        """Analyze PLT to find correct GOT addresses"""
+        self._plt_got_map = {}
+        if not db:
             return
-        
-        funcs = db.load_functions() if hasattr(db, 'load_functions') else []
-        
+            
+        funcs = db.load_functions()
+        # print(f"DEBUG: _setup_plt_got_map scanning {len(funcs)} functions")
         for func in funcs:
             name = func.get("name", "")
-            va = func.get("va", 0)
-            if va >= self.plt_start and va < self.plt_end:
-                if '@plt' in name:
-                    clean_name = name.replace('@plt', '')
-                else:
-                    clean_name = name
-                plt_entry = va & ~0xF
-                self._plt_to_func[plt_entry] = clean_name
-        
-        if self._plt_to_func:
-            print(f"Mapped {len(self._plt_to_func)} PLT entries to function names")
+            
+            # Check if it looks like a PLT function (either ends with @plt or starts with .)
+            if not (name.endswith("@plt") or name.startswith(".")):
+                continue
+                
+            addr = func.get("start_va")
+            if not addr:
+                continue
+            
+            # Clean name for the map key
+            clean_name = name
+            if clean_name.startswith("."):
+                clean_name = clean_name[1:]
+            if clean_name.endswith("@plt"):
+                clean_name = clean_name[:-4]
+            
+            # We map "clean_name@plt" -> got_addr
+            map_key = f"{clean_name}@plt"
+            
+            # Check for x86_64 PLT entry
+            # f3 0f 1e fa (endbr64)
+            # ff 25 xx xx xx xx (jmp *offset(%rip))
+            
+            # Try to read 16 bytes
+            try:
+                data = self.read_memory(addr, 16)
+                if not data:
+                    continue
+                    
+                # Pattern 1: endbr64 + jmp
+                # f3 0f 1e fa ff 25
+                if len(data) >= 10 and data[0:4] == b"\xf3\x0f\x1e\xfa" and data[4:6] == b"\xff\x25":
+                    offset = int.from_bytes(data[6:10], 'little', signed=True)
+                    got_addr = addr + 4 + 6 + offset
+                    self._plt_got_map[map_key] = got_addr
+                
+                # Pattern 2: direct jmp (no endbr64)
+                elif len(data) >= 6 and data[0:2] == b"\xff\x25":
+                    offset = int.from_bytes(data[2:6], 'little', signed=True)
+                    got_addr = addr + 6 + offset
+                    self._plt_got_map[map_key] = got_addr
 
-    def is_plt_address(self, addr: int) -> bool:
-        if self.plt_start is None or self.plt_end is None:
-            return False
-        return self.plt_start <= addr < self.plt_end
+            except Exception:
+                pass
 
-    def get_plt_function_name(self, addr: int) -> Optional[str]:
-        plt_entry = addr & ~0xF
-        if plt_entry in self._plt_to_func:
-            name = self._plt_to_func[plt_entry]
-            if name.startswith('.'):
-                name = name[1:]
-            return name
-        
-        for plt_addr, name in self._plt_to_func.items():
-            if plt_addr <= addr < plt_addr + 16:
-                if name.startswith('.'):
-                    name = name[1:]
-                return name
-        
-        return None
-
-    def enable_plt_hooks(self, callback: Optional[Callable[["AidaEmulator", int, str], Any]] = None, verbose: bool = True):
-        if self._plt_hook_setup:
+    def _setup_external_hooks(self, db: DbLoader):
+        if not hasattr(db, 'get_imports'):
             return
+            
+        imports = db.get_imports()
+        if not imports:
+            return
+            
+        # Find a suitable region for external hooks
+        # We use a high address to avoid conflicts
+        base_addr = 0xAA000000
         
-        self._plt_hook_callback = callback
-        self._plt_verbose = verbose
-        self._hooked_functions: set = set()
+        # Calculate size needed
+        # 16 bytes per hook is enough (we just need space for RET and maybe some padding)
+        size = (len(imports) * 16 + 0xFFF) & ~0xFFF
         
-        def plt_hook(emu: "AidaEmulator", address: int, size: int, user_data: Any):
-            is_plt = emu.is_plt_address(address)
-            if not is_plt:
-                return True
+        try:
+            # Map the region
+            # We map it as RX (Read/Execute)
+            self.uc.mem_map(base_addr, size, unicorn.UC_PROT_READ | unicorn.UC_PROT_EXEC)
             
-            func_name = emu.get_plt_function_name(address)
-            if not func_name:
-                return True
+            # Fill with RET instructions
+            ret_insn = self._get_ret_insn()
+            full_content = b""
+            for _ in range(len(imports)):
+                padding = b"\x00" * (16 - len(ret_insn))
+                full_content += ret_insn + padding
             
-            if func_name not in emu._hooked_functions:
-                if emu._plt_verbose:
-                    print(f"\n{'='*60}")
-                    print(f"[PLT HOOK] Function call intercepted at 0x{address:x}")
-                    print(f"{'='*60}")
-                    print(f"  Target function: {func_name}")
-                    print(f"")
-                    print(f"  To handle this call, you need to:")
-                    print(f"    emu.hook_libc('{func_name}', <handler_address>)")
-                    print(f"  Or provide a custom implementation that returns a value")
-                    print(f"{'='*60}\n")
-                emu._hooked_functions.add(func_name)
+            # Pad the rest of the page
+            remaining = size - len(full_content)
+            if remaining > 0:
+                full_content += b"\x00" * remaining
+                
+            self.uc.mem_write(base_addr, full_content)
             
-            if emu._plt_hook_callback:
-                emu._plt_hook_callback(emu, address, func_name)
+            hook_count = 0
+            ptr_size = 8 if "64" in self.arch or self.arch == "arm64" else 4
             
+            for i, imp in enumerate(imports):
+                name = imp["name"]
+                got_addr = imp["address"]
+                
+                # Clean name
+                clean_name = name
+                if "@" in clean_name:
+                    clean_name = clean_name.split("@")[0]
+                if clean_name.startswith("."):
+                    clean_name = clean_name[1:]
+                
+                # Check for PLT override
+                plt_name = f"{clean_name}@plt"
+                if plt_name in self._plt_got_map:
+                     got_addr = self._plt_got_map[plt_name]
+
+                if got_addr == 0:
+                    continue
+                
+                hook_addr = base_addr + i * 16
+                if self.arch == "arm" and self.mode == unicorn.UC_MODE_THUMB:
+                    hook_addr |= 1
+                
+                # Write hook address to GOT
+                try:
+                    # Verify GOT address is writable
+                    # self.write_ptr might fail if memory is not mapped, but GOT should be mapped
+                    self.write_ptr(got_addr, hook_addr, ptr_size)
+                    
+                    self._external_hooks_map[hook_addr] = clean_name
+                    self.libc.register_address(clean_name, hook_addr)
+                    hook_count += 1
+                except unicorn.UcError:
+                    pass
+            
+            if hook_count > 0:
+                print(f"Set up {hook_count} external function hooks at 0x{base_addr:x}")
+                
+                # Register code hook for this region
+                def external_hook_cb(uc, address, size, user_data):
+                    return self._external_hook_callback(uc, address, size, user_data)
+                
+                self._external_hook_handle = self.hooks.add_code_hook(
+                    external_hook_cb, 
+                    begin=base_addr, 
+                    end=base_addr + size
+                )
+                
+        except unicorn.UcError as e:
+            print(f"Failed to setup external hooks: {e}")
+
+    def _external_hook_callback(self, uc, address, size, user_data):
+        # Align address to find the entry point
+        # Our entries are 16 bytes aligned
+        base_hook_addr = address & ~0xF
+        
+        func_name = self._external_hooks_map.get(base_hook_addr)
+        if not func_name:
+            # Maybe we are inside the 16-byte block but not at start?
+            # Or address is exactly what we mapped
+            func_name = self._external_hooks_map.get(address)
+            
+        if not func_name:
             return True
-        
-        self.hook_code(plt_hook)
-        self._plt_hook_setup = True
-        print("PLT hooks enabled - will intercept all PLT calls")
+            
+        # Try to execute libc handler
+        if self.libc.is_enabled():
+            result = self.libc.libc.execute(func_name)
+            if result is not None:
+                self.regs.set_ret_value(result)
+                self._libc_intercepted = True
+                
+        return True
 
     def setup_stack(self, stack_va: Optional[int] = None, stack_size: int = 0x100000) -> int:
         if stack_va is None:
@@ -503,22 +634,10 @@ class AidaEmulator:
         
         self._libc_auto_hook_setup = True
         
-        def plt_libc_callback(emu: "AidaEmulator", address: int, func_name: str):
-            if not emu.libc.is_enabled():
-                return
-            
-            result = emu.libc.libc.execute(func_name.lower())
-            if result is not None:
-                emu.regs.set_ret_value(result)
-                emu._libc_intercepted = True
-                ret_addr = emu.regs.get_reg("rsp")
-                try:
-                    actual_ret = emu.mem.read_u64(ret_addr)
-                    emu.set_pc(actual_ret)
-                except:
-                    emu.set_pc(address + 16)
-        
-        self.enable_plt_hooks(callback=plt_libc_callback, verbose=False)
+        # In new mechanism, libc hooking is enabled via external hooks by default.
+        # We just need to ensure libc hooks are enabled.
+        if not self.libc.is_enabled():
+            self.libc.enable()
     
     def _resolve_call_target(self, address: int) -> Optional[int]:
         if not self.db:
@@ -712,6 +831,9 @@ class AidaEmulator:
         self.close()
         return False
 
+
+class EmulationError(Exception):
+    pass
 
 class EmulationError(Exception):
     pass
