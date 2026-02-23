@@ -1,0 +1,334 @@
+from typing import Optional, Callable, Any, Dict, List
+import os
+
+try:
+    import unicorn
+    UNICORN_AVAILABLE = True
+except ImportError:
+    UNICORN_AVAILABLE = False
+
+from .db_loader import DbLoader
+from .regs import Regs
+from .memory import MemoryMapper
+from .call_conv import CallConvention, detect_call_convention, get_default_convention
+from .hooks import HookManager
+
+
+class AidaEmulator:
+    def __init__(self, arch: str = "x86_64", mode: int = 0, db_path: Optional[str] = None):
+        self.arch = arch
+        self.mode = mode
+        self.db_path = db_path
+        self.db: Optional[DbLoader] = None
+        self.metadata: Dict[str, Any] = {}
+        
+        self.uc = None
+        if UNICORN_AVAILABLE:
+            self.uc = unicorn.Uc(arch, mode)
+        
+        self.regs = Regs(self.uc, arch, mode)
+        self.mem = MemoryMapper(self.uc)
+        self.hooks = HookManager(self.uc)
+        
+        self._running = False
+        self._entry_point: Optional[int] = None
+        self._end_address: Optional[int] = None
+        self._timeout: int = 0
+        self._count: int = 0
+        
+        self._call_convention: Optional[CallConvention] = None
+        self._stack_va: Optional[int] = None
+        self._heap_va: Optional[int] = None
+        
+        if db_path:
+            self.load_from_database(db_path)
+
+    @classmethod
+    def from_database(cls, db_path: str, arch: Optional[str] = None) -> "AidaEmulator":
+        db = DbLoader(db_path)
+        db.connect()
+        
+        metadata = db.load_metadata()
+        
+        if not arch:
+            arch_str = metadata.get("arch", "64-bit").lower()
+            processor = metadata.get("processor", "").lower()
+            
+            if "64-bit" in arch_str:
+                if "aarch64" in processor or "arm64" in processor:
+                    arch = "arm64"
+                else:
+                    arch = "x86_64"
+            else:
+                if "arm" in processor:
+                    arch = "arm"
+                elif "mips" in processor:
+                    is_be = metadata.get("endian", "").lower() == "big endian"
+                    arch = "mips" if is_be else "mipsel"
+                else:
+                    arch = "x86_32"
+        
+        mode = 0
+        if arch == "arm_thumb":
+            mode = unicorn.UC_MODE_THUMB
+            arch = "arm"
+        
+        emu = cls(arch, mode, db_path)
+        emu.db = db
+        emu.metadata = metadata
+        
+        emu._load_segments(db)
+        
+        return emu
+
+    def _load_segments(self, db: DbLoader):
+        segments = db.load_segments()
+        
+        for seg in segments:
+            content = db.load_segment_content(seg["seg_id"])
+            self.mem.map_segment(
+                name=seg["name"],
+                start_va=seg["start_va"],
+                end_va=seg["end_va"],
+                perm_r=seg["perm_r"],
+                perm_w=seg["perm_w"],
+                perm_x=seg["perm_x"],
+                content=content
+            )
+
+    def setup_stack(self, stack_va: Optional[int] = None, stack_size: int = 0x100000) -> int:
+        if stack_va is None:
+            if self.arch == "x86_64":
+                stack_va = 0x7fff_0000
+            elif self.arch == "x86_32":
+                stack_va = 0x7fff_0000
+            elif self.arch in ("arm", "arm64"):
+                stack_va = 0x7fff_f000
+            else:
+                stack_va = 0x7fff_0000
+        
+        self._stack_va = self.mem.allocate_stack(stack_va, stack_size)
+        self.regs.set_sp(self._stack_va + stack_size - 8)
+        
+        return self._stack_va
+
+    def setup_heap(self, heap_va: Optional[int] = None, heap_size: int = 0x100000) -> int:
+        if heap_va is None:
+            if self.arch == "x86_64":
+                heap_va = 0x600000
+            elif self.arch == "x86_32":
+                heap_va = 0x400000
+            else:
+                heap_va = 0x600000
+        
+        self._heap_va = self.mem.allocate_heap(heap_va, heap_size)
+        
+        return self._heap_va
+
+    def set_pc(self, address: int):
+        self._entry_point = address
+        self.regs.set_pc(address)
+
+    def get_pc(self) -> int:
+        return self.regs.get_pc() or 0
+
+    def set_sp(self, value: int):
+        self.regs.set_sp(value)
+
+    def get_sp(self) -> int:
+        return self.regs.get_sp() or 0
+
+    def set_reg(self, name: str, value: int):
+        self.regs.set_reg(name, value)
+
+    def get_reg(self, name: str) -> int:
+        return self.regs.get_reg(name) or 0
+
+    def set_arg(self, index: int, value: int):
+        if self._call_convention:
+            if index < len(self._call_convention.args):
+                self.regs.set_reg(self._call_convention.args[index], value)
+            else:
+                sp = self.get_sp()
+                offset = 8 + (index - len(self._call_convention.args)) * 8
+                self.mem.write_u64(sp + offset, value)
+        else:
+            self.regs.set_arg(index, value)
+
+    def set_args(self, *args):
+        for i, arg in enumerate(args):
+            self.set_arg(i, arg)
+
+    def detect_convention(self, func_va: int) -> CallConvention:
+        if self.db:
+            self._call_convention = detect_call_convention(self.db, func_va, self.arch)
+        else:
+            self._call_convention = get_default_convention(self.arch)
+        return self._call_convention
+
+    def get_convention(self) -> Optional[CallConvention]:
+        return self._call_convention
+
+    def hook_code(self, callback: Callable, user_data: Any = None) -> bool:
+        def wrapped(uc, address, size, user_data):
+            return callback(self, address, size, user_data)
+        
+        return self.hooks.add_code_hook(wrapped, user_data) is not None
+
+    def hook_block(self, callback: Callable, user_data: Any = None) -> bool:
+        def wrapped(uc, address, size, user_data):
+            return callback(self, address, size, user_data)
+        
+        return self.hooks.add_block_hook(wrapped, user_data) is not None
+
+    def hook_memory(self, callback: Callable, 
+                    mem_type: str = "all", user_data: Any = None) -> bool:
+        def wrapped(uc, access, address, size, value, user_data):
+            return callback(self, access, address, size, value, user_data)
+        
+        from .hooks import MEMORY_HOOK_TYPES
+        hook_type = MEMORY_HOOK_TYPES.get(mem_type, 0)
+        
+        return self.hooks.add_memory_hook(wrapped, hook_type, user_data) is not None
+
+    def hook_interrupt(self, callback: Callable, user_data: Any = None) -> bool:
+        def wrapped(uc, intno, user_data):
+            return callback(self, intno, user_data)
+        
+        return self.hooks.add_interrupt_hook(wrapped, user_data) is not None
+
+    def run(self, start: Optional[int] = None, end: Optional[int] = None, 
+            timeout: int = 0, count: int = 0):
+        if not self.uc:
+            raise RuntimeError("Unicorn not available")
+        
+        if start is not None:
+            self.set_pc(start)
+        
+        if end is not None:
+            self._end_address = end
+        
+        self._timeout = timeout
+        self._count = count
+        self._running = True
+        
+        begin = self._entry_point or start
+        if begin is None:
+            raise ValueError("No entry point specified")
+        
+        end_addr = self._end_address
+        
+        try:
+            if end_addr:
+                self.uc.emu_start(begin, end_addr, timeout, count)
+            else:
+                self.uc.emu_start(begin, 0xFFFFFFFFFFFFFFFF, timeout, count)
+        except unicorn.UcError as e:
+            self._running = False
+            raise EmulationError(f"Emulation error: {e}") from e
+        
+        self._running = False
+
+    def stop(self):
+        if self.uc and self._running:
+            self.uc.emu_stop()
+        self._running = False
+
+    def reset(self):
+        self.stop()
+        if self.uc:
+            self.uc = unicorn.Uc(self.regs._reg_info.get("unicorn_arch", unicorn.UC_ARCH_X86),
+                                 self.regs._reg_info.get("unicorn_mode", unicorn.UC_MODE_64))
+            self.regs = Regs(self.uc, self.arch, self.mode)
+            self.mem = MemoryMapper(self.uc)
+            self.hooks = HookManager(self.uc)
+
+    def call(self, func_va: int, *args) -> int:
+        self.detect_convention(func_va)
+        
+        ret_addr = 0xdeadbeef
+        
+        sp = self.get_sp()
+        self.mem.write_u64(sp, ret_addr)
+        self.set_sp(sp - 8)
+        
+        self.set_args(*args)
+        
+        self.set_pc(func_va)
+        
+        try:
+            self.run(start=func_va, end=ret_addr)
+        except EmulationError:
+            pass
+        
+        return self.regs.get_ret_value() or 0
+
+    def read_memory(self, va: int, size: int) -> Optional[bytes]:
+        return self.mem.read(va, size)
+
+    def write_memory(self, va: int, data: bytes) -> bool:
+        return self.mem.write(va, data)
+
+    def read_ptr(self, va: int, size: int = 8) -> Optional[int]:
+        if size == 8:
+            return self.mem.read_u64(va)
+        elif size == 4:
+            return self.mem.read_u32(va)
+        elif size == 2:
+            return self.mem.read_u16(va)
+        elif size == 1:
+            return self.mem.read_u8(va)
+        return None
+
+    def write_ptr(self, va: int, value: int, size: int = 8) -> bool:
+        if size == 8:
+            return self.mem.write_u64(va, value)
+        elif size == 4:
+            return self.mem.write_u32(va, value)
+        elif size == 2:
+            return self.mem.write_u16(va, value)
+        elif size == 1:
+            return self.mem.write_u8(va, value)
+        return False
+
+    def get_stack_value(self, offset: int = 0, size: int = 8) -> Optional[int]:
+        sp = self.get_sp()
+        return self.read_ptr(sp + offset, size)
+
+    def set_stack_value(self, offset: int, value: int, size: int = 8) -> bool:
+        sp = self.get_sp()
+        return self.write_ptr(sp + offset, value, size)
+
+    def get_function(self, va: int) -> Optional[Dict[str, Any]]:
+        if self.db:
+            return self.db.load_function(va)
+        return None
+
+    def get_instructions(self, start_va: int, end_va: int) -> List[Dict[str, Any]]:
+        if self.db:
+            return self.db.load_instructions(start_va, end_va)
+        return []
+
+    def get_call_targets(self, func_va: int) -> List[int]:
+        if self.db:
+            return self.db.load_call_targets(func_va)
+        return []
+
+    def is_running(self) -> bool:
+        return self._running
+
+    def close(self):
+        self.stop()
+        if self.db:
+            self.db.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
+
+class EmulationError(Exception):
+    pass
