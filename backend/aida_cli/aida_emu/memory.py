@@ -32,32 +32,33 @@ class MemoryMapper:
             aligned_va = va & ~0xFFF
             aligned_size = ((size + (va - aligned_va) + 0xFFF) & ~0xFFF)
             
-            if self.is_mapped(aligned_va):
-                if content:
-                    offset = va - aligned_va
-                    try:
-                        self.uc.mem_write(aligned_va + offset, content[:size])
-                    except unicorn.UcError:
-                        pass
-                self._mapped_regions[va] = {
-                    "id": self._next_map_id,
-                    "name": name,
-                    "va": va,
-                    "size": size,
-                    "aligned_va": aligned_va,
-                    "aligned_size": aligned_size,
-                    "read": read,
-                    "write": write,
-                    "execute": execute,
-                }
-                self._next_map_id += 1
+            if va in self._mapped_regions:
                 return True
             
-            self.uc.mem_map(aligned_va, aligned_size, perms)
+            if self.is_mapped(aligned_va):
+                try:
+                    test_read = self.uc.mem_read(aligned_va, 1)
+                except:
+                    self.uc.mem_map(aligned_va, aligned_size, perms)
+                else:
+                    for reg_va, region in list(self._mapped_regions.items()):
+                        if region["aligned_va"] == aligned_va:
+                            existing_end = region["aligned_va"] + region["aligned_size"]
+                            needed_end = aligned_va + aligned_size
+                            if needed_end > existing_end:
+                                self.uc.mem_unmap(region["aligned_va"], region["aligned_size"])
+                                self.uc.mem_map(aligned_va, aligned_size, perms)
+                                del self._mapped_regions[reg_va]
+                            break
+            else:
+                self.uc.mem_map(aligned_va, aligned_size, perms)
             
             if content:
                 offset = va - aligned_va
-                self.uc.mem_write(aligned_va + offset, content[:size])
+                try:
+                    self.uc.mem_write(aligned_va + offset, content[:size])
+                except unicorn.UcError:
+                    pass
             
             self._mapped_regions[va] = {
                 "id": self._next_map_id,
