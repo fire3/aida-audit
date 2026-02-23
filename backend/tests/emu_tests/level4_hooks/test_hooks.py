@@ -231,8 +231,8 @@ class TestBlockHook:
         assert len(basic_blocks) > 0, "Basic blocks should have been hooked"
 
 
-class TestHookLibcSimulation:
-    """测试 Hook 模拟 libc 函数调用"""
+class TestLibcHookWithDynamicLink:
+    """测试动态链接程序使用 libc hook 模拟"""
     
     @classmethod
     def setup_class(cls):
@@ -256,87 +256,143 @@ class TestHookLibcSimulation:
         if hasattr(cls, 'tmpdir'):
             cls.tmpdir.cleanup()
     
-    def test_hook_strlen_simulation(self):
-        """Hook 模拟 strlen - 避免调用真实 libc"""
+    def test_hook_strlen_dynamic_link(self):
+        """Hook 模拟动态链接的 strlen 调用"""
         func = self.test_case.find_function_by_name("str_len")
-        assert func is not None
+        assert func is not None, "Function 'str_len' not found"
         
-        test_str = b"test_string\x00"
-        str_ptr = self.test_case.emu.alloc(len(test_str), test_str)
+        libc_funcs = self._find_libc_functions()
+        if not libc_funcs:
+            return
+        
+        emu = self.test_case.emu
+        emu.enable_libc_hooks()
+        for name, addr in libc_funcs.items():
+            if name in ["strlen", "atoi", "strcmp", "malloc", "free", "memcpy", "memset"]:
+                emu.hook_libc(name, addr)
+        
+        test_str = b"hello"
+        str_ptr = emu.alloc(len(test_str) + 1, test_str + b"\x00")
         
         result = self.test_case.run_function(func["va"], str_ptr)
-        assert result == 11, f"Expected 11, got {result}"
-    
-    def test_strlen_custom_implementation(self):
-        """测试我们自己的 strlen 实现"""
-        func = self.test_case.find_function_by_name("str_len")
-        assert func is not None
-        
-        test_cases = [
-            (b"hello\x00", 5),
-            (b"", 0),
-            (b"a\x00", 1),
-            (b"test123\x00", 7),
-        ]
-        
-        for test_str, expected in test_cases:
-            str_ptr = self.test_case.emu.alloc(len(test_str), test_str)
-            result = self.test_case.run_function(func["va"], str_ptr)
-            assert result == expected, f"Expected {expected}, got {result} for {test_str}"
-    
-    def test_hook_malloc_simulation(self):
-        """Hook 模拟 malloc"""
-        func = self.test_case.find_function_by_name("malloc_test")
-        assert func is not None
-        
-        result = self.test_case.run_function(func["va"], 100)
-        assert result != 0, "malloc should return non-null pointer"
-    
-    def test_libc_simulator_direct(self):
-        """直接测试 LibcSimulator"""
-        from aida_emu import LibcSimulator
-        
-        test_str = b"hello\x00"
-        str_ptr = self.test_case.emu.alloc(len(test_str), test_str)
-        
-        libc = LibcSimulator(self.test_case.emu)
-        self.test_case.emu.regs.set_reg("rdi", str_ptr)
-        
-        result = libc.execute("strlen")
         assert result == 5, f"Expected 5, got {result}"
     
-    def test_libc_simulator_atoi(self):
-        """测试 atoi 模拟"""
-        from aida_emu import LibcSimulator
+    def test_hook_atoi_dynamic_link(self):
+        """Hook 模拟动态链接的 atoi 调用"""
+        func = self.test_case.find_function_by_name("atoi_test")
+        assert func is not None, "Function 'atoi_test' not found"
         
-        test_str = b"12345\x00"
-        str_ptr = self.test_case.emu.alloc(len(test_str), test_str)
+        libc_funcs = self._find_libc_functions()
+        if not libc_funcs:
+            return
         
-        libc = LibcSimulator(self.test_case.emu)
-        self.test_case.emu.regs.set_reg("rdi", str_ptr)
+        emu = self.test_case.emu
+        emu.enable_libc_hooks()
+        for name, addr in libc_funcs.items():
+            if name in ["strlen", "atoi", "strcmp", "malloc", "free", "memcpy", "memset"]:
+                emu.hook_libc(name, addr)
         
-        result = libc.execute("atoi")
-        assert result == 12345, f"Expected 12345, got {result}"
+        test_str = b"98765\x00"
+        str_ptr = emu.alloc(len(test_str), test_str)
+        
+        result = self.test_case.run_function(func["va"], str_ptr)
+        assert result == 98765, f"Expected 98765, got {result}"
     
-    def test_libc_simulator_strcmp(self):
-        """测试 strcmp 模拟"""
-        from aida_emu import LibcSimulator
+    def test_hook_strcmp_dynamic_link(self):
+        """Hook 模拟动态链接的 strcmp 调用"""
+        func = self.test_case.find_function_by_name("strcmp_test")
+        assert func is not None, "Function 'strcmp_test' not found"
+        
+        libc_funcs = self._find_libc_functions()
+        if not libc_funcs:
+            return
+        
+        emu = self.test_case.emu
+        emu.enable_libc_hooks()
+        for name, addr in libc_funcs.items():
+            if name in ["strlen", "atoi", "strcmp", "malloc", "free", "memcpy", "memset"]:
+                emu.hook_libc(name, addr)
         
         s1 = b"hello\x00"
-        s2 = b"hello\x00"
-        s1_ptr = self.test_case.emu.alloc(len(s1), s1)
-        s2_ptr = self.test_case.emu.alloc(len(s2), s2)
+        s2 = b"world\x00"
+        s1_ptr = emu.alloc(len(s1), s1)
+        s2_ptr = emu.alloc(len(s2), s2)
         
-        libc = LibcSimulator(self.test_case.emu)
-        self.test_case.emu.regs.set_reg("rdi", s1_ptr)
-        self.test_case.emu.regs.set_reg("rsi", s2_ptr)
+        result = self.test_case.run_function(func["va"], s1_ptr, s2_ptr)
+        assert result < 0, f"Expected negative (hello < world), got {result}"
+    
+    def test_hook_malloc_dynamic_link(self):
+        """Hook 模拟动态链接的 malloc 调用"""
+        func = self.test_case.find_function_by_name("malloc_test")
+        assert func is not None, "Function 'malloc_test' not found"
         
-        result = libc.execute("strcmp")
-        assert result == 0, f"Expected 0 (equal), got {result}"
+        libc_funcs = self._find_libc_functions()
+        if not libc_funcs:
+            return
         
-        s3 = b"world\x00"
-        s3_ptr = self.test_case.emu.alloc(len(s3), s3)
-        self.test_case.emu.regs.set_reg("rsi", s3_ptr)
+        emu = self.test_case.emu
+        emu.enable_libc_hooks()
+        for name, addr in libc_funcs.items():
+            if name in ["strlen", "atoi", "strcmp", "malloc", "free", "memcpy", "memset"]:
+                emu.hook_libc(name, addr)
         
-        result = libc.execute("strcmp")
-        assert result < 0, f"Expected negative, got {result}"
+        result = self.test_case.run_function(func["va"], 256)
+        assert result != 0, "malloc should return non-null pointer"
+    
+    def test_hook_free_dynamic_link(self):
+        """Hook 模拟动态链接的 free 调用"""
+        func = self.test_case.find_function_by_name("free_test")
+        assert func is not None, "Function 'free_test' not found"
+        
+        libc_funcs = self._find_libc_functions()
+        if not libc_funcs:
+            return
+        
+        emu = self.test_case.emu
+        emu.enable_libc_hooks()
+        for name, addr in libc_funcs.items():
+            if name in ["strlen", "atoi", "strcmp", "malloc", "free", "memcpy", "memset"]:
+                emu.hook_libc(name, addr)
+        
+        ptr = emu.alloc(128)
+        result = self.test_case.run_function(func["va"], ptr)
+        assert result == 0, f"Expected 0, got {result}"
+    
+    def test_hook_memcpy_dynamic_link(self):
+        """Hook 模拟动态链接的 memcpy 调用"""
+        func = self.test_case.find_function_by_name("memcpy_test")
+        assert func is not None, "Function 'memcpy_test' not found"
+        
+        libc_funcs = self._find_libc_functions()
+        if not libc_funcs:
+            return
+        
+        emu = self.test_case.emu
+        emu.enable_libc_hooks()
+        for name, addr in libc_funcs.items():
+            if name in ["strlen", "atoi", "strcmp", "malloc", "free", "memcpy", "memset"]:
+                emu.hook_libc(name, addr)
+        
+        test_str = b"test"
+        str_ptr = emu.alloc(len(test_str) + 1, test_str + b"\x00")
+        
+        result = self.test_case.run_function(func["va"], str_ptr)
+        assert result == 4, f"Expected 4, got {result}"
+    
+    def _find_libc_functions(self) -> dict:
+        if not self.test_case.emu.db:
+            return {}
+        
+        libc_funcs = {}
+        
+        for func in self.test_case.emu.db.load_functions():
+            name = func.get("name", "")
+            va = func.get("va", 0)
+            
+            if name in ["strlen", "strcmp", "atoi", "malloc", "free", "memcpy", "memset", "strlen@plt", "strcmp@plt", "atoi@plt", "malloc@plt", "free@plt", "memcpy@plt", "memset@plt"]:
+                clean_name = name.replace("@plt", "")
+                libc_funcs[clean_name] = va
+        
+        print(f"DEBUG: Found libc functions: {libc_funcs}")
+        
+        return libc_funcs

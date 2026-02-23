@@ -11,11 +11,7 @@ int sum_array(int* arr, int len) {
 }
 
 int str_len(const char* s) {
-    int len = 0;
-    while (s[len] != '\0') {
-        len++;
-    }
-    return len;
+    return strlen(s);
 }
 
 char* strdup_test(const char* s) {
@@ -26,12 +22,29 @@ int atoi_test(const char* s) {
     return atoi(s);
 }
 
+int strcmp_test(const char* a, const char* b) {
+    return strcmp(a, b);
+}
+
+int memcpy_test(const char* src) {
+    char dest[32];
+    memcpy(dest, src, strlen(src) + 1);
+    return strlen(dest);
+}
+
+int memset_test(int val) {
+    char buf[16];
+    memset(buf, val, sizeof(buf));
+    return buf[0];
+}
+
 void* malloc_test(size_t size) {
     return malloc(size);
 }
 
-int printf_test(int x, int y) {
-    return printf("%d + %d = %d\n", x, y, x + y);
+int free_test(void* ptr) {
+    free(ptr);
+    return 0;
 }
 
 int main() {
@@ -39,17 +52,21 @@ int main() {
     int result = sum_array(arr, 5);
     
     const char* s = "hello";
-    int len = str_len(s);
+    int len = strlen(s);
     
     char* dup = strdup_test("test");
     free(dup);
     
     int num = atoi_test("12345");
     
+    int cmp = strcmp_test("hello", "world");
+    
+    int copied = memcpy_test("test_string");
+    
+    int filled = memset_test(0xAB);
+    
     void* p = malloc_test(100);
     free(p);
     
-    printf_test(10, 20);
-    
-    return result + len + num;
+    return result + len + num + cmp + copied + filled + 1;
 }

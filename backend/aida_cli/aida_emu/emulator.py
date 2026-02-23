@@ -298,18 +298,64 @@ class AidaEmulator:
         if hasattr(self, '_libc_auto_hook_setup') and self._libc_auto_hook_setup:
             return
         
+        call_target_cache = {}
+        
         def libc_call_hook(emu, address, size, user_data):
             if not self.libc.is_enabled():
                 return True
             
-            handled = self.libc.handle_call(address)
-            if handled:
-                pc = emu.get_pc()
-                emu.set_pc(pc + size)
+            if address not in call_target_cache:
+                call_target_cache[address] = self._resolve_call_target(address)
+            
+            target_addr = call_target_cache[address]
+            
+            if target_addr:
+                name = self.libc.libc.get_name_by_address(target_addr)
+                if name:
+                    result = self.libc.libc.execute(name)
+                    emu.regs.set_ret_value(result)
+                    emu.set_pc(address + size)
+                    return False
+            
             return True
         
         self.hook_code(libc_call_hook)
         self._libc_auto_hook_setup = True
+    
+    def _resolve_call_target(self, address: int) -> Optional[int]:
+        if not self.db:
+            return None
+        
+        data = self.read_memory(address, 16)
+        if not data:
+            return None
+        
+        target_addr = None
+        
+        if self.arch == "x86_64" or self.arch == "x86_32":
+            if len(data) >= 5 and data[0] == 0xE8:
+                offset = int.from_bytes(data[1:5], 'little', signed=True)
+                target_addr = address + 5 + offset
+            elif len(data) >= 6 and data[0] == 0xFF and (data[1] == 0x15 or data[1] == 0x10 or data[1] == 0x25):
+                offset = int.from_bytes(data[2:6], 'little', signed=True)
+                target_addr = address + 6 + offset
+        
+        if not target_addr:
+            return None
+        
+        func = self.db.load_function(target_addr)
+        if func:
+            name = func.get("name", "")
+            libc_name = name.lstrip(".")
+            for suffix in ["@plt", "@GLIBC"]:
+                libc_name = libc_name.replace(suffix, "")
+            libc_name = libc_name.lower()
+            
+            registered_addr = self.libc.libc.get_address_by_name(libc_name)
+            if registered_addr:
+                return registered_addr
+        
+        return target_addr
 
     def hook_memory(self, callback: Callable, 
                     mem_type: str = "all", user_data: Any = None) -> bool:
