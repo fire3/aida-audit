@@ -42,6 +42,7 @@ def main():
         ("Level1 Basic (add/sub/mul)", "level1_basic"),
         ("Level2 Control (max/factorial)", "level2_control"),
         ("Level3 Full (sum_array/str_len)", "level3_full"),
+        ("Level4 Hooks (libc hooks)", "level4_hooks"),
     ]
     
     results = {}
