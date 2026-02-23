@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -O0 -g -m64
+CFLAGS = -O0 -g -m64 -no-pie
 TARGET = full
 SRC = full.c
 

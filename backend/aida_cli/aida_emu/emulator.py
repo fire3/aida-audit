@@ -257,11 +257,11 @@ class AidaEmulator:
         self.set_pc(func_va)
         
         try:
-            self.run(start=func_va, end=ret_addr)
+            self.run(start=func_va)
         except EmulationError:
             pass
         
-        return self.regs.get_ret_value() or 0
+        return self.regs.get_ret_value(signed=True) or 0
 
     def read_memory(self, va: int, size: int) -> Optional[bytes]:
         return self.mem.read(va, size)

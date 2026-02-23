@@ -57,20 +57,31 @@ class EmulatorTestCase:
         
         os.makedirs(output_dir, exist_ok=True)
         
-        # Find the backend/aida_cli directory
         project_root = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
         backend_dir = os.path.join(project_root, "aida_cli")
         
-        cmd = [
-            sys.executable, "-m", "aida_cli.cli", "export",
-            self.binary_path,
-            "-o", output_dir,
-            "--backend", backend
-        ]
+        code = f'''
+import sys
+import os
+
+# Add parent of aida_cli to path so it can be imported as a package
+backend_parent = os.path.dirname("{backend_dir}")
+if backend_parent not in sys.path:
+    sys.path.insert(0, backend_parent)
+
+# Block system aida_cli
+for mod in list(sys.modules.keys()):
+    if mod == "aida_cli" or mod.startswith("aida_cli."):
+        del sys.modules[mod]
+
+# Now import and run export (using IDA backend)
+from aida_cli.export_cmd import ExportOrchestrator
+cmd = ExportOrchestrator(workers=1, verbose=False)
+cmd.process_single_file("{self.binary_path}", "{os.path.join(output_dir, self.program_name + '.db')}", save_idb=None)
+'''
         
         result = subprocess.run(
-            cmd,
-            cwd=backend_dir,
+            [sys.executable, "-c", code],
             capture_output=True,
             text=True
         )
@@ -80,7 +91,6 @@ class EmulatorTestCase:
             print(result.stderr)
             return False
         
-        # 查找生成的 db 文件 - 命名格式是 {binary_name}.db
         binary_name = os.path.basename(self.binary_path)
         expected_db = os.path.join(output_dir, f"{binary_name}.db")
         
@@ -89,7 +99,6 @@ class EmulatorTestCase:
             print(f"[INFO] Exported DB: {self.db_path}")
             return True
         
-        # Fallback: 查找任何 db 文件
         for f in os.listdir(output_dir):
             if f.endswith(".db") and not f.startswith("aida_audit"):
                 self.db_path = os.path.join(output_dir, f)
@@ -99,7 +108,7 @@ class EmulatorTestCase:
         print("[ERROR] No DB file generated")
         return False
     
-    def create_emulator(self, stack_va: int = None, stack_size: int = 0x100000) -> Any:
+    def create_emulator(self, stack_va: int = None, stack_size: int = 0x100000, heap_va: int = None, heap_size: int = 0x100000) -> Any:
         """创建模拟器"""
         from aida_emu import AidaEmulator
         
@@ -108,6 +117,7 @@ class EmulatorTestCase:
         
         self.emu = AidaEmulator.from_database(self.db_path)
         self.emu.setup_stack(stack_va, stack_size)
+        self.emu.setup_heap(heap_va, heap_size)
         print(f"[INFO] Emulator created for {self.program_name}")
         return self.emu
     

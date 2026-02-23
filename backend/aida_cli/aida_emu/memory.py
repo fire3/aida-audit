@@ -32,6 +32,27 @@ class MemoryMapper:
             aligned_va = va & ~0xFFF
             aligned_size = ((size + (va - aligned_va) + 0xFFF) & ~0xFFF)
             
+            if self.is_mapped(aligned_va):
+                if content:
+                    offset = va - aligned_va
+                    try:
+                        self.uc.mem_write(aligned_va + offset, content[:size])
+                    except unicorn.UcError:
+                        pass
+                self._mapped_regions[va] = {
+                    "id": self._next_map_id,
+                    "name": name,
+                    "va": va,
+                    "size": size,
+                    "aligned_va": aligned_va,
+                    "aligned_size": aligned_size,
+                    "read": read,
+                    "write": write,
+                    "execute": execute,
+                }
+                self._next_map_id += 1
+                return True
+            
             self.uc.mem_map(aligned_va, aligned_size, perms)
             
             if content:
@@ -133,16 +154,28 @@ class MemoryMapper:
         return int.from_bytes(data, 'little') if data else None
 
     def write_u8(self, va: int, value: int) -> bool:
-        return self.write(va, value.to_bytes(1, 'little'))
+        return self.write(va, value.to_bytes(1, 'little', signed=False))
 
     def write_u16(self, va: int, value: int) -> bool:
-        return self.write(va, value.to_bytes(2, 'little'))
+        return self.write(va, value.to_bytes(2, 'little', signed=False))
 
     def write_u32(self, va: int, value: int) -> bool:
-        return self.write(va, value.to_bytes(4, 'little'))
+        return self.write(va, value.to_bytes(4, 'little', signed=False))
 
     def write_u64(self, va: int, value: int) -> bool:
-        return self.write(va, value.to_bytes(8, 'little'))
+        return self.write(va, value.to_bytes(8, 'little', signed=False))
+
+    def write_s8(self, va: int, value: int) -> bool:
+        return self.write(va, value.to_bytes(1, 'little', signed=True))
+
+    def write_s16(self, va: int, value: int) -> bool:
+        return self.write(va, value.to_bytes(2, 'little', signed=True))
+
+    def write_s32(self, va: int, value: int) -> bool:
+        return self.write(va, value.to_bytes(4, 'little', signed=True))
+
+    def write_s64(self, va: int, value: int) -> bool:
+        return self.write(va, value.to_bytes(8, 'little', signed=True))
 
     def get_regions(self) -> List[Dict[str, Any]]:
         return list(self._mapped_regions.values())

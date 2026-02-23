@@ -171,7 +171,7 @@ class TestFindMaxFunction:
         arr = [-5, -2, -10, -1]
         arr_va = 0x600600
         for i, val in enumerate(arr):
-            self.test_case.emu.mem.write_u32(arr_va + i * 4, val)
+            self.test_case.emu.mem.write_s32(arr_va + i * 4, val)
         
         result = self.test_case.run_function(func["va"], arr_va, len(arr))
         assert result == -1, f"Expected -1, got {result}"

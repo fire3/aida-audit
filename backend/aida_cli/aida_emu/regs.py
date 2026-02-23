@@ -210,8 +210,28 @@ class Regs:
     def get_ret(self) -> str:
         return self._reg_info.get("ret", "rax")
 
-    def get_ret_value(self) -> Optional[int]:
-        return self.get_reg(self.get_ret())
+    def get_ret_value(self, signed: bool = False) -> Optional[int]:
+        value = self.get_reg(self.get_ret())
+        if signed and value is not None:
+            if self.arch in ("x86_64", "x86_32"):
+                bits = 32
+                value = self._to_signed(value, bits)
+        return value
+    
+    def _to_signed(self, value: int, bits: int) -> int:
+        if bits == 64:
+            if value >= 0x8000000000000000:
+                return value - 0x10000000000000000
+        elif bits == 32:
+            if value >= 0x80000000:
+                return value - 0x100000000
+        elif bits == 16:
+            if value >= 0x8000:
+                return value - 0x10000
+        elif bits == 8:
+            if value >= 0x80:
+                return value - 0x100
+        return value
 
     def set_ret_value(self, value: int):
         self.set_reg(self.get_ret(), value)
