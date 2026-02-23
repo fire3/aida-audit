@@ -1,12 +1,13 @@
 CC = gcc
 CFLAGS = -O0 -g -fno-stack-protector
 
-TARGET = hooks
+all: hooks complex
 
-all: $(TARGET)
+hooks: hooks.c
+	$(CC) $(CFLAGS) -o $@ $<
 
-$(TARGET): hooks.c
+complex: complex.c
 	$(CC) $(CFLAGS) -o $@ $<
 
 clean:
-	rm -f $(TARGET)
+	rm -f hooks complex

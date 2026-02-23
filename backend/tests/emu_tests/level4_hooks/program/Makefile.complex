@@ -1,0 +1,12 @@
+CC = gcc
+CFLAGS = -O0 -g -fno-stack-protector
+
+TARGET = complex
+
+all: $(TARGET)
+
+$(TARGET): complex.c
+	$(CC) $(CFLAGS) -o $@ $<
+
+clean:
+	rm -f $(TARGET)
