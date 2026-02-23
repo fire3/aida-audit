@@ -312,3 +312,19 @@ class DbLoader:
                 "type": row["type"],
             }
         return None
+
+    def get_imports(self) -> List[Dict[str, Any]]:
+        self.cursor.execute("""
+            SELECT name, library, ordinal, address
+            FROM imports
+            ORDER BY ordinal
+        """)
+        return [
+            {
+                "name": row["name"],
+                "library": row["library"],
+                "ordinal": row["ordinal"],
+                "address": row["address"] or 0,
+            }
+            for row in self.cursor.fetchall()
+        ]

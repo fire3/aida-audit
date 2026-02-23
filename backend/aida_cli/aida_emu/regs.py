@@ -305,6 +305,8 @@ class Regs:
                 "r5": arm_const.UC_ARM_REG_R5, "r6": arm_const.UC_ARM_REG_R6,
                 "r7": arm_const.UC_ARM_REG_R7, "r8": arm_const.UC_ARM_REG_R8,
                 "r9": arm_const.UC_ARM_REG_R9, "r10": arm_const.UC_ARM_REG_R10,
+                "r11": arm_const.UC_ARM_REG_R11, "r12": arm_const.UC_ARM_REG_R12,
+                "fp": arm_const.UC_ARM_REG_R11, "ip": arm_const.UC_ARM_REG_R12,
             },
             "arm64": {
                 "pc": arm64_const.UC_ARM64_REG_PC, "sp": arm64_const.UC_ARM64_REG_SP,

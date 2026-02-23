@@ -158,17 +158,115 @@ class AidaEmulator:
     def _load_segments(self, db: DbLoader):
         segments = db.load_segments()
         
+        # Collect all segments that should be mapped contiguously
+        # We'll create one large mapping and fill in the contents at correct offsets
+        
+        # Get the min and max addresses across all segments
+        min_va = None
+        max_va = None
         for seg in segments:
+            if seg["start_va"] == 0:
+                continue
+            if min_va is None or seg["start_va"] < min_va:
+                min_va = seg["start_va"]
+            if max_va is None or seg["end_va"] > max_va:
+                max_va = seg["end_va"]
+        
+        if min_va is None or max_va is None:
+            return
+        
+        total_size = max_va - min_va
+        
+        # Align to page size
+        aligned_min_va = min_va & ~0xFFF
+        aligned_size = ((total_size + (min_va - aligned_min_va) + 0xFFF) & ~0xFFF)
+        
+        # Map one large region for all segments
+        # Use combined permissions (RX for code+rodata, RW for data)
+        combined_perms = True  # Map with RWX initially
+        
+        self.uc.mem_map(aligned_min_va, aligned_size, unicorn.UC_PROT_READ | unicorn.UC_PROT_WRITE | unicorn.UC_PROT_EXEC)
+        
+        # Fill the region with segment contents at correct offsets
+        for seg in segments:
+            if seg["start_va"] == 0:
+                continue
+                
             content = db.load_segment_content(seg["seg_id"])
-            self.mem.map_segment(
-                name=seg["name"],
-                start_va=seg["start_va"],
-                end_va=seg["end_va"],
-                perm_r=seg["perm_r"],
-                perm_w=seg["perm_w"],
-                perm_x=seg["perm_x"],
-                content=content
-            )
+            if not content:
+                content = b'\x00' * (seg["end_va"] - seg["start_va"])
+            
+            # Write content at the correct offset
+            offset = seg["start_va"] - aligned_min_va
+            try:
+                self.uc.mem_write(aligned_min_va + offset, content)
+            except unicorn.UcError as e:
+                print(f"Warning: Failed to write {seg['name']}: {e}")
+            
+            # Track this region
+            self.mem._mapped_regions[seg["start_va"]] = {
+                "id": self.mem._next_map_id,
+                "name": seg["name"],
+                "va": seg["start_va"],
+                "size": seg["end_va"] - seg["start_va"],
+                "aligned_va": aligned_min_va,
+                "aligned_size": aligned_size,
+                "perm_r": seg["perm_r"],
+                "perm_w": seg["perm_w"],
+                "perm_x": seg["perm_x"],
+            }
+            self.mem._next_map_id += 1
+        
+        self._init_got(db, segments)
+    
+    def _init_got(self, db: DbLoader, segments: List[Dict[str, Any]]):
+        got_seg = None
+        plt_seg = None
+        for seg in segments:
+            if seg["name"] == ".got":
+                got_seg = seg
+            elif seg["name"] == ".plt":
+                plt_seg = seg
+        
+        if not got_seg or not plt_seg:
+            return
+        
+        functions = db.load_functions() if hasattr(db, 'load_functions') else []
+        func_map = {f["va"]: f["name"] for f in functions if f.get("va")}
+        
+        import_funcs = db.get_imports() if hasattr(db, 'get_imports') else []
+        
+        got_start = got_seg["start_va"]
+        got_size = got_seg["size"]
+        
+        resolved_count = 0
+        
+        for imp in import_funcs:
+            imp_name = imp.get("name", "")
+            imp_addr = imp.get("address", 0)
+            
+            if imp_addr == 0:
+                continue
+            
+            plt_addr = plt_seg["start_va"] + (imp_addr - plt_seg["start_va"])
+            
+            if got_start <= plt_addr < got_start + got_size:
+                continue
+            
+            offset = imp_addr - got_start
+            if 0 <= offset < got_size:
+                self.mem.write_u32(got_start + offset, plt_addr)
+                resolved_count += 1
+        
+        for func_va, func_name in func_map.items():
+            if func_va >= plt_seg["start_va"] and func_va < plt_seg["end_va"]:
+                offset = func_va - got_start
+                if 0 <= offset < got_size:
+                    self.mem.write_u32(got_start + offset, func_va)
+                    resolved_count += 1
+        
+        if resolved_count > 0:
+            print(f"Initialized {resolved_count} GOT entries")
 
     def setup_stack(self, stack_va: Optional[int] = None, stack_size: int = 0x100000) -> int:
         if stack_va is None:
