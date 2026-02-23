@@ -3,7 +3,7 @@ import sys
 import pytest
 
 # Add backend and test_support to path
-backend_dir = os.path.join(os.path.dirname(__file__), "..", "backend", "aida_cli")
+backend_dir = os.path.join(os.path.dirname(__file__), "..", "..", "aida_cli")
 test_support_dir = os.path.join(os.path.dirname(__file__), "test_support")
 
 for p in [backend_dir, test_support_dir]:
@@ -12,7 +12,7 @@ for p in [backend_dir, test_support_dir]:
 
 
 @pytest.fixture(scope="session")
-def test_root_dir():
+def test_root_dir() -> str:
     """测试根目录"""
     return os.path.dirname(__file__)
 

@@ -58,8 +58,8 @@ class EmulatorTestCase:
         os.makedirs(output_dir, exist_ok=True)
         
         # Find the backend/aida_cli directory
-        project_root = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        backend_dir = os.path.join(project_root, "backend", "aida_cli")
+        project_root = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        backend_dir = os.path.join(project_root, "aida_cli")
         
         cmd = [
             sys.executable, "-m", "aida_cli.cli", "export",

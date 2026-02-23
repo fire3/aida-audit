@@ -8,7 +8,7 @@ except ImportError:
     UNICORN_AVAILABLE = False
 
 from .db_loader import DbLoader
-from .regs import Regs
+from .regs import Regs, REGISTER_MAP
 from .memory import MemoryMapper
 from .call_conv import CallConvention, detect_call_convention, get_default_convention
 from .hooks import HookManager
@@ -24,7 +24,10 @@ class AidaEmulator:
         
         self.uc = None
         if UNICORN_AVAILABLE:
-            self.uc = unicorn.Uc(arch, mode)
+            reg_info = REGISTER_MAP.get(arch, REGISTER_MAP["x86_64"])
+            uc_arch = reg_info.get("unicorn_arch", unicorn.UC_ARCH_X86)
+            uc_mode = reg_info.get("unicorn_mode", unicorn.UC_MODE_64)
+            self.uc = unicorn.Uc(uc_arch, uc_mode)
         
         self.regs = Regs(self.uc, arch, mode)
         self.mem = MemoryMapper(self.uc)
@@ -39,9 +42,6 @@ class AidaEmulator:
         self._call_convention: Optional[CallConvention] = None
         self._stack_va: Optional[int] = None
         self._heap_va: Optional[int] = None
-        
-        if db_path:
-            self.load_from_database(db_path)
 
     @classmethod
     def from_database(cls, db_path: str, arch: Optional[str] = None) -> "AidaEmulator":
