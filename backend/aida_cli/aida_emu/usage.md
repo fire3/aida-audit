@@ -43,15 +43,15 @@ emu = AidaEmulator.from_binary("./program")
 emu.setup_stack()
 emu.setup_heap()
 
-# 3. 查找函数地址（假设二进制中存在名为 "add" 的函数）
-func_va = None
-for func in emu.db.load_functions():
-    if func["name"] == "add":
-        func_va = func["va"]
-        break
+# 3. 查找函数地址
+func = emu.db.find_function("add")
+if not func:
+    print("Function 'add' not found")
+    emu.close()
+    return
 
 # 4. 调用函数并获取返回值
-result = emu.call(func_va, 3, 5)
+result = emu.call(func["va"], 3, 5)
 print(f"Result: {result}")  # 输出: Result: 8
 
 # 5. 关闭模拟器
@@ -122,44 +122,72 @@ emu.setup_heap(heap_va=0x600000, heap_size=0x200000)
 # 通过地址查找函数信息
 func = emu.get_function(0x401000)  # 返回 dict，包含 va, name, start_va, end_va 等字段
 
-# 遍历所有函数查找目标函数
-all_functions = emu.db.load_functions()
-for func in all_functions:
-    if func["name"] == "main":
-        func_va = func["va"]
-        break
+# 通过函数名查找（精确匹配）
+func = emu.db.find_function("main")
+
+# 通过函数名查找（模糊匹配）
+funcs = emu.db.find_functions("str_")  # 查找所有以 str_ 开头的函数
 ```
 
 ### 调用函数
 
-`call()` 方法会自动检测调用约定并设置参数，直接使用即可：
+`call(func_va, *args)` 方法会自动检测调用约定并设置参数。
+
+**从仿真角度看，参数就是寄存器值**。参数会按照调用约定写入对应寄存器：
 
 ```python
-# 直接调用（自动检测调用约定并设置参数）
-result = emu.call(function_va, arg1, arg2, arg3)
+# 调用约定：x86_64 SysV ABI
+# arg1 -> rdi, arg2 -> rsi, arg3 -> rdx, arg4 -> rcx, arg5 -> r8, arg6 -> r9
+result = emu.call(func_va, 10, 20, 30)
 
-# 如需手动检测调用约定（可选）
-emu.detect_convention(function_va)
-result = emu.call(function_va, arg1, arg2)
+# 调用约定：x86_32 cdecl
+# 所有参数通过栈传递
+result = emu.call(func_va, 10, 20, 30)
+
+# 调用约定：ARM64 AAPCS64
+# arg1 -> x0, arg2 -> x1, arg3 -> x2, ...
+result = emu.call(func_va, 10, 20, 30)
+```
+
+如果需要手动控制寄存器：
+
+```python
+# 手动设置调用约定
+emu.detect_convention(func_va)
+
+# 手动设置寄存器值
+emu.set_arg(0, 10)   # 设置第一个参数寄存器
+emu.set_arg(1, 20)   # 设置第二个参数寄存器
+
+# 或直接设置寄存器
+emu.set_reg("rdi", 10)
+emu.set_reg("rsi", 20)
+
+# 调用函数
+emu.set_pc(func_va)
+emu.run()
+result = emu.regs.get_ret_value()
 ```
 
 ### 传递指针参数
 
-当函数需要指针参数时（如数组、结构体），使用 `alloc()` 方法分配内存并自动写入数据：
+当函数需要指针参数时（如数组、结构体），指针本质上就是一个地址值（整数）。需要先分配内存写入数据，再将该地址作为参数传递：
 
 ```python
-# 方法一：使用 alloc() 便捷分配内存
+# 1. 分配内存并写入数据
 arr = [1, 2, 3, 4, 5]
 arr_ptr = emu.alloc(len(arr) * 4)  # 分配 20 字节
 for i, val in enumerate(arr):
     emu.mem.write_u32(arr_ptr + i * 4, val)
 
+# 2. 传递指针地址作为参数值（整数）
+# 对应 SysV ABI: rdi = arr_ptr, rsi = 5
 result = emu.call(func_va, arr_ptr, len(arr))
 
-# 方法二：使用 alloc() 同时分配并写入数据
+# 传递字符串同理
 str_data = b"hello\x00"
-str_ptr = emu.alloc(len(str_data), str_data)  # 分配并写入
-result = emu.call(func_va, str_ptr)
+str_ptr = emu.alloc(len(str_data), str_data)
+result = emu.call(func_va, str_ptr)  # rdi = str_ptr
 ```
 
 ### 分配临时内存
@@ -180,12 +208,19 @@ ptr2 = emu.alloc(16)   # 返回 0x600010
 
 ### 获取返回值
 
+返回值同样来自寄存器。按照调用约定：
+
+- **x86_64**: 返回值在 `rax`（或 `rax:rdx` 用于 128 位）
+- **x86_32**: 返回值在 `eax`
+- **ARM64**: 返回值在 `x0`
+- **ARM**: 返回值在 `r0`
+
 ```python
 result = emu.call(func_va, 10, 20)
 
-# 或者手动获取
+# 或者手动读取返回值寄存器
+ret_value = emu.regs.get_ret_value()          # 有符号
 ret_value = emu.regs.get_ret_value(signed=False)  # 无符号
-ret_value = emu.regs.get_ret_value(signed=True)   # 有符号
 ```
 
 ## 内存操作
@@ -350,12 +385,18 @@ print(f"Detected: {convention.name}")
 
 ### 手动设置参数
 
-```python
-# 设置单个参数
-emu.set_arg(0, 10)   # 第一个参数
-emu.set_arg(1, 20)   # 第二个参数
+参数就是寄存器值，可以直接操作寄存器：
 
-# 批量设置参数
+```python
+# 方式一：使用 set_arg（根据调用约定写入对应寄存器）
+emu.set_arg(0, 10)   # 第一个参数 -> rdi/x0
+emu.set_arg(1, 20)   # 第二个参数 -> rsi/x1
+
+# 方式二：直接设置寄存器
+emu.set_reg("rdi", 10)
+emu.set_reg("rsi", 20)
+
+# 批量设置
 emu.set_args(10, 20, 30)
 ```
 
@@ -377,17 +418,12 @@ def main():
     emu.setup_heap()
     
     # 3. 查找目标函数
-    func_va = None
-    for func in emu.db.load_functions():
-        if func["name"] == "calculate":
-            func_va = func["va"]
-            break
-    
-    if not func_va:
+    func = emu.db.find_function("calculate")
+    if not func:
         print("Function 'calculate' not found")
         return
     
-    print(f"Found function 'calculate' at 0x{func_va:016x}")
+    print(f"Found function 'calculate' at 0x{func['va']:016x}")
     
     # 4. 添加代码 Hook 用于追踪执行
     instruction_count = [0]
@@ -402,7 +438,7 @@ def main():
     
     # 5. 调用函数
     print(f"Calling calculate(10, 20, 30)...")
-    result = emu.call(func_va, 10, 20, 30)
+    result = emu.call(func["va"], 10, 20, 30)
     
     # 6. 输出结果
     print(f"Result: {result}")

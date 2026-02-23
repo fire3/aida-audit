@@ -86,6 +86,44 @@ class DbLoader:
                 "is_library": bool(row["is_library"]),
             }
         return None
+    
+    def find_function(self, name: str) -> Optional[Dict[str, Any]]:
+        self.cursor.execute("""
+            SELECT function_va, name, demangled_name, start_va, end_va, size, is_thunk, is_library
+            FROM functions WHERE name = ? OR demangled_name = ?
+        """, (name, name))
+        row = self.cursor.fetchone()
+        if row:
+            return {
+                "va": row["function_va"],
+                "name": row["name"],
+                "demangled_name": row["demangled_name"],
+                "start_va": row["start_va"],
+                "end_va": row["end_va"],
+                "size": row["size"],
+                "is_thunk": bool(row["is_thunk"]),
+                "is_library": bool(row["is_library"]),
+            }
+        return None
+    
+    def find_functions(self, pattern: str) -> List[Dict[str, Any]]:
+        self.cursor.execute("""
+            SELECT function_va, name, demangled_name, start_va, end_va, size, is_thunk, is_library
+            FROM functions WHERE name LIKE ? OR demangled_name LIKE ?
+        """, (f"%{pattern}%", f"%{pattern}%"))
+        return [
+            {
+                "va": row["function_va"],
+                "name": row["name"],
+                "demangled_name": row["demangled_name"],
+                "start_va": row["start_va"],
+                "end_va": row["end_va"],
+                "size": row["size"],
+                "is_thunk": bool(row["is_thunk"]),
+                "is_library": bool(row["is_library"]),
+            }
+            for row in self.cursor.fetchall()
+        ]
 
     def load_functions(self) -> List[Dict[str, Any]]:
         self.cursor.execute("""
