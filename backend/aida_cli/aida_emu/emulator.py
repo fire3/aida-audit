@@ -231,39 +231,47 @@ class AidaEmulator:
         if not got_seg or not plt_seg:
             return
         
-        functions = db.load_functions() if hasattr(db, 'load_functions') else []
-        func_map = {f["va"]: f["name"] for f in functions if f.get("va")}
-        
         import_funcs = db.get_imports() if hasattr(db, 'get_imports') else []
         
         got_start = got_seg["start_va"]
         got_size = got_seg["size"]
+        plt_start = plt_seg["start_va"]
+        plt_size = plt_seg["end_va"] - plt_seg["start_va"]
         
         resolved_count = 0
         
-        for imp in import_funcs:
-            imp_name = imp.get("name", "")
-            imp_addr = imp.get("address", 0)
-            
-            if imp_addr == 0:
-                continue
-            
-            plt_addr = plt_seg["start_va"] + (imp_addr - plt_seg["start_va"])
-            
-            if got_start <= plt_addr < got_start + got_size:
-                continue
-            
-            offset = imp_addr - got_start
-            if 0 <= offset < got_size:
-                self.mem.write_u32(got_start + offset, plt_addr)
-                resolved_count += 1
+        # The GOT structure is:
+        # GOT[0] = resolver address
+        # GOT[1..n] = addresses of imported functions
+        # 
+        # PLT entries are at plt_start + i*16
+        # Each PLT[i] should have GOT[i+1] point to the function address
+        #
+        # For unresolved symbols, GOT[i+1] should point to PLT[i] (to jump to resolver)
+        # For resolved symbols, GOT[i+1] should point to the actual function address
         
-        for func_va, func_name in func_map.items():
-            if func_va >= plt_seg["start_va"] and func_va < plt_seg["end_va"]:
-                offset = func_va - got_start
-                if 0 <= offset < got_size:
-                    self.mem.write_u32(got_start + offset, func_va)
-                    resolved_count += 1
+        # We need to figure out which GOT entry corresponds to which import
+        # The import "address" field seems to be the address in the binary where the
+        # pointer to the function is stored, not the GOT offset
+        
+        # Let's use a simpler approach: iterate through PLT entries and set up
+        # the corresponding GOT entries
+        
+        # First, compute how many PLT entries we have
+        num_plt_entries = plt_size // 16
+        
+        # Check if there's a symbol table that maps PLT to imports
+        # Otherwise, we'll just leave GOT entries pointing to PLT stubs
+        
+        # Initialize all GOT entries (except GOT[0]) to point to their PLT entries
+        for i in range(1, num_plt_entries):
+            got_addr = got_start + i * 4
+            plt_entry_addr = plt_start + i * 16
+            
+            if got_start <= got_addr < got_start + got_size:
+                # Write PLT entry address to GOT
+                self.mem.write_u32(got_addr, plt_entry_addr)
+                resolved_count += 1
         
         if resolved_count > 0:
             print(f"Initialized {resolved_count} GOT entries")
