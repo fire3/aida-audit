@@ -42,6 +42,7 @@ class AidaEmulator:
         self._call_convention: Optional[CallConvention] = None
         self._stack_va: Optional[int] = None
         self._heap_va: Optional[int] = None
+        self._heap_current: Optional[int] = None
 
     @classmethod
     def from_database(cls, db_path: str, arch: Optional[str] = None) -> "AidaEmulator":
@@ -122,8 +123,36 @@ class AidaEmulator:
                 heap_va = 0x600000
         
         self._heap_va = self.mem.allocate_heap(heap_va, heap_size)
+        self._heap_current = heap_va
         
         return self._heap_va
+    
+    def alloc(self, size: int, data: Optional[bytes] = None) -> int:
+        if self._heap_va is None:
+            self.setup_heap()
+        
+        heap_curr = self._heap_current if self._heap_current else self._heap_va
+        
+        if data is not None:
+            size = max(size, len(data))
+        
+        size = (size + 7) & ~7
+        
+        addr = heap_curr
+        
+        self.mem.map(
+            name=f"alloc_{addr:x}",
+            va=addr,
+            size=size,
+            read=True,
+            write=True,
+            execute=False,
+            content=data
+        )
+        
+        self._heap_current = addr + size
+        
+        return addr
 
     def set_pc(self, address: int):
         self._entry_point = address
