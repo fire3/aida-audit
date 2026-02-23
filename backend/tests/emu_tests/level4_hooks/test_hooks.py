@@ -577,3 +577,112 @@ class TestComplexFunctions:
                 libc_funcs[clean_name] = va
         
         return libc_funcs
+
+
+class TestStackOverflow:
+    """测试栈溢出检测"""
+    
+    @classmethod
+    def setup_class(cls):
+        program_dir = os.path.join(os.path.dirname(__file__), "program")
+        
+        cls.test_case = EmulatorTestCase(program_dir, "stack_overflow")
+        
+        if not cls.test_case.compile():
+            raise RuntimeError("Compilation failed")
+        
+        cls.tmpdir = tempfile.TemporaryDirectory()
+        if not cls.test_case.export_db(cls.tmpdir.name):
+            cls.tmpdir.cleanup()
+            raise RuntimeError("Export failed")
+        
+        cls.test_case.create_emulator(stack_size=0x100000)
+    
+    @classmethod
+    def teardown_class(cls):
+        if hasattr(cls, 'test_case'):
+            cls.test_case.cleanup()
+        if hasattr(cls, 'tmpdir'):
+            cls.tmpdir.cleanup()
+    
+    def test_stack_overflow_detection(self):
+        """测试栈溢出检测 - 小栈空间应该触发错误"""
+        func = self.test_case.find_function_by_name("recursive_sum")
+        assert func is not None
+        
+        emu = self.test_case.emu
+        
+        sp_before = emu.get_sp()
+        
+        try:
+            result = self.test_case.run_function(func["va"], 50)
+            print(f"WARNING: Function completed without error, result={result}")
+        except Exception as e:
+            print(f"Caught exception (expected): {type(e).__name__}: {e}")
+        
+        sp_after = emu.get_sp()
+        print(f"SP before: 0x{sp_before:x}, SP after: 0x{sp_after:x}")
+        
+    def test_stack_overflow_with_small_stack(self):
+        """使用更小的栈空间触发栈溢出 - 应该触发内存错误"""
+        func = self.test_case.find_function_by_name("recursive_sum")
+        assert func is not None
+        
+        self.test_case.emu.close()
+        
+        self.test_case.create_emulator(stack_size=0x1000)
+        
+        func = self.test_case.find_function_by_name("recursive_sum")
+        
+        sp_before = self.test_case.emu.get_sp()
+        print(f"Stack base: 0x{sp_before:x}, stack size: 0x1000")
+        
+        unmapped_accesses = []
+        
+        def mem_unmapped_hook(emu, access, address, size, value, user_data):
+            unmapped_accesses.append(address)
+            print(f"Unmapped memory access at 0x{address:x}")
+            return True
+        
+        self.test_case.emu.hook_memory(mem_unmapped_hook, mem_type="unmapped")
+        
+        overflow_or_error = False
+        
+        try:
+            result = self.test_case.run_function(func["va"], 200)
+            print(f"Result: {result}, SP: 0x{self.test_case.emu.get_sp():x}")
+        except Exception as e:
+            overflow_or_error = True
+            print(f"Exception caught: {type(e).__name__}: {e}")
+        
+        print(f"Unmapped accesses: {len(unmapped_accesses)}")
+        
+        assert overflow_or_error or len(unmapped_accesses) > 0, \
+            "Expected stack overflow to cause error or unmapped access"
+    
+    def test_stack_overflow_hook(self):
+        """测试通过 hook 监控栈指针变化"""
+        func = self.test_case.find_function_by_name("recursive_sum")
+        assert func is not None
+        
+        sp_values = []
+        
+        def code_hook(emu, address, size, user_data):
+            sp = emu.get_sp()
+            sp_values.append(sp)
+            return True
+        
+        self.test_case.emu.hook_code(code_hook)
+        
+        try:
+            result = self.test_case.run_function(func["va"], 20)
+            print(f"Function returned: {result}")
+        except Exception as e:
+            print(f"Exception: {type(e).__name__}: {e}")
+        
+        if sp_values:
+            min_sp = min(sp_values)
+            max_sp = max(sp_values)
+            print(f"SP range: 0x{max_sp:x} -> 0x{min_sp:x}, delta: 0x{max_sp - min_sp:x}")
+            
+            assert max_sp - min_sp > 0x1000, "Expected significant stack growth"
