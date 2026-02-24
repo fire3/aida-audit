@@ -22,6 +22,7 @@ class LibcSimulator:
         self.register("atol", self._atol)
         self.register("malloc", self._malloc)
         self.register("free", self._free)
+        self.register("stristr", self._stristr)
     
     def register(self, name: str, handler: Callable[[], int]):
         self._handlers[name] = handler
@@ -143,6 +144,22 @@ class LibcSimulator:
     
     def _atol(self) -> int:
         return self._atoi()
+    
+    def _stristr(self) -> int:
+        haystack_addr = self.emu.regs.get_arg(0)
+        needle_addr = self.emu.regs.get_arg(1)
+        if haystack_addr is None or needle_addr is None:
+            return 0
+        haystack = self._read_string(haystack_addr)
+        needle = self._read_string(needle_addr)
+        if not needle:
+            return haystack_addr
+        haystack_lower = haystack.lower()
+        needle_lower = needle.lower()
+        pos = haystack_lower.find(needle_lower)
+        if pos >= 0:
+            return haystack_addr + pos
+        return 0
     
     def _malloc(self) -> int:
         size = self.emu.regs.get_arg(0)

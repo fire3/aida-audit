@@ -18,7 +18,7 @@ class PLTInterceptor:
     TRAP_INSN = {
         "x86_64": b"\xcc",           # int3
         "x86_32": b"\xcc",           # int3
-        "arm": b"\xef\x00\x00\x01",  # svc 0 (ARM32)
+        "arm": b"\xef\x00\x00\x01",  # svc 0 (ARM32) - note: may not trigger HOOK_INTR
         "arm64": b"\xd4\x00\x00\x00", # brk #0 (ARM64)
     }
 
@@ -38,6 +38,9 @@ class PLTInterceptor:
         self._trap_insn: bytes = b"\xcc"
         self._setup = False
         self._interrupt_handle = None
+        self._code_handle = None
+        self._plt_start: int = 0
+        self._plt_end: int = 0
 
     def _get_trap_insn(self) -> bytes:
         """获取当前架构的软中断指令"""
@@ -46,6 +49,11 @@ class PLTInterceptor:
             # Thumb模式下使用未定义指令
             return b"\xde\xad"
         return self.TRAP_INSN.get(arch, b"\xcc")
+
+    def _supports_interrupt_hook(self) -> bool:
+        """检查当前架构是否支持中断hook"""
+        # ARM的SVC不会触发UC_HOOK_INTR，需要使用code hook
+        return self.emu.arch not in ("arm", "arm64")
 
     def setup(self, db) -> bool:
         """初始化PLT拦截器"""
@@ -58,13 +66,6 @@ class PLTInterceptor:
         if not db:
             return False
 
-        funcs = db.load_functions()
-        plt_funcs = [f for f in funcs if self._is_plt_function(f.get("name", ""))]
-
-        if not plt_funcs:
-            print("[PLTInterceptor] No PLT functions found")
-            return False
-
         # 收集PLT段信息
         plt_start, plt_end = self._find_plt_segment(db)
         if plt_start is None:
@@ -72,6 +73,19 @@ class PLTInterceptor:
             return False
 
         print(f"[PLTInterceptor] PLT segment: 0x{plt_start:x} - 0x{plt_end:x}")
+
+        # 保存PLT范围供后续使用
+        self._plt_start = plt_start
+        self._plt_end = plt_end
+
+        # 获取在PLT地址范围内的所有函数
+        plt_funcs = self._get_plt_functions_in_range(db, plt_start, plt_end)
+
+        if not plt_funcs:
+            print("[PLTInterceptor] No PLT functions found in range")
+            return False
+
+        print(f"[PLTInterceptor] Found {len(plt_funcs)} PLT functions")
 
         # 替换PLT入口为软中断
         self._replace_plt_entries(plt_funcs, plt_start, plt_end)
@@ -85,7 +99,18 @@ class PLTInterceptor:
 
     def _is_plt_function(self, name: str) -> bool:
         """判断是否为PLT函数"""
-        return name.endswith("@plt") or name.startswith(".")
+        # 方法1: 函数名以 @plt 结尾或以 . 开头
+        if name.endswith("@plt") or name.startswith("."):
+            return True
+        # 方法2: 函数名是常见的libc/system函数（通过地址范围判断更准确）
+        # 这里的函数名没有@plt后缀，需要通过后续的地址范围过滤
+        return False
+
+    def _is_plt_address(self, va: int) -> bool:
+        """判断地址是否在PLT段范围内"""
+        if not hasattr(self, '_plt_start') or not hasattr(self, '_plt_end'):
+            return False
+        return self._plt_start <= va < self._plt_end
 
     def _find_plt_segment(self, db) -> tuple:
         """查找PLT段的起止地址（可能多个段合并）"""
@@ -97,8 +122,10 @@ class PLTInterceptor:
             # 匹配各种PLT段名称：.plt, .plt.sec, .plt.got等
             if ".plt" in name and "shstrtab" not in name:
                 plt_start = seg.get("start_va", 0)
-                size = seg.get("size", seg.get("end_va", 0) - plt_start)
-                plt_ranges.append((plt_start, plt_start + size))
+                end_va = seg.get("end_va", 0)
+                size = end_va - plt_start if end_va > plt_start else 0
+                if size > 0:
+                    plt_ranges.append((plt_start, plt_start + size))
 
         # 合并所有PLT范围
         if plt_ranges:
@@ -114,16 +141,17 @@ class PLTInterceptor:
             # 返回第一个范围作为主PLT段
             return merged[0]
 
-        # 如果没找到命名的PLT段，尝试从函数地址推断
-        funcs = db.load_functions()
-        plt_funcs = [f for f in funcs if self._is_plt_function(f.get("name", ""))]
-        if plt_funcs:
-            plt_addrs = [f.get("start_va", 0) for f in plt_funcs]
-            plt_start = min(plt_addrs)
-            plt_end = max(plt_addrs) + 0x100  # 估计大小
-            return plt_start, plt_end
-
         return None, None
+
+    def _get_plt_functions_in_range(self, db, plt_start: int, plt_end: int) -> List[Dict]:
+        """获取在PLT地址范围内的所有函数"""
+        funcs = db.load_functions()
+        plt_funcs = []
+        for f in funcs:
+            va = f.get("start_va", 0)
+            if plt_start <= va < plt_end:
+                plt_funcs.append(f)
+        return plt_funcs
 
     def _replace_plt_entries(self, plt_funcs: List[Dict], plt_start: int, plt_end: int):
         """替换PLT入口为软中断"""
@@ -153,11 +181,55 @@ class PLTInterceptor:
                 print(f"[PLTInterceptor] Failed to replace PLT entry at 0x{va:x}: {e}")
 
     def _register_interrupt_hook(self):
-        """注册中断hook"""
-        def interrupt_callback(uc, intno, user_data):
-            return self._handle_interrupt(uc, intno)
+        """注册中断hook（x86/x64）或code hook（ARM）"""
+        if self._supports_interrupt_hook():
+            def interrupt_callback(uc, intno, user_data):
+                return self._handle_interrupt(uc, intno)
+            self._interrupt_handle = self.emu.hooks.add_interrupt_hook(interrupt_callback)
+        else:
+            self._register_code_hook()
 
-        self._interrupt_handle = self.emu.hooks.add_interrupt_hook(interrupt_callback)
+    def _register_code_hook(self):
+        """注册code hook用于ARM（因为SVC不触发中断hook）"""
+        def code_callback(uc, address, size, user_data):
+            return self._handle_code(address, size)
+
+        self._code_handle = self.emu.hooks.add_code_hook(code_callback)
+
+    def _handle_code(self, address: int, size: int) -> bool:
+        """处理code hook（ARM PLT拦截）"""
+        # 检查是否在PLT范围内
+        if not self._is_plt_address(address):
+            return True
+
+        # 获取函数名
+        func_name = self._plt_entries.get(address)
+        if not func_name:
+            return True
+
+        # 获取返回地址 - 在ARM中，BL会将返回地址保存到LR寄存器
+        lr = self.emu.regs.get_reg('lr')
+        if lr is None or lr == 0:
+            print(f"[PLTInterceptor] Failed to read LR at PC=0x{address:x}")
+            return True
+
+        ret_addr = lr
+        sp = self.emu.get_sp()
+
+        print(f"[PLTInterceptor] Intercepted: {func_name}() at PC=0x{address:x}, SP=0x{sp:x}, ret_addr=0x{ret_addr:x}")
+
+        # 执行libc hook处理
+        result = self._execute_libc_hook(func_name)
+
+        # 设置返回值
+        if result is not None:
+            self.emu.regs.set_ret_value(result)
+            self.emu._libc_intercepted = True
+
+        # 跳转到返回地址
+        self.emu.set_pc(ret_addr)
+
+        return True
 
     def _handle_interrupt(self, uc, intno) -> bool:
         """处理软中断"""
@@ -197,7 +269,9 @@ class PLTInterceptor:
 
         # 跳过返回地址（call指令压入的返回地址）
         # 恢复SP：pop返回地址
-        self.emu.set_sp(sp + 8)  # 64位架构
+        # ARM32是32位指针，ARM64/x86_64是64位
+        ptr_size = 8 if self.emu.arch in ("x86_64", "arm64") else 4
+        self.emu.set_sp(sp + ptr_size)
 
         # 跳转到返回地址
         self.emu.set_pc(ret_addr)
