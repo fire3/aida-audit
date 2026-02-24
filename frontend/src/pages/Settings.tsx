@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
-import { Select } from "../components/ui/select";
+import { Select } from "../components/ui/select"; // Keep existing imports if they are used
+import { scheduleApi, type ScheduleConfig } from '../api/client';
 
 interface ConfigData {
     base_url: string;
@@ -16,13 +17,41 @@ export function Settings() {
         api_key: '',
         model: ''
     });
+    const [schedule, setSchedule] = useState<ScheduleConfig>({
+        enabled: false,
+        start_time: '09:00',
+        stop_time: '18:00'
+    });
     const [isLoading, setIsLoading] = useState(false);
     const [availableModels, setAvailableModels] = useState<string[]>([]);
     const [status, setStatus] = useState<{ type: 'success' | 'error' | null, message: string }>({ type: null, message: '' });
 
     useEffect(() => {
         fetchConfig();
+        fetchSchedule();
     }, []);
+
+    const fetchSchedule = async () => {
+        try {
+            const data = await scheduleApi.get();
+            setSchedule(data);
+        } catch (error) {
+            console.error('Failed to fetch schedule:', error);
+        }
+    };
+
+    const handleSaveSchedule = async () => {
+        setIsLoading(true);
+        try {
+            await scheduleApi.update(schedule);
+            setStatus({ type: 'success', message: "Schedule updated successfully" });
+        } catch (error: any) {
+            setStatus({ type: 'error', message: error.message || "Failed to update schedule" });
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
 
     const fetchConfig = async () => {
         try {
@@ -198,6 +227,56 @@ export function Settings() {
                         </Button>
                         <Button onClick={handleSave} disabled={isLoading}>
                             {isLoading ? "Saving..." : "Save Configuration"}
+                        </Button>
+                    </div>
+                </CardContent>
+            </Card>
+
+            <Card className="mt-8">
+                <CardHeader>
+                    <CardTitle>Audit Schedule</CardTitle>
+                    <CardDescription>
+                        Configure automatic start and stop times for the audit service.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                    <div className="flex items-center space-x-2">
+                        <input
+                            type="checkbox"
+                            id="schedule-enabled"
+                            className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                            checked={schedule.enabled}
+                            onChange={(e) => setSchedule({ ...schedule, enabled: e.target.checked })}
+                        />
+                        <label htmlFor="schedule-enabled" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                            Enable Scheduled Audit
+                        </label>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium leading-none">Start Time</label>
+                            <Input
+                                type="time"
+                                value={schedule.start_time}
+                                onChange={(e) => setSchedule({ ...schedule, start_time: e.target.value })}
+                                disabled={!schedule.enabled}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium leading-none">Stop Time</label>
+                            <Input
+                                type="time"
+                                value={schedule.stop_time}
+                                onChange={(e) => setSchedule({ ...schedule, stop_time: e.target.value })}
+                                disabled={!schedule.enabled}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end pt-4">
+                        <Button onClick={handleSaveSchedule} disabled={isLoading}>
+                            {isLoading ? "Saving..." : "Save Schedule"}
                         </Button>
                     </div>
                 </CardContent>

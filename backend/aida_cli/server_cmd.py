@@ -816,6 +816,32 @@ def get_audit_status():
         return {"status": "not_initialized", "error": "Audit service not available"}
     return audit_service.get_status()
 
+
+class ScheduleConfig(BaseModel):
+    enabled: bool
+    start_time: str = Field(..., pattern=r"^\d{2}:\d{2}$")
+    stop_time: str = Field(..., pattern=r"^\d{2}:\d{2}$")
+
+@api_router.get("/audit/schedule")
+def get_audit_schedule():
+    if not audit_db:
+        return {"enabled": False, "start_time": "09:00", "stop_time": "18:00"}
+    try:
+        config_str = audit_db.get_config("audit_schedule", "{}")
+        return json.loads(config_str)
+    except Exception:
+        return {"enabled": False, "start_time": "09:00", "stop_time": "18:00"}
+
+@api_router.post("/audit/schedule")
+def update_audit_schedule(schedule: ScheduleConfig):
+    if not audit_db:
+        raise HTTPException(status_code=503, detail="Database not initialized")
+    try:
+        audit_db.set_config("audit_schedule", json.dumps(schedule.dict()))
+        return {"status": "ok", "schedule": schedule.dict()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @api_router.post("/audit/start")
 def start_audit():
     if not audit_service:
