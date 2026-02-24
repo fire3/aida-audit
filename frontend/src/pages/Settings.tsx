@@ -2,8 +2,64 @@ import { useState, useEffect } from 'react';
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
-import { Select } from "../components/ui/select"; // Keep existing imports if they are used
+import { Select } from "../components/ui/select";
 import { scheduleApi, type ScheduleConfig } from '../api/client';
+
+const TIME_PRESETS = [
+    { label: '9:00 - 18:00', start: '09:00', stop: '18:00' },
+    { label: '8:00 - 20:00', start: '08:00', stop: '20:00' },
+    { label: '6:00 - 22:00', start: '06:00', stop: '22:00' },
+    { label: '22:00 - 8:00', start: '22:00', stop: '08:00' },
+    { label: '24 hours', start: '00:00', stop: '23:59' },
+];
+
+function TimePicker({ 
+    label, 
+    value, 
+    onChange, 
+    disabled 
+}: { 
+    label: string; 
+    value: string; 
+    onChange: (value: string) => void; 
+    disabled?: boolean;
+}) {
+    const [hours = '00', minutes = '00'] = (value || '00:00').split(':');
+    
+    const hourOptions = Array.from({ length: 24 }, (_, i) => 
+        i.toString().padStart(2, '0')
+    );
+    const minuteOptions = ['00', '15', '30', '45'];
+    
+    return (
+        <div className="space-y-2">
+            <label className="text-sm font-medium leading-none">{label}</label>
+            <div className="flex gap-2">
+                <Select
+                    value={hours}
+                    onChange={(e) => onChange(`${e.target.value}:${minutes}`)}
+                    disabled={disabled}
+                    className="w-20"
+                >
+                    {hourOptions.map(h => (
+                        <option key={h} value={h}>{h}</option>
+                    ))}
+                </Select>
+                <span className="self-center">:</span>
+                <Select
+                    value={minutes}
+                    onChange={(e) => onChange(`${hours}:${e.target.value}`)}
+                    disabled={disabled}
+                    className="w-20"
+                >
+                    {minuteOptions.map(m => (
+                        <option key={m} value={m}>{m}</option>
+                    ))}
+                </Select>
+            </div>
+        </div>
+    );
+}
 
 interface ConfigData {
     base_url: string;
@@ -254,23 +310,34 @@ export function Settings() {
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium leading-none">Start Time</label>
-                            <Input
-                                type="time"
-                                value={schedule.start_time}
-                                onChange={(e) => setSchedule({ ...schedule, start_time: e.target.value })}
-                                disabled={!schedule.enabled}
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium leading-none">Stop Time</label>
-                            <Input
-                                type="time"
-                                value={schedule.stop_time}
-                                onChange={(e) => setSchedule({ ...schedule, stop_time: e.target.value })}
-                                disabled={!schedule.enabled}
-                            />
+                        <TimePicker
+                            label="Start Time"
+                            value={schedule.start_time}
+                            onChange={(value) => setSchedule({ ...schedule, start_time: value })}
+                            disabled={!schedule.enabled}
+                        />
+                        <TimePicker
+                            label="Stop Time"
+                            value={schedule.stop_time}
+                            onChange={(value) => setSchedule({ ...schedule, stop_time: value })}
+                            disabled={!schedule.enabled}
+                        />
+                    </div>
+
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium leading-none">Quick Presets</label>
+                        <div className="flex flex-wrap gap-2">
+                            {TIME_PRESETS.map((preset) => (
+                                <Button
+                                    key={preset.label}
+                                    variant={schedule.start_time === preset.start && schedule.stop_time === preset.stop ? 'default' : 'outline'}
+                                    size="sm"
+                                    onClick={() => setSchedule({ ...schedule, start_time: preset.start, stop_time: preset.stop })}
+                                    disabled={!schedule.enabled}
+                                >
+                                    {preset.label}
+                                </Button>
+                            ))}
                         </div>
                     </div>
 
