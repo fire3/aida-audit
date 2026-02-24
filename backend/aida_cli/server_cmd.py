@@ -200,7 +200,7 @@ def validate_config(data: ConfigUpdate):
     
     # Determine which key to use
     api_key = data.api_key
-    if not api_key or "..." in api_key:
+    if not api_key or "..." in api_key or api_key.strip() == '':
         api_key = config.get_llm_api_key()
         
     if not api_key:

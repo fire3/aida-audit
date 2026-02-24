@@ -81,7 +81,10 @@ export function Settings() {
     const fetchSchedule = async () => {
         try {
             const data = await scheduleApi.get();
-            setSchedule(data);
+            setSchedule({
+                enabled: data.enabled ?? false,
+                periods: data.periods?.length ? data.periods : [{ start: '09:00', stop: '18:00' }]
+            });
         } catch (error) {
             console.error('Failed to fetch schedule:', error);
         }
@@ -116,7 +119,10 @@ export function Settings() {
     };
 
     const fetchModels = async (baseUrl: string, apiKey: string, model: string) => {
-        if (!apiKey || apiKey.includes('*')) return;
+        if (!apiKey || apiKey.includes('*')) {
+            console.warn('Cannot fetch models: API key is masked or empty');
+            return;
+        }
         
         try {
             const res = await fetch('/api/v1/config/validate', {
@@ -128,14 +134,17 @@ export function Settings() {
                     model: model || 'gpt-4o' 
                 })
             });
-            if (!res.ok) throw new Error('Failed to fetch models');
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.detail || 'Failed to fetch models');
+            }
             const data = await res.json();
             if (data.models) {
                 setAvailableModels(data.models);
                 return data.models;
             }
-        } catch (error) {
-            console.error(error);
+        } catch (error: any) {
+            console.error('Failed to list models:', error.message);
         }
         return [];
     };
@@ -157,17 +166,20 @@ export function Settings() {
             
             setStatus({ type: 'success', message: "Configuration saved successfully" });
             
-            const newConfig = { ...config };
+            const originalApiKey = config.api_key;
+            const originalBaseUrl = config.base_url;
+            const originalModel = config.model;
+            
             const res2 = await fetch('/api/v1/config');
             if (res2.ok) {
                 const data = await res2.json();
                 setConfig(data);
-                newConfig.base_url = data.base_url;
-                newConfig.model = data.model;
             }
             
-            if (config.api_key && !config.api_key.includes('*')) {
-                fetchModels(config.base_url, config.api_key, config.model || '');
+            if (originalApiKey && !originalApiKey.includes('*') && originalBaseUrl) {
+                setTimeout(() => {
+                    fetchModels(originalBaseUrl, originalApiKey, originalModel || '');
+                }, 500);
             }
         } catch (error: any) {
             setStatus({ type: 'error', message: error.message });
