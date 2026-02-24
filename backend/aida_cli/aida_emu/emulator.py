@@ -16,6 +16,7 @@ from .call_conv import CallConvention, detect_call_convention, get_default_conve
 from .hooks import HookManager
 from .libc_sim import LibcHookManager
 from .plt_interceptor import PLTInterceptor
+from .subfunc_hook import SubFuncHookManager
 
 
 class AidaEmulator:
@@ -58,6 +59,9 @@ class AidaEmulator:
         self._external_hook_handle = None
         
         self.libc = LibcHookManager(self)
+
+        # 子函数hook管理器
+        self.subfunc_hooks = SubFuncHookManager(self)
 
         # PLT拦截器（使用int3/brk软中断机制）
         self.plt_interceptor: Optional[PLTInterceptor] = None
@@ -500,6 +504,26 @@ class AidaEmulator:
         for i, arg in enumerate(args):
             self.set_arg(i, arg)
 
+    def get_arg(self, index: int) -> int:
+        """获取函数参数"""
+        if self._call_convention:
+            if index < len(self._call_convention.args):
+                return self.regs.get_reg(self._call_convention.args[index]) or 0
+            else:
+                sp = self.get_sp()
+                offset = 8 + (index - len(self._call_convention.args)) * 8
+                return self.read_ptr(sp + offset) or 0
+        else:
+            return self.regs.get_arg(index) or 0
+
+    def set_ret_value(self, value: int):
+        """设置返回值"""
+        self.regs.set_ret_value(value)
+
+    def get_ret_value(self, signed: bool = False) -> Optional[int]:
+        """获取返回值"""
+        return self.regs.get_ret_value(signed)
+
     def detect_convention(self, func_va: int) -> CallConvention:
         if self.db:
             self._call_convention = detect_call_convention(self.db, func_va, self.arch)
@@ -594,6 +618,74 @@ class AidaEmulator:
             return callback(self, intno, user_data)
         
         return self.hooks.add_interrupt_hook(wrapped, user_data) is not None
+
+    def hook_subfunction(self, func_va: int, callback: Callable, 
+                        user_data: Any = None, 
+                        preserve_return: bool = True,
+                        auto_enable: bool = True):
+        """
+        Hook一个子函数 - 当模拟某个函数时，可以hook其内部调用的复杂子函数
+        
+        Args:
+            func_va: 要hook的子函数地址
+            callback: 处理回调，签名为:
+                callback(emu, func_va, call_site, ret_addr, user_data) -> bool
+                - emu: AidaEmulator实例
+                - func_va: 被hook的函数地址
+                - call_site: 调用该函数的指令地址
+                - ret_addr: 返回地址
+                - user_data: 用户数据
+                - 返回 True 表示已处理，设置返回值并跳转到ret_addr
+                - 返回 False 表示未处理
+            user_data: 传递给回调的用户数据
+            preserve_return: 是否自动处理返回（弹出返回地址并跳转）
+            auto_enable: 是否立即启用hook
+            
+        Returns:
+            SubFuncHook实例
+            
+        Example:
+            # 假设要模拟函数 0x401000，但它调用了复杂的子函数 0x401100
+            # 我们想用简单的模拟替代
+            
+            def complex_sub_handler(emu, func_va, call_site, ret_addr, user_data):
+                arg0 = emu.get_arg(0)  # 读取第一个参数
+                # 自定义逻辑
+                emu.set_ret_value(0x12345)  # 设置返回值
+                return True  # 表示已处理
+                
+            emu.hook_subfunction(0x401100, complex_sub_handler)
+            emu.run(start=0x401000)
+        """
+        return self.subfunc_hooks.register(
+            func_va, 
+            callback, 
+            user_data,
+            preserve_return,
+            auto_enable
+        )
+
+    def hook_subfunction_by_name(self, func_name: str, callback: Callable,
+                                 user_data: Any = None,
+                                 preserve_return: bool = True):
+        """
+        按函数名hook子函数（需要数据库）
+        
+        Args:
+            func_name: 函数名
+            callback: 处理回调
+            user_data: 用户数据
+            preserve_return: 是否自动处理返回
+            
+        Returns:
+            SubFuncHook实例
+        """
+        return self.subfunc_hooks.register_by_name(
+            func_name, 
+            callback, 
+            user_data,
+            preserve_return
+        )
 
     def run(self, start: Optional[int] = None, end: Optional[int] = None, 
             timeout: int = 0, count: int = 0):
