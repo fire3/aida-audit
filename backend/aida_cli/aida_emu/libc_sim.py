@@ -23,6 +23,7 @@ class LibcSimulator:
         self.register("malloc", self._malloc)
         self.register("free", self._free)
         self.register("stristr", self._stristr)
+        self.register("strchr", self._strchr)
     
     def register(self, name: str, handler: Callable[[], int]):
         self._handlers[name] = handler
@@ -159,6 +160,21 @@ class LibcSimulator:
         pos = haystack_lower.find(needle_lower)
         if pos >= 0:
             return haystack_addr + pos
+        return 0
+    
+    def _strchr(self) -> int:
+        string_addr = self.emu.regs.get_arg(0)
+        char = self.emu.regs.get_arg(1)
+        if string_addr is None or char is None:
+            return 0
+        string = self._read_string(string_addr)
+        if not string:
+            return 0
+        char_byte = char & 0xff
+        char_str = chr(char_byte)
+        pos = string.find(char_str)
+        if pos >= 0:
+            return string_addr + pos
         return 0
     
     def _malloc(self) -> int:

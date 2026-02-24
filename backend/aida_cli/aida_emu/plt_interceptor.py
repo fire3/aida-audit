@@ -168,13 +168,14 @@ class PLTInterceptor:
             clean_name = name.lstrip(".").replace("@plt", "")
 
             try:
-                # 备份原始指令（至少16字节以覆盖最大PLT条目）
+                # 备份原始指令（16字节以覆盖整个PLT条目）
                 original = self.emu.read_memory(va, 16)
                 if original:
                     self._backup_data[va] = original
 
-                # 写入软中断指令
-                self.emu.write_memory(va, self._trap_insn)
+                # 写入软中断指令（16字节覆盖整个PLT条目）
+                trap_16 = self._trap_insn * (16 // len(self._trap_insn))
+                self.emu.write_memory(va, trap_16)
 
                 self._plt_entries[va] = clean_name
             except Exception as e:
