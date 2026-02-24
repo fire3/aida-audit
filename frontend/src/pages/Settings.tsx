@@ -5,14 +5,6 @@ import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { scheduleApi, type ScheduleConfig } from '../api/client';
 
-const TIME_PRESETS = [
-    { label: '9:00 - 18:00', start: '09:00', stop: '18:00' },
-    { label: '8:00 - 20:00', start: '08:00', stop: '20:00' },
-    { label: '6:00 - 22:00', start: '06:00', stop: '22:00' },
-    { label: '22:00 - 8:00', start: '22:00', stop: '08:00' },
-    { label: '24 hours', start: '00:00', stop: '23:59' },
-];
-
 function TimePicker({ 
     label, 
     value, 
@@ -75,8 +67,7 @@ export function Settings() {
     });
     const [schedule, setSchedule] = useState<ScheduleConfig>({
         enabled: false,
-        start_time: '09:00',
-        stop_time: '18:00'
+        periods: [{ start: '09:00', stop: '18:00' }]
     });
     const [isLoading, setIsLoading] = useState(false);
     const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -309,36 +300,58 @@ export function Settings() {
                         </label>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                        <TimePicker
-                            label="Start Time"
-                            value={schedule.start_time}
-                            onChange={(value) => setSchedule({ ...schedule, start_time: value })}
-                            disabled={!schedule.enabled}
-                        />
-                        <TimePicker
-                            label="Stop Time"
-                            value={schedule.stop_time}
-                            onChange={(value) => setSchedule({ ...schedule, stop_time: value })}
-                            disabled={!schedule.enabled}
-                        />
-                    </div>
-
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium leading-none">Quick Presets</label>
-                        <div className="flex flex-wrap gap-2">
-                            {TIME_PRESETS.map((preset) => (
-                                <Button
-                                    key={preset.label}
-                                    variant={schedule.start_time === preset.start && schedule.stop_time === preset.stop ? 'default' : 'outline'}
-                                    size="sm"
-                                    onClick={() => setSchedule({ ...schedule, start_time: preset.start, stop_time: preset.stop })}
+                    <div className="space-y-4">
+                        {schedule.periods.map((period, index) => (
+                            <div key={index} className="flex items-center gap-2">
+                                <span className="text-sm text-muted-foreground w-6">#{index + 1}</span>
+                                <TimePicker
+                                    label="Start"
+                                    value={period.start}
+                                    onChange={(value) => {
+                                        const newPeriods = [...schedule.periods];
+                                        newPeriods[index] = { ...period, start: value };
+                                        setSchedule({ ...schedule, periods: newPeriods });
+                                    }}
                                     disabled={!schedule.enabled}
+                                />
+                                <span className="text-muted-foreground">-</span>
+                                <TimePicker
+                                    label="Stop"
+                                    value={period.stop}
+                                    onChange={(value) => {
+                                        const newPeriods = [...schedule.periods];
+                                        newPeriods[index] = { ...period, stop: value };
+                                        setSchedule({ ...schedule, periods: newPeriods });
+                                    }}
+                                    disabled={!schedule.enabled}
+                                />
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => {
+                                        const newPeriods = schedule.periods.filter((_, i) => i !== index);
+                                        setSchedule({ ...schedule, periods: newPeriods });
+                                    }}
+                                    disabled={!schedule.enabled || schedule.periods.length <= 1}
+                                    title="Remove period"
                                 >
-                                    {preset.label}
+                                    ×
                                 </Button>
-                            ))}
-                        </div>
+                            </div>
+                        ))}
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                                setSchedule({
+                                    ...schedule,
+                                    periods: [...schedule.periods, { start: '12:00', stop: '14:00' }]
+                                });
+                            }}
+                            disabled={!schedule.enabled}
+                        >
+                            + Add Time Period
+                        </Button>
                     </div>
 
                     <div className="flex justify-end pt-4">

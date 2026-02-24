@@ -817,20 +817,22 @@ def get_audit_status():
     return audit_service.get_status()
 
 
+class TimePeriod(BaseModel):
+    start: str = Field(..., pattern=r"^\d{2}:\d{2}$")
+    stop: str = Field(..., pattern=r"^\d{2}:\d{2}$")
+
 class ScheduleConfig(BaseModel):
     enabled: bool
-    start_time: str = Field(..., pattern=r"^\d{2}:\d{2}$")
-    stop_time: str = Field(..., pattern=r"^\d{2}:\d{2}$")
+    periods: List[TimePeriod] = []
 
-@api_router.get("/audit/schedule")
 def get_audit_schedule():
     if not audit_db:
-        return {"enabled": False, "start_time": "09:00", "stop_time": "18:00"}
+        return {"enabled": False, "periods": [{"start": "09:00", "stop": "18:00"}]}
     try:
         config_str = audit_db.get_config("audit_schedule", "{}")
         return json.loads(config_str)
     except Exception:
-        return {"enabled": False, "start_time": "09:00", "stop_time": "18:00"}
+        return {"enabled": False, "periods": [{"start": "09:00", "stop": "18:00"}]}
 
 @api_router.post("/audit/schedule")
 def update_audit_schedule(schedule: ScheduleConfig):

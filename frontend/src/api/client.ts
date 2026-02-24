@@ -613,10 +613,14 @@ export const notesApi = {
     apiClient.get<AnalysisProgress>(`/binary/${binaryName}/analysis-progress`).then(res => res.data),
 };
 
+export interface TimePeriod {
+  start: string;
+  stop: string;
+}
+
 export interface ScheduleConfig {
   enabled: boolean;
-  start_time: string;
-  stop_time: string;
+  periods: TimePeriod[];
 }
 
 export const scheduleApi = {
