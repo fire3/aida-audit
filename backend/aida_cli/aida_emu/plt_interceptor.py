@@ -155,11 +155,9 @@ class PLTInterceptor:
     def _register_interrupt_hook(self):
         """注册中断hook"""
         def interrupt_callback(uc, intno, user_data):
-            print(f"[PLTInterceptor] Interrupt callback triggered: intno=0x{intno:x}")
             return self._handle_interrupt(uc, intno)
 
         self._interrupt_handle = self.emu.hooks.add_interrupt_hook(interrupt_callback)
-        print(f"[PLTInterceptor] Interrupt hook registered: {self._interrupt_handle}")
 
     def _handle_interrupt(self, uc, intno) -> bool:
         """处理软中断"""
