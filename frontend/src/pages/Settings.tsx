@@ -106,9 +106,8 @@ export function Settings() {
             if (!res.ok) throw new Error('Failed to fetch config');
             const data = await res.json();
             setConfig(data);
-            if (data.base_url) {
-                // If we have a base url, try to list models
-                fetchModels(data.base_url, data.api_key || '');
+            if (data.base_url && data.api_key && !data.api_key.includes('*')) {
+                fetchModels(data.base_url, data.api_key, data.model || '');
             }
         } catch (error) {
             console.error(error);
@@ -116,16 +115,17 @@ export function Settings() {
         }
     };
 
-    const fetchModels = async (baseUrl: string, apiKey: string) => {
+    const fetchModels = async (baseUrl: string, apiKey: string, model: string) => {
+        if (!apiKey || apiKey.includes('*')) return;
+        
         try {
-            // Use validate endpoint to fetch models, using current or empty model for validation
             const res = await fetch('/api/v1/config/validate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     base_url: baseUrl, 
                     api_key: apiKey, 
-                    model: config.model || 'gpt-4o' 
+                    model: model || 'gpt-4o' 
                 })
             });
             if (!res.ok) throw new Error('Failed to fetch models');
@@ -157,8 +157,18 @@ export function Settings() {
             
             setStatus({ type: 'success', message: "Configuration saved successfully" });
             
-            // Refresh to get masked key back and ensure UI is in sync
-            fetchConfig();
+            const newConfig = { ...config };
+            const res2 = await fetch('/api/v1/config');
+            if (res2.ok) {
+                const data = await res2.json();
+                setConfig(data);
+                newConfig.base_url = data.base_url;
+                newConfig.model = data.model;
+            }
+            
+            if (config.api_key && !config.api_key.includes('*')) {
+                fetchModels(config.base_url, config.api_key, config.model || '');
+            }
         } catch (error: any) {
             setStatus({ type: 'error', message: error.message });
         } finally {
