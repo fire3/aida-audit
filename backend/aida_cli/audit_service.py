@@ -512,6 +512,80 @@ class AuditService:
         self._error: Optional[str] = None
         self.current_session_id: Optional[str] = None
         self.current_agent: Optional[str] = None
+        
+        # Scheduler
+        self._scheduler_stop_event = threading.Event()
+        self._scheduler_thread: Optional[threading.Thread] = None
+        self._start_scheduler()
+
+    def _start_scheduler(self):
+        self._scheduler_stop_event.clear()
+        self._scheduler_thread = threading.Thread(target=self._scheduler_loop, daemon=True)
+        self._scheduler_thread.start()
+
+    def _scheduler_loop(self):
+        while not self._scheduler_stop_event.is_set():
+            try:
+                self._check_schedule()
+            except Exception as e:
+                print(f"[Scheduler] Error: {e}")
+            
+            # Sleep for 60 seconds, checking stop event every second
+            for _ in range(60):
+                if self._scheduler_stop_event.is_set():
+                    break
+                time.sleep(1)
+
+    def _check_schedule(self):
+        if not self.audit_db:
+            return
+
+        try:
+            config_str = self.audit_db.get_config("audit_schedule", "{}")
+            schedule = json.loads(config_str)
+        except Exception:
+            return
+
+        if not schedule.get("enabled"):
+            return
+
+        # Simple daily schedule: start_time (HH:MM), stop_time (HH:MM)
+        start_time_str = schedule.get("start_time")
+        stop_time_str = schedule.get("stop_time")
+
+        if not start_time_str or not stop_time_str:
+            return
+
+        try:
+            now = time.localtime()
+            current_minutes = now.tm_hour * 60 + now.tm_min
+            
+            sh, sm = map(int, start_time_str.split(":"))
+            start_minutes = sh * 60 + sm
+            
+            eh, em = map(int, stop_time_str.split(":"))
+            stop_minutes = eh * 60 + em
+            
+            should_run = False
+            if start_minutes < stop_minutes:
+                should_run = start_minutes <= current_minutes < stop_minutes
+            else:
+                # Cross midnight
+                should_run = current_minutes >= start_minutes or current_minutes < stop_minutes
+
+            if should_run and self.status != "running":
+                self.audit_db.log_progress(f"[Scheduler] 达到计划开始时间 ({start_time_str})，启动审计服务...")
+                self.start()
+            elif not should_run and self.status == "running":
+                # Only stop if it was started by scheduler? 
+                # Ideally yes, but for now let's just enforce the schedule window.
+                # If user started it manually, the scheduler will stop it if outside window.
+                # This is "Enforced Schedule" mode.
+                self.audit_db.log_progress(f"[Scheduler] 达到计划结束时间 ({stop_time_str})，停止审计服务...")
+                self.stop()
+                
+        except ValueError:
+            print(f"[Scheduler] Invalid time format in schedule config: {start_time_str} - {stop_time_str}")
 
     def start(self):
         if self.status == "running":

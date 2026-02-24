@@ -612,3 +612,14 @@ export const notesApi = {
   getAnalysisProgress: (binaryName: string) =>
     apiClient.get<AnalysisProgress>(`/binary/${binaryName}/analysis-progress`).then(res => res.data),
 };
+
+export interface ScheduleConfig {
+  enabled: boolean;
+  start_time: string;
+  stop_time: string;
+}
+
+export const scheduleApi = {
+  get: () => apiClient.get<ScheduleConfig>('/audit/schedule').then(res => res.data),
+  update: (config: ScheduleConfig) => apiClient.post<{ status: string, schedule: ScheduleConfig }>('/audit/schedule', config).then(res => res.data),
+};

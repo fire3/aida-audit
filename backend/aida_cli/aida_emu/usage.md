@@ -218,9 +218,15 @@ ptr2 = emu.alloc(16)   # 返回 0x600010
 ```python
 result = emu.call(func_va, 10, 20)
 
-# 或者手动读取返回值寄存器
-ret_value = emu.regs.get_ret_value()          # 有符号
-ret_value = emu.regs.get_ret_value(signed=False)  # 无符号
+# 方式一：使用 call 的返回值
+print(f"Result: {result}")
+
+# 方式二：手动读取返回值寄存器
+ret_value = emu.get_ret_value()                      # 有符号
+ret_value = emu.get_ret_value(signed=False)          # 无符号
+
+# 方式三：使用 Emulator 的便捷方法设置返回值（在 Hook 中使用）
+emu.set_ret_value(0x12345)
 ```
 
 ## 内存操作
@@ -400,6 +406,217 @@ def my_strlen(emu):
 emu.libc.register("my_strlen", my_strlen)
 ```
 
+### 子函数 Hook（SubFunction Hook）
+
+当你需要模拟一个复杂函数 A，但 A 内部调用了另一个复杂的子函数 B，而你只想关注 A 的核心逻辑、不想真正执行 B 时，可以使用子函数 Hook 拦截 B 的调用，用自定义 handler 替代执行。
+
+**典型使用场景**：
+- 模拟函数 A 时，其调用的子函数 B 涉及复杂的算法或外部依赖
+- 只想验证 A 的逻辑，不关心 B 的具体实现
+- B 是一个递归或循环密集的函数，希望快速跳过
+
+#### 基本用法
+
+```python
+# 假设要模拟函数 at 0x401000，但该函数调用了复杂的子函数 complex_sub (位于 0x401100)
+
+def complex_sub_handler(emu, func_va, call_site, ret_addr, user_data):
+    """
+    子函数 handler 回调
+    
+    参数:
+        emu: AidaEmulator 实例
+        func_va: 被 hook 的子函数地址 (0x401100)
+        call_site: 调用该子函数的指令地址
+        ret_addr: 返回地址
+        user_data: 用户数据
+        
+    返回:
+        True: 表示已处理，Emulator 会自动设置返回值并跳转到 ret_addr
+        False: 表示未处理，继续正常执行
+    """
+    # 读取参数
+    arg0 = emu.get_arg(0)  # 第一个参数
+    arg1 = emu.get_arg(1)  # 第二个参数
+    
+    # 自定义逻辑 - 用简单的模拟替代复杂的原始函数
+    result = arg0 + arg1  # 假设 complex_sub 只是简单相加
+    
+    # 设置返回值
+    emu.set_ret_value(result)
+    
+    return True  # 返回 True 表示已处理
+
+# 注册 hook - 拦截地址 0x401100 的函数调用
+emu.hook_subfunction(0x401100, complex_sub_handler)
+
+# 运行模拟
+emu.run(start=0x401000)
+```
+
+#### 按函数名 Hook
+
+如果数据库中有函数信息，可以按函数名注册：
+
+```python
+def helper_func_handler(emu, func_va, call_site, ret_addr, user_data):
+    # 简单的模拟逻辑
+    emu.set_ret_value(0)
+    return True
+
+# 按函数名 hook（需要数据库）
+emu.hook_subfunction_by_name("helper_func", helper_func_handler)
+```
+
+#### Handler 中读取参数
+
+在 handler 中可以使用 `get_arg(index)` 读取函数参数：
+
+```python
+def my_handler(emu, func_va, call_site, ret_addr, user_data):
+    # x86_64 SysV ABI: rdi, rsi, rdx, rcx, r8, r9
+    arg0 = emu.get_arg(0)  # rdi
+    arg1 = emu.get_arg(1)  # rsi
+    arg2 = emu.get_arg(2)  # rdx
+    
+    # x86_32 cdecl: 参数在栈上
+    # ARM64 AAPCS64: x0-x7
+    
+    # ... 处理逻辑 ...
+    
+    emu.set_ret_value(result)
+    return True
+```
+
+#### Handler 中设置返回值
+
+```python
+def my_handler(emu, func_va, call_site, ret_addr, user_data):
+    # 设置返回值
+    emu.set_ret_value(0x12345)
+    
+    # 或使用
+    emu.regs.set_ret_value(0x12345)
+    
+    return True
+```
+
+#### 管理多个 Hook
+
+```python
+# 注册多个子函数 hook
+emu.hook_subfunction(0x401100, handler1)
+emu.hook_subfunction(0x401200, handler2)
+emu.hook_subfunction(0x401300, handler3)
+
+# 禁用/启用特定 hook
+emu.subfunc_hooks.disable(0x401100)   # 禁用
+emu.subfunc_hooks.enable(0x401100)   # 启用
+
+# 禁用所有子函数 hook
+emu.subfunc_hooks.disable_all()
+
+# 重新启用所有
+emu.subfunc_hooks.enable_all()
+
+# 移除 hook
+emu.subfunc_hooks.unregister(0x401100)
+```
+
+#### 完整示例
+
+```python
+from aida_emu import AidaEmulator
+
+# 加载模拟器
+emu = AidaEmulator.from_database("program.db")
+emu.setup_stack()
+emu.setup_heap()
+
+# 查找要模拟的函数
+target_func = emu.db.find_function("process_data")
+complex_helper = emu.db.find_function("complex_helper")
+
+# 定义子函数 handler - 用简单模拟替代复杂实现
+def complex_helper_handler(emu, func_va, call_site, ret_addr, user_data):
+    """
+    替代复杂的 complex_helper 函数
+    只返回固定值或简单计算结果
+    """
+    # 读取参数
+    input_data = emu.get_arg(0)
+    size = emu.get_arg(1)
+    
+    # 简单模拟：分配输出缓冲区并返回
+    output_ptr = emu.alloc(256)
+    
+    # 写入模拟结果
+    emu.mem.write_u32(output_ptr, size)  # 假设返回处理后的长度
+    
+    emu.set_ret_value(output_ptr)
+    return True
+
+# 注册子函数 hook
+emu.hook_subfunction(complex_helper["va"], complex_helper_handler)
+
+# 添加执行追踪
+def trace_hook(emu, address, size, user_data):
+    print(f"Executing at 0x{address:x}")
+    return True
+
+emu.hook_code(trace_hook)
+
+# 调用目标函数
+result = emu.call(target_func["va"], input_ptr, input_size)
+
+print(f"Result: 0x{result:x}")
+
+emu.close()
+```
+
+#### 高级用法：条件 Hook
+
+```python
+call_count = [0]
+
+def conditional_handler(emu, func_va, call_site, ret_addr, user_data):
+    call_count[0] += 1
+    
+    # 只在特定条件下拦截
+    if call_count[0] == 1:
+        # 第一次调用：正常执行
+        return False  # 返回 False 表示不拦截，继续执行原始函数
+    
+    # 后续调用：用模拟替代
+    emu.set_ret_value(0)
+    return True
+
+emu.hook_subfunction(0x401100, conditional_handler)
+```
+
+#### 高级用法：访问调用上下文
+
+```python
+def handler_with_context(emu, func_va, call_site, ret_addr, user_data):
+    # 获取调用点的函数信息
+    caller_func = emu.get_function(call_site)
+    if caller_func:
+        print(f"Called from: {caller_func['name']} at 0x{call_site:x}")
+    
+    # 获取被调用的函数信息
+    called_func = emu.get_function(func_va)
+    if called_func:
+        print(f"Called: {called_func['name']} at 0x{func_va:x}")
+    
+    print(f"Will return to: 0x{ret_addr:x}")
+    
+    # 可以根据调用上下文决定处理方式
+    emu.set_ret_value(0)
+    return True
+
+emu.hook_subfunction(0x401100, handler_with_context)
+```
+
 ## 调用约定
 
 ### 自动检测
@@ -434,7 +651,11 @@ print(f"Detected: {convention.name}")
 emu.set_arg(0, 10)   # 第一个参数 -> rdi/x0
 emu.set_arg(1, 20)   # 第二个参数 -> rsi/x1
 
-# 方式二：直接设置寄存器
+# 方式二：使用 get_arg 读取参数（常用于 Hook 回调中）
+arg0 = emu.get_arg(0)  # 读取第一个参数
+arg1 = emu.get_arg(1)  # 读取第二个参数
+
+# 方式三：直接设置寄存器
 emu.set_reg("rdi", 10)
 emu.set_reg("rsi", 20)
 
