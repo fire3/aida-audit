@@ -15,6 +15,7 @@ from .memory import MemoryMapper
 from .call_conv import CallConvention, detect_call_convention, get_default_convention
 from .hooks import HookManager
 from .libc_sim import LibcHookManager
+from .plt_interceptor import PLTInterceptor
 
 
 class AidaEmulator:
@@ -57,6 +58,9 @@ class AidaEmulator:
         self._external_hook_handle = None
         
         self.libc = LibcHookManager(self)
+
+        # PLT拦截器（使用int3/brk软中断机制）
+        self.plt_interceptor: Optional[PLTInterceptor] = None
         
         if self.arch == "x86_64":
             self._setup_linux_tls()
@@ -393,116 +397,116 @@ class AidaEmulator:
                 pass
 
     def _setup_external_hooks(self, db: DbLoader):
-        if not hasattr(db, 'get_imports'):
-            return
-            
-        imports = db.get_imports()
-        if not imports:
-            return
-            
-        # Find a suitable region for external hooks
-        # We use a high address to avoid conflicts
-        base_addr = 0xAA000000
-        
-        # Calculate size needed
-        # 16 bytes per hook is enough (we just need space for RET and maybe some padding)
-        size = (len(imports) * 16 + 0xFFF) & ~0xFFF
-        
-        try:
-            # Map the region
-            # We map it as RX (Read/Execute)
-            self.uc.mem_map(base_addr, size, unicorn.UC_PROT_READ | unicorn.UC_PROT_EXEC)
-            
-            # Fill with RET instructions
-            ret_insn = self._get_ret_insn()
-            full_content = b""
-            for _ in range(len(imports)):
-                padding = b"\x00" * (16 - len(ret_insn))
-                full_content += ret_insn + padding
-            
-            # Pad the rest of the page
-            remaining = size - len(full_content)
-            if remaining > 0:
-                full_content += b"\x00" * remaining
-                
-            self.uc.mem_write(base_addr, full_content)
-            
-            hook_count = 0
-            ptr_size = 8 if "64" in self.arch or self.arch == "arm64" else 4
-            
-            for i, imp in enumerate(imports):
-                name = imp["name"]
-                got_addr = imp["address"]
-                
-                # Clean name
-                clean_name = name
-                if "@" in clean_name:
-                    clean_name = clean_name.split("@")[0]
-                if clean_name.startswith("."):
-                    clean_name = clean_name[1:]
-                
-                # Check for PLT override
-                plt_name = f"{clean_name}@plt"
-                if plt_name in self._plt_got_map:
-                     got_addr = self._plt_got_map[plt_name]
+        """使用PLT拦截器（int3/brk软中断）来hook外部函数调用"""
+        # 初始化PLT拦截器
+        self.plt_interceptor = PLTInterceptor(self)
 
-                if got_addr == 0:
-                    continue
-                
-                hook_addr = base_addr + i * 16
-                if self.arch == "arm" and self.mode == unicorn.UC_MODE_THUMB:
-                    hook_addr |= 1
-                
-                # Write hook address to GOT
-                try:
-                    # Verify GOT address is writable
-                    # self.write_ptr might fail if memory is not mapped, but GOT should be mapped
-                    self.write_ptr(got_addr, hook_addr, ptr_size)
-                    
-                    self._external_hooks_map[hook_addr] = clean_name
-                    self.libc.register_address(clean_name, hook_addr)
-                    hook_count += 1
-                except unicorn.UcError:
-                    pass
-            
-            if hook_count > 0:
-                print(f"Set up {hook_count} external function hooks at 0x{base_addr:x}")
-                
-                # Register code hook for this region
-                def external_hook_cb(uc, address, size, user_data):
-                    return self._external_hook_callback(uc, address, size, user_data)
-                
-                self._external_hook_handle = self.hooks.add_code_hook(
-                    external_hook_cb, 
-                    begin=base_addr, 
-                    end=base_addr + size
-                )
-                
-        except unicorn.UcError as e:
-            print(f"Failed to setup external hooks: {e}")
+        # 尝试设置PLT拦截
+        if self.plt_interceptor.setup(db):
+            print(f"[Emulator] PLT interceptor enabled")
+        else:
+            print(f"[Emulator] PLT interceptor setup failed, falling back to legacy method")
+
+            # 如果PLT拦截失败，回退到旧方法
+            self._setup_external_hooks_legacy(db)
 
     def _external_hook_callback(self, uc, address, size, user_data):
         # Align address to find the entry point
         # Our entries are 16 bytes aligned
         base_hook_addr = address & ~0xF
-        
+
         func_name = self._external_hooks_map.get(base_hook_addr)
         if not func_name:
             # Maybe we are inside the 16-byte block but not at start?
             # Or address is exactly what we mapped
             func_name = self._external_hooks_map.get(address)
-            
+
         if not func_name:
             return True
-            
+
         # Try to execute libc handler
         if self.libc.is_enabled():
             result = self.libc.libc.execute(func_name)
             if result is not None:
                 self.regs.set_ret_value(result)
                 self._libc_intercepted = True
-                
+
         return True
+
+    def _setup_external_hooks_legacy(self, db: DbLoader):
+        """Legacy external hooks setup (GOT rewrite method) - fallback only"""
+        if not hasattr(db, 'get_imports'):
+            return
+
+        imports = db.get_imports()
+        if not imports:
+            return
+
+        # Find a suitable region for external hooks
+        base_addr = 0xAA000000
+        size = (len(imports) * 16 + 0xFFF) & ~0xFFF
+
+        try:
+            self.uc.mem_map(base_addr, size, unicorn.UC_PROT_READ | unicorn.UC_PROT_EXEC)
+
+            ret_insn = self._get_ret_insn()
+            full_content = b""
+            for _ in range(len(imports)):
+                padding = b"\x00" * (16 - len(ret_insn))
+                full_content += ret_insn + padding
+
+            remaining = size - len(full_content)
+            if remaining > 0:
+                full_content += b"\x00" * remaining
+
+            self.uc.mem_write(base_addr, full_content)
+
+            hook_count = 0
+            ptr_size = 8 if "64" in self.arch or self.arch == "arm64" else 4
+
+            for i, imp in enumerate(imports):
+                name = imp["name"]
+                got_addr = imp["address"]
+
+                clean_name = name
+                if "@" in clean_name:
+                    clean_name = clean_name.split("@")[0]
+                if clean_name.startswith("."):
+                    clean_name = clean_name[1:]
+
+                plt_name = f"{clean_name}@plt"
+                if plt_name in self._plt_got_map:
+                     got_addr = self._plt_got_map[plt_name]
+
+                if got_addr == 0:
+                    continue
+
+                hook_addr = base_addr + i * 16
+                if self.arch == "arm" and self.mode == unicorn.UC_MODE_THUMB:
+                    hook_addr |= 1
+
+                try:
+                    self.write_ptr(got_addr, hook_addr, ptr_size)
+                    self._external_hooks_map[hook_addr] = clean_name
+                    self.libc.register_address(clean_name, hook_addr)
+                    hook_count += 1
+                except unicorn.UcError:
+                    pass
+
+            if hook_count > 0:
+                print(f"Set up {hook_count} external function hooks (legacy) at 0x{base_addr:x}")
+
+                def external_hook_cb(uc, address, size, user_data):
+                    return self._external_hook_callback(uc, address, size, user_data)
+
+                self._external_hook_handle = self.hooks.add_code_hook(
+                    external_hook_cb,
+                    begin=base_addr,
+                    end=base_addr + size
+                )
+
+        except unicorn.UcError as e:
+            print(f"Failed to setup external hooks (legacy): {e}")
 
     def setup_stack(self, stack_va: Optional[int] = None, stack_size: int = 0x100000) -> int:
         if stack_va is None:
