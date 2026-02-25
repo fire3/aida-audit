@@ -5,8 +5,6 @@ import os
 import sys
 import uvicorn
 import asyncio
-import io
-import html
 from contextlib import asynccontextmanager
 from typing import Optional, List, Union, Dict, Any
 from collections import defaultdict
@@ -16,6 +14,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import datetime
+
+from .report_generator import build_reportlab_pdf, _build_simple_pdf
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -847,121 +847,6 @@ def get_audit_status():
         return {"status": "not_initialized", "error": "Audit service not available"}
     return audit_service.get_status()
 
-def _pdf_escape_text(s: str) -> str:
-    if s is None:
-        return ""
-    s = str(s).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
-    try:
-        s.encode("ascii")
-    except Exception:
-        s = "".join(ch if ord(ch) < 128 else "?" for ch in s)
-    return s
-
-def _make_pdf_pages(lines: list, page_width: int = 595, page_height: int = 842, margin: int = 40, line_height: int = 14):
-    pages = []
-    y_start = page_height - margin - 20
-    y = y_start
-    current_page = []
-    for raw in lines:
-        text = _pdf_escape_text(raw)
-        if y < margin + 40:
-            pages.append(current_page)
-            current_page = []
-            y = y_start
-        current_page.append((margin, y, text))
-        y -= line_height
-    if current_page:
-        pages.append(current_page)
-    return pages
-
-def _build_simple_pdf(lines: list, title: str = "AIDA Report"):
-    page_width = 595
-    page_height = 842
-    margin = 40
-    line_height = 14
-    pages = _make_pdf_pages([f"{title}"] + [""] + lines, page_width=page_width, page_height=page_height, margin=margin, line_height=line_height)
-    objects = []
-    def add(obj):
-        objects.append(obj)
-        return len(objects)
-    pages_obj_id = add(None)
-    catalog_id = add(f"<< /Type /Catalog /Pages {pages_obj_id} 0 R >>")
-    font_id = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
-    kids = []
-    for page in pages:
-        stream_lines = ["BT", "/F1 10 Tf"]
-        for (x, y, text) in page:
-            stream_lines.append(f"1 0 0 1 {x} {y} Tm ({text}) Tj")
-        stream_lines.append("ET")
-        stream_data = "\n".join(stream_lines).encode("latin-1", errors="ignore")
-        contents_str = f"<< /Length {len(stream_data)} >>\nstream\n{stream_data.decode('latin-1', errors='ignore')}\nendstream"
-        cid = add(contents_str)
-        page_obj = f"<< /Type /Page /Parent {pages_obj_id} 0 R /MediaBox [0 0 {page_width} {page_height}] /Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {cid} 0 R >>"
-        pid = add(page_obj)
-        kids.append(pid)
-    kids_str = "[ " + " ".join(f"{kid} 0 R" for kid in kids) + " ]"
-    pages_obj = f"<< /Type /Pages /Kids {kids_str} /Count {len(kids)} >>"
-    objects[pages_obj_id - 1] = pages_obj
-    xref_positions = []
-    out = []
-    out.append("%PDF-1.4\n")
-    for i, obj in enumerate(objects, start=1):
-        xref_positions.append(sum(len(s.encode("latin-1")) for s in out))
-        out.append(f"{i} 0 obj\n{obj}\nendobj\n")
-    xref_start = sum(len(s.encode("latin-1")) for s in out)
-    out.append("xref\n")
-    out.append(f"0 {len(objects)+1}\n")
-    out.append("0000000000 65535 f \n")
-    for pos in xref_positions:
-        out.append(f"{pos:010d} 00000 n \n")
-    out.append("trailer\n")
-    out.append(f"<< /Size {len(objects)+1} /Root {catalog_id} 0 R >>\n")
-    out.append("startxref\n")
-    out.append(f"{xref_start}\n")
-    out.append("%%EOF\n")
-    return "".join(out).encode("latin-1")
-
-def _build_reportlab_pdf(lines: list, title: str):
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
-
-    font_name = "Helvetica"
-    font_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "NotoSansSC-Regular.ttf")
-    if os.path.exists(font_path):
-        try:
-            pdfmetrics.registerFont(TTFont("NotoSansSC", font_path))
-            font_name = "NotoSansSC"
-        except Exception:
-            font_name = "Helvetica"
-
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle("AidaTitle", parent=styles["Title"], fontName=font_name, fontSize=18, leading=22, spaceAfter=12)
-    heading_style = ParagraphStyle("AidaHeading", parent=styles["Heading2"], fontName=font_name, fontSize=13, leading=16, spaceBefore=10, spaceAfter=6)
-    normal_style = ParagraphStyle("AidaNormal", parent=styles["BodyText"], fontName=font_name, fontSize=10.5, leading=14)
-
-    def to_paragraph_text(text: str):
-        escaped = html.escape(text or "")
-        return escaped.replace("\n", "<br/>")
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
-    elements = [Paragraph(to_paragraph_text(title), title_style), Spacer(1, 8)]
-    for line in lines:
-        if line.startswith("=== "):
-            elements.append(Paragraph(to_paragraph_text(line.replace("=== ", "").strip()), heading_style))
-            continue
-        if line.startswith("- "):
-            elements.append(Paragraph(to_paragraph_text("• " + line[2:]), normal_style))
-            continue
-        if line.strip() == "":
-            elements.append(Spacer(1, 6))
-            continue
-        elements.append(Paragraph(to_paragraph_text(line), normal_style))
-    doc.build(elements)
-    return buffer.getvalue()
 
 @api_router.get("/report/pdf")
 def export_analysis_report_pdf(
@@ -1049,7 +934,7 @@ def export_analysis_report_pdf(
             lines.append("")
         report_title = title or "AIDA 安全分析报告"
         try:
-            pdf_bytes = _build_reportlab_pdf(lines, report_title)
+            pdf_bytes = build_reportlab_pdf(lines, report_title)
         except Exception:
             pdf_bytes = _build_simple_pdf(lines, title=report_title)
         return StreamingResponse(iter([pdf_bytes]), media_type="application/pdf", headers={
