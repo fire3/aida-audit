@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../co
 import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
 import { scheduleApi, type ScheduleConfig } from '../api/client';
+import { Bot, Clock, Globe, Settings as SettingsIcon } from 'lucide-react';
 
 function TimePicker({ 
     label, 
@@ -59,7 +60,10 @@ interface ConfigData {
     model: string;
 }
 
+type TabType = 'llm' | 'schedule' | 'language';
+
 export function Settings() {
+    const [activeTab, setActiveTab] = useState<TabType>('llm');
     const [config, setConfig] = useState<ConfigData>({
         base_url: '',
         api_key: '',
@@ -248,196 +252,249 @@ export function Settings() {
     };
 
     return (
-        <div className="container mx-auto py-10 max-w-2xl">
-            <Card>
-                <CardHeader>
-                    <CardTitle>LLM Configuration</CardTitle>
-                    <CardDescription>
-                        Configure your Language Model Provider settings.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                    {status.message && (
-                        <div className={`p-3 rounded-md text-sm ${status.type === 'error' ? 'bg-red-50 text-red-900 border border-red-200' : 'bg-green-50 text-green-900 border border-green-200'}`}>
-                            {status.message}
-                        </div>
+        <div className="container mx-auto py-10 max-w-4xl">
+            <h1 className="text-2xl font-bold mb-6 flex items-center gap-2">
+                <SettingsIcon className="w-6 h-6" />
+                Settings
+            </h1>
+            
+            <div className="flex gap-6">
+                <div className="w-48 shrink-0">
+                    <nav className="flex flex-col space-y-1">
+                        <button
+                            onClick={() => setActiveTab('llm')}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                                activeTab === 'llm' 
+                                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100' 
+                                    : 'text-muted-foreground hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                            }`}
+                        >
+                            <Bot className="w-4 h-4" />
+                            LLM
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('schedule')}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                                activeTab === 'schedule' 
+                                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100' 
+                                    : 'text-muted-foreground hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                            }`}
+                        >
+                            <Clock className="w-4 h-4" />
+                            Schedule
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('language')}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                                activeTab === 'language' 
+                                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100' 
+                                    : 'text-muted-foreground hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                            }`}
+                        >
+                            <Globe className="w-4 h-4" />
+                            Language
+                        </button>
+                    </nav>
+                </div>
+                
+                <div className="flex-1">
+                    {activeTab === 'llm' && (
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>LLM Configuration</CardTitle>
+                                <CardDescription>
+                                    Configure your Language Model Provider settings.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-6">
+                                {status.message && (
+                                    <div className={`p-3 rounded-md text-sm ${status.type === 'error' ? 'bg-red-50 text-red-900 border border-red-200' : 'bg-green-50 text-green-900 border border-green-200'}`}>
+                                        {status.message}
+                                    </div>
+                                )}
+
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium leading-none">Base URL</label>
+                                    <Input 
+                                        placeholder="https://api.openai.com/v1" 
+                                        value={config.base_url}
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig({...config, base_url: e.target.value})}
+                                    />
+                                    <p className="text-sm text-muted-foreground">
+                                        The API endpoint for your LLM provider.
+                                    </p>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium leading-none">API Key</label>
+                                    <Input 
+                                        type="password"
+                                        placeholder="sk-..." 
+                                        value={config.api_key}
+                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig({...config, api_key: e.target.value})}
+                                    />
+                                    <p className="text-sm text-muted-foreground">
+                                        Your API key. It will be masked when saved.
+                                    </p>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium leading-none">Model</label>
+                                    <div className="flex gap-2">
+                                        <div className="flex-1">
+                                            {availableModels.length > 0 ? (
+                                                <Select 
+                                                    value={config.model} 
+                                                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setConfig({...config, model: e.target.value})}
+                                                >
+                                                    <option value="" disabled>Select a model</option>
+                                                    {availableModels.map((model) => (
+                                                        <option key={model} value={model}>
+                                                            {model}
+                                                        </option>
+                                                    ))}
+                                                </Select>
+                                            ) : (
+                                                <Input 
+                                                    placeholder="gpt-4o" 
+                                                    value={config.model}
+                                                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig({...config, model: e.target.value})}
+                                                />
+                                            )}
+                                        </div>
+                                        <Button variant="outline" onClick={handleTestConnection} disabled={isLoading}>
+                                            Refresh Models
+                                        </Button>
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-end gap-4 pt-4">
+                                    <Button variant="outline" onClick={handleTestConnection} disabled={isLoading}>
+                                        Test Connection
+                                    </Button>
+                                    <Button onClick={handleSave} disabled={isLoading}>
+                                        {isLoading ? "Saving..." : "Save Configuration"}
+                                    </Button>
+                                </div>
+                            </CardContent>
+                        </Card>
                     )}
 
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">Base URL</label>
-                        <Input 
-                            placeholder="https://api.openai.com/v1" 
-                            value={config.base_url}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig({...config, base_url: e.target.value})}
-                        />
-                        <p className="text-sm text-muted-foreground">
-                            The API endpoint for your LLM provider.
-                        </p>
-                    </div>
-
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">API Key</label>
-                        <Input 
-                            type="password"
-                            placeholder="sk-..." 
-                            value={config.api_key}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig({...config, api_key: e.target.value})}
-                        />
-                        <p className="text-sm text-muted-foreground">
-                            Your API key. It will be masked when saved.
-                        </p>
-                    </div>
-
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">Model</label>
-                        <div className="flex gap-2">
-                            <div className="flex-1">
-                                {availableModels.length > 0 ? (
-                                    <Select 
-                                        value={config.model} 
-                                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setConfig({...config, model: e.target.value})}
-                                    >
-                                        <option value="" disabled>Select a model</option>
-                                        {availableModels.map((model) => (
-                                            <option key={model} value={model}>
-                                                {model}
-                                            </option>
-                                        ))}
-                                    </Select>
-                                ) : (
-                                    <Input 
-                                        placeholder="gpt-4o" 
-                                        value={config.model}
-                                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfig({...config, model: e.target.value})}
+                    {activeTab === 'schedule' && (
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Audit Schedule</CardTitle>
+                                <CardDescription>
+                                    Configure automatic start and stop times for the audit service.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-6">
+                                <div className="flex items-center space-x-2">
+                                    <input
+                                        type="checkbox"
+                                        id="schedule-enabled"
+                                        className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                        checked={schedule.enabled}
+                                        onChange={(e) => setSchedule({ ...schedule, enabled: e.target.checked })}
                                     />
-                                )}
-                            </div>
-                            <Button variant="outline" onClick={handleTestConnection} disabled={isLoading}>
-                                Refresh Models
-                            </Button>
-                        </div>
-                    </div>
+                                    <label htmlFor="schedule-enabled" className="text-sm font-medium leading-none">
+                                        Enable Scheduled Audit
+                                    </label>
+                                </div>
 
-                    <div className="flex justify-end gap-4 pt-4">
-                        <Button variant="outline" onClick={handleTestConnection} disabled={isLoading}>
-                            Test Connection
-                        </Button>
-                        <Button onClick={handleSave} disabled={isLoading}>
-                            {isLoading ? "Saving..." : "Save Configuration"}
-                        </Button>
-                    </div>
-                </CardContent>
-            </Card>
+                                <div className="space-y-4">
+                                    {schedule.periods.map((period, index) => (
+                                        <div key={index} className="flex items-center gap-2">
+                                            <span className="text-sm text-muted-foreground w-6">#{index + 1}</span>
+                                            <TimePicker
+                                                label="Start"
+                                                value={period.start}
+                                                onChange={(value) => {
+                                                    const newPeriods = [...schedule.periods];
+                                                    newPeriods[index] = { ...period, start: value };
+                                                    setSchedule({ ...schedule, periods: newPeriods });
+                                                }}
+                                                disabled={!schedule.enabled}
+                                            />
+                                            <span className="text-muted-foreground">-</span>
+                                            <TimePicker
+                                                label="Stop"
+                                                value={period.stop}
+                                                onChange={(value) => {
+                                                    const newPeriods = [...schedule.periods];
+                                                    newPeriods[index] = { ...period, stop: value };
+                                                    setSchedule({ ...schedule, periods: newPeriods });
+                                                }}
+                                                disabled={!schedule.enabled}
+                                            />
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                onClick={() => {
+                                                    const newPeriods = schedule.periods.filter((_, i) => i !== index);
+                                                    setSchedule({ ...schedule, periods: newPeriods });
+                                                }}
+                                                disabled={!schedule.enabled || schedule.periods.length <= 1}
+                                                title="Remove period"
+                                            >
+                                                ×
+                                            </Button>
+                                        </div>
+                                    ))}
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => {
+                                            setSchedule({
+                                                ...schedule,
+                                                periods: [...schedule.periods, { start: '12:00', stop: '14:00' }]
+                                            });
+                                        }}
+                                        disabled={!schedule.enabled}
+                                    >
+                                        + Add Time Period
+                                    </Button>
+                                </div>
 
-            <Card className="mt-8">
-                <CardHeader>
-                    <CardTitle>Audit Schedule</CardTitle>
-                    <CardDescription>
-                        Configure automatic start and stop times for the audit service.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                    <div className="flex items-center space-x-2">
-                        <input
-                            type="checkbox"
-                            id="schedule-enabled"
-                            className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                            checked={schedule.enabled}
-                            onChange={(e) => setSchedule({ ...schedule, enabled: e.target.checked })}
-                        />
-                        <label htmlFor="schedule-enabled" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                            Enable Scheduled Audit
-                        </label>
-                    </div>
+                                <div className="flex justify-end pt-4">
+                                    <Button onClick={handleSaveSchedule} disabled={isLoading}>
+                                        {isLoading ? "Saving..." : "Save Schedule"}
+                                    </Button>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
 
-                    <div className="space-y-4">
-                        {schedule.periods.map((period, index) => (
-                            <div key={index} className="flex items-center gap-2">
-                                <span className="text-sm text-muted-foreground w-6">#{index + 1}</span>
-                                <TimePicker
-                                    label="Start"
-                                    value={period.start}
-                                    onChange={(value) => {
-                                        const newPeriods = [...schedule.periods];
-                                        newPeriods[index] = { ...period, start: value };
-                                        setSchedule({ ...schedule, periods: newPeriods });
-                                    }}
-                                    disabled={!schedule.enabled}
-                                />
-                                <span className="text-muted-foreground">-</span>
-                                <TimePicker
-                                    label="Stop"
-                                    value={period.stop}
-                                    onChange={(value) => {
-                                        const newPeriods = [...schedule.periods];
-                                        newPeriods[index] = { ...period, stop: value };
-                                        setSchedule({ ...schedule, periods: newPeriods });
-                                    }}
-                                    disabled={!schedule.enabled}
-                                />
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => {
-                                        const newPeriods = schedule.periods.filter((_, i) => i !== index);
-                                        setSchedule({ ...schedule, periods: newPeriods });
-                                    }}
-                                    disabled={!schedule.enabled || schedule.periods.length <= 1}
-                                    title="Remove period"
-                                >
-                                    ×
-                                </Button>
-                            </div>
-                        ))}
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                                setSchedule({
-                                    ...schedule,
-                                    periods: [...schedule.periods, { start: '12:00', stop: '14:00' }]
-                                });
-                            }}
-                            disabled={!schedule.enabled}
-                        >
-                            + Add Time Period
-                        </Button>
-                    </div>
-
-                    <div className="flex justify-end pt-4">
-                        <Button onClick={handleSaveSchedule} disabled={isLoading}>
-                            {isLoading ? "Saving..." : "Save Schedule"}
-                        </Button>
-                    </div>
-                </CardContent>
-            </Card>
-
-            <Card className="mt-6">
-                <CardHeader>
-                    <CardTitle>Report Language</CardTitle>
-                    <CardDescription>
-                        Configure the language for audit reports and vulnerability descriptions.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium leading-none">Language</label>
-                        <select
-                            className="w-full px-3 py-2 border rounded-md bg-background"
-                            value={reportLanguage}
-                            onChange={(e) => setReportLanguage(e.target.value)}
-                        >
-                            <option value="Chinese">Chinese (中文)</option>
-                            <option value="English">English (英文)</option>
-                        </select>
-                    </div>
-                    <div className="flex justify-end pt-4">
-                        <Button onClick={handleSaveReportLanguage} disabled={isLoading}>
-                            {isLoading ? "Saving..." : "Save Language"}
-                        </Button>
-                    </div>
-                </CardContent>
-            </Card>
+                    {activeTab === 'language' && (
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Report Language</CardTitle>
+                                <CardDescription>
+                                    Configure the language for audit reports and vulnerability descriptions.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium leading-none">Language</label>
+                                    <select
+                                        className="w-full px-3 py-2 border rounded-md bg-background"
+                                        value={reportLanguage}
+                                        onChange={(e) => setReportLanguage(e.target.value)}
+                                    >
+                                        <option value="Chinese">Chinese (中文)</option>
+                                        <option value="English">English (英文)</option>
+                                    </select>
+                                </div>
+                                <div className="flex justify-end pt-4">
+                                    <Button onClick={handleSaveReportLanguage} disabled={isLoading}>
+                                        {isLoading ? "Saving..." : "Save Language"}
+                                    </Button>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    )}
+                </div>
+            </div>
         </div>
     );
 }
