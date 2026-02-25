@@ -75,14 +75,14 @@ def audit_create_agent_task(title: str, description: str, parent_plan_id: int, b
     task_id = db.create_task(parent_plan_id, title, description, binary_name, task_type)
     return {"task_id": task_id, "status": "success", "task_type": task_type}
 
-def audit_get_task(task_id: int) -> Dict[str, Any]:
+def audit_get_agent_task(task_id: int) -> Dict[str, Any]:
     db = get_audit_db()
     task = db.get_task(task_id)
     if task:
         return task
     return {"error": "Task not found"}
 
-def audit_update_task(task_id: int, notes: Optional[str] = None) -> Dict[str, Any]:
+def audit_update_agent_task(task_id: int, notes: Optional[str] = None) -> Dict[str, Any]:
     db = get_audit_db()
         
     current_task = db.get_task(task_id)
@@ -94,12 +94,12 @@ def audit_update_task(task_id: int, notes: Optional[str] = None) -> Dict[str, An
         db.log_progress(f"Task {task_id} updated: {notes}", task_id=task_id)
     return {"success": success}
 
-def audit_submit_task_summary(task_id: int, summary: str) -> Dict[str, Any]:
+def audit_submit_agent_task_summary(task_id: int, summary: str) -> Dict[str, Any]:
     db = get_audit_db()
     success = db.update_task_summary(task_id, summary)
     return {"success": success}
 
-def audit_get_task_summary(task_id: int) -> Dict[str, Any]:
+def audit_get_agent_task_summary(task_id: int) -> Dict[str, Any]:
     db = get_audit_db()
     task = db.get_task(task_id)
     if task:

@@ -1109,8 +1109,8 @@ class McpService:
         """
         return audit_mcp_tools.audit_create_agent_task(title, description, plan_id, binary_name, task_type)
 
-    @mcp_tool(name="audit_submit_task_summary")
-    def audit_submit_task_summary(self, task_id: int, summary: str) -> Dict[str, Any]:
+    @mcp_tool(name="audit_submit_agent_task_summary")
+    def audit_submit_agent_task_summary(self, task_id: int, summary: str) -> Dict[str, Any]:
         """Submit a final summary for a completed task.
         
         Use this to record the final outcome, key findings, and conclusion of the task.
@@ -1123,19 +1123,19 @@ class McpService:
         Returns:
             dict: Contains 'success' boolean.
         """
-        return audit_mcp_tools.audit_submit_task_summary(task_id, summary)
+        return audit_mcp_tools.audit_submit_agent_task_summary(task_id, summary)
 
-    @mcp_tool(name="audit_get_task_summary")
-    def audit_get_task_summary(self, task_id: int) -> Dict[str, Any]:
-        """Get the summary of a task.
+    @mcp_tool(name="audit_get_agent_task_summary")
+    def audit_get_agent_task_summary(self, task_id: int) -> Dict[str, Any]:
+        """Get the summary of a agent task.
 
         Args:
-            task_id: The ID of the task.
+            task_id: The ID of the agent task.
 
         Returns:
             dict: Contains 'summary' text.
         """
-        return audit_mcp_tools.audit_get_task_summary(task_id)
+        return audit_mcp_tools.audit_get_agent_task_summary(task_id)
 
     @mcp_tool(name="audit_list_macro_plans")
     def audit_list_macro_plans(self, status: str = None) -> List[Dict[str, Any]]:
@@ -1213,8 +1213,8 @@ class McpService:
         """
         return audit_mcp_tools.audit_update_macro_plan(plan_id, notes)
 
-    @mcp_tool(name="audit_update_task")
-    def audit_update_task(self, task_id: int, notes: str = None) -> Dict[str, Any]:
+    @mcp_tool(name="audit_update_agent_task")
+    def audit_update_agent_task(self, task_id: int, notes: str = None) -> Dict[str, Any]:
         """Update an agent task notes.
         
         Args:
@@ -1224,4 +1224,4 @@ class McpService:
         Returns:
             dict: Contains 'success' boolean.
         """
-        return audit_mcp_tools.audit_update_task(task_id, notes)
+        return audit_mcp_tools.audit_update_agent_task(task_id, notes)

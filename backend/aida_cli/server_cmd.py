@@ -757,7 +757,7 @@ def get_audit_task(task_id: int = Path(..., description="Task ID")):
         if not audit_db:
              raise HTTPException(status_code=500, detail="Database not initialized")
         task_id_int = int(task_id)
-        result = audit_mcp_tools.audit_get_task(task_id_int)
+        result = audit_mcp_tools.audit_get_agent_task(task_id_int)
         if "error" in result:
             raise HTTPException(status_code=404, detail=result.get("error", "Task not found"))
         return result
