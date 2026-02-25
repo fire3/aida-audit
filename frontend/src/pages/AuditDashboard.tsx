@@ -1,923 +1,25 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { auditApi, projectApi, type AuditPlan, type AuditMessage, type Vulnerability, type Note } from '../api/client';
+import { auditApi, type AuditMessage } from '../api/client';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   CheckCircle2, 
   Circle, 
-  Clock, 
-  AlertCircle, 
   Terminal, 
   MessageSquare, 
   ListTodo,
   Play,
   Square,
   StickyNote,
-  AlertTriangle,
-  Code,
-  Archive,
-  ShieldCheck,
-  Plus
+  AlertTriangle
 } from 'lucide-react';
-import { formatAddress } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Modal } from '../components/ui/modal';
-import { Input } from '../components/ui/input';
-import { Textarea } from '../components/ui/textarea';
-import { Select } from '../components/ui/select';
-
-function Badge({ children, variant }: { children: React.ReactNode, variant: string }) {
-    const colors = {
-        default: "bg-green-100 text-green-800 border border-green-200",
-        secondary: "bg-blue-100 text-blue-800 border border-blue-200",
-        outline: "bg-gray-100 text-gray-800 border border-gray-200",
-        destructive: "bg-red-100 text-red-800 border border-red-200",
-        warning: "bg-yellow-100 text-yellow-800 border border-yellow-200",
-        info: "bg-sky-100 text-sky-800 border border-sky-200",
-        purple: "bg-purple-100 text-purple-800 border border-purple-200",
-        orange: "bg-orange-100 text-orange-800 border border-orange-200"
-    };
-    const style = colors[variant as keyof typeof colors] || colors.outline;
-    return (
-        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide ${style}`}>
-            {children}
-        </span>
-    )
-}
-
-function StatusIcon({ status }: { status: string }) {
-  switch (status) {
-    case 'completed': return <CheckCircle2 className="w-4 h-4 text-green-500" />;
-    case 'in_progress': return <Clock className="w-4 h-4 text-blue-500 animate-pulse" />;
-    case 'failed': return <AlertCircle className="w-4 h-4 text-red-500" />;
-    default: return <Circle className="w-4 h-4 text-gray-300" />;
-  }
-}
-
-function VerificationStatusBadge({ status }: { status: string | undefined }) {
-  if (!status) status = 'unverified';
-  const colors: Record<string, string> = {
-    unverified: "bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700",
-    confirmed: "bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-900",
-    false_positive: "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-900",
-  };
-  const style = colors[status] || colors.unverified;
-  const icon = status === 'confirmed' ? <AlertTriangle className="w-3 h-3 mr-1" /> : 
-               status === 'false_positive' ? <CheckCircle2 className="w-3 h-3 mr-1" /> :
-               <Circle className="w-3 h-3 mr-1" />;
-               
-  return (
-      <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide border flex items-center ${style}`}>
-          {icon}
-          {status.replace('_', ' ')}
-      </span>
-  )
-}
-
-function UserPromptConfig() {
-    const [isEditing, setIsEditing] = useState(false);
-    const [prompt, setPrompt] = useState("");
-    const [loading, setLoading] = useState(false);
-
-    const { data, refetch } = useQuery({ 
-        queryKey: ['userPrompt'], 
-        queryFn: auditApi.getUserPrompt,
-        refetchOnWindowFocus: false
-    });
-
-    useEffect(() => {
-        if (data) {
-            setPrompt(data.content);
-        }
-    }, [data]);
-
-    const handleSave = async () => {
-        setLoading(true);
-        try {
-            await auditApi.updateUserPrompt(prompt);
-            await refetch();
-            setIsEditing(false);
-        } catch (error) {
-            console.error("Failed to save prompt", error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    return (
-        <div className="mb-4 border rounded-lg p-3 bg-white dark:bg-slate-900 shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold text-sm flex items-center gap-2">
-                    <MessageSquare className="w-4 h-4 text-blue-500" />
-                    User Requirements (Macro Goal)
-                </h3>
-                {!isEditing && (
-                    <Button variant="ghost" size="sm" onClick={() => setIsEditing(true)} className="h-6 text-xs">
-                        Edit
-                    </Button>
-                )}
-            </div>
-            
-            {isEditing ? (
-                <div className="space-y-2">
-                    <textarea 
-                        className="w-full text-xs p-2 border rounded bg-slate-50 dark:bg-slate-800 min-h-[60px] focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        placeholder="Enter your specific requirements or macro goals for the audit..."
-                        value={prompt}
-                        onChange={(e) => setPrompt(e.target.value)}
-                    />
-                    <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => {
-                            setIsEditing(false);
-                            setPrompt(data?.content || "");
-                        }} className="h-7 text-xs">
-                            Cancel
-                        </Button>
-                        <Button size="sm" onClick={handleSave} disabled={loading} className="h-7 text-xs">
-                            {loading ? "Saving..." : "Save"}
-                        </Button>
-                    </div>
-                </div>
-            ) : (
-                <div className="text-xs text-muted-foreground">
-                    {prompt ? (
-                        <p className="whitespace-pre-wrap">{prompt}</p>
-                    ) : (
-                        <p className="italic opacity-70">No specific requirements set. Click Edit to add instructions for the agent.</p>
-                    )}
-                </div>
-            )}
-        </div>
-    );
-}
-
-function PlanView({ plans }: { plans: AuditPlan[] }) {
-    const queryClient = useQueryClient();
-    const macroPlans = useMemo(() => plans.filter(p => p.plan_type === 'audit_plan'), [plans]);
-    const agentTasks = useMemo(() => 
-        plans.filter(p => p.plan_type === 'agent_plan').sort((a, b) => b.id - a.id), 
-        [plans]
-    );
-    const verificationTasks = useMemo(() => 
-        plans.filter(p => p.plan_type === 'verification_plan').sort((a, b) => b.id - a.id),
-        [plans]
-    );
-
-    const allExecutionTasks = useMemo(() => 
-        [...agentTasks, ...verificationTasks].sort((a, b) => b.id - a.id),
-        [agentTasks, verificationTasks]
-    );
-
-    // State for creating Macro Plan
-    const [isMacroModalOpen, setIsMacroModalOpen] = useState(false);
-    const [newMacroTitle, setNewMacroTitle] = useState("");
-    const [newMacroDesc, setNewMacroDesc] = useState("");
-
-    // State for creating Task
-    const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
-    const [newTaskTitle, setNewTaskTitle] = useState("");
-    const [newTaskDesc, setNewTaskDesc] = useState("");
-    const [selectedPlanId, setSelectedPlanId] = useState<string>("");
-    const [newTaskBinary, setNewTaskBinary] = useState("");
-    const [newTaskType, setNewTaskType] = useState<'ANALYSIS' | 'VERIFICATION'>('ANALYSIS');
-
-    const { data: binaries } = useQuery({
-        queryKey: ['projectBinaries'],
-        queryFn: () => projectApi.listBinaries(0, 100),
-        staleTime: 30000
-    });
-
-    // Mutations
-    const createMacroPlanMutation = useMutation({
-        mutationFn: auditApi.createMacroPlan,
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['auditMacroPlans'] });
-            setIsMacroModalOpen(false);
-            setNewMacroTitle("");
-            setNewMacroDesc("");
-        }
-    });
-
-    const createTaskMutation = useMutation({
-        mutationFn: auditApi.createTask,
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['auditTasks'] });
-            setIsTaskModalOpen(false);
-            setNewTaskTitle("");
-            setNewTaskDesc("");
-            setSelectedPlanId("");
-            setNewTaskBinary("");
-            setNewTaskType('ANALYSIS');
-        }
-    });
-
-    const handleCreateMacroPlan = () => {
-        if (!newMacroTitle || !newMacroDesc) return;
-        createMacroPlanMutation.mutate({
-            title: newMacroTitle,
-            description: newMacroDesc
-        });
-    };
-
-    const handleCreateTask = () => {
-        if (!newTaskTitle || !newTaskDesc || !selectedPlanId || !newTaskBinary) return;
-        createTaskMutation.mutate({
-            title: newTaskTitle,
-            description: newTaskDesc,
-            plan_id: parseInt(selectedPlanId),
-            binary_name: newTaskBinary,
-            task_type: newTaskType
-        });
-    };
-
-    return (
-        <div className="h-full flex gap-4">
-            <div className="w-1/3 border-r pr-4 overflow-auto">
-                <UserPromptConfig />
-                <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-semibold flex items-center gap-2">
-                        <ListTodo className="w-4 h-4 text-purple-500" />
-                        Audit Strategy
-                    </h3>
-                    <div className="flex gap-1">
-                        <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-6 w-6" 
-                            onClick={() => setIsMacroModalOpen(true)}
-                            title="Add Audit Strategy (Macro Plan)"
-                        >
-                            <Plus className="w-4 h-4" />
-                        </Button>
-                        <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-6 w-6" 
-                            onClick={() => setIsTaskModalOpen(true)}
-                            title="Add Task"
-                            disabled={macroPlans.length === 0}
-                        >
-                            <ListTodo className="w-4 h-4" />
-                        </Button>
-                    </div>
-                </div>
-                
-                <div className="space-y-4">
-                    {macroPlans.map(plan => (
-                        <div key={plan.id} className="border rounded-lg p-3 bg-purple-50/30 dark:bg-purple-900/10">
-                            <div className="flex items-center justify-between mb-2">
-                                <span className="font-medium text-sm">{plan.title}</span>
-                                <StatusIcon status={plan.status} />
-                            </div>
-                            <p className="text-xs text-muted-foreground mb-2">{plan.description}</p>
-                            
-                            <div className="space-y-1 mt-3 pl-2 border-l-2 border-slate-200 dark:border-slate-800">
-                                <div className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Tasks</div>
-                                
-                                {agentTasks.filter(t => t.plan_id === plan.id).map(task => (
-                                    <div key={task.id} className="flex items-center gap-2 text-xs py-1">
-                                        <StatusIcon status={task.status} />
-                                        <span className={`${task.status === 'completed' ? 'line-through text-muted-foreground' : ''}`}>
-                                            {task.title}
-                                        </span>
-                                    </div>
-                                ))}
-
-                                {verificationTasks.filter(t => t.plan_id === plan.id).map(task => (
-                                    <div key={task.id} className="flex items-center gap-2 text-xs py-1">
-                                        <StatusIcon status={task.status} />
-                                        <ShieldCheck className="w-3 h-3 text-blue-500" />
-                                        <span className={`${task.status === 'completed' ? 'line-through text-muted-foreground' : ''}`}>
-                                            {task.title}
-                                        </span>
-                                    </div>
-                                ))}
-
-                                {agentTasks.filter(t => t.plan_id === plan.id).length === 0 && verificationTasks.filter(t => t.plan_id === plan.id).length === 0 && (
-                                    <div className="text-[10px] text-muted-foreground italic">No tasks assigned yet</div>
-                                )}
-                            </div>
-                        </div>
-                    ))}
-                    {macroPlans.length === 0 && (
-                        <div className="text-center text-muted-foreground py-8">
-                            No audit plans defined.
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            <div className="flex-1 overflow-auto">
-                 <h3 className="font-semibold mb-4 flex items-center gap-2">
-                    <Terminal className="w-4 h-4 text-orange-500" />
-                    Task Execution Stream
-                </h3>
-                <div className="space-y-3">
-                    {allExecutionTasks.length > 0 ? (
-                        allExecutionTasks.map(task => {
-                            const parentPlan = macroPlans.find(p => p.id === task.plan_id);
-                            const isVerification = task.plan_type === 'verification_plan';
-                            return (
-                             <div key={task.id} className={`group relative border rounded-lg p-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-all hover:shadow-sm bg-white dark:bg-slate-900 ${isVerification ? 'border-l-4 border-l-blue-400' : ''}`}>
-                                {/* Header Row: ID, Title, Status */}
-                                <div className="flex items-center justify-between gap-3 mb-2">
-                                    <div className="flex items-center gap-2 overflow-hidden">
-                                        <div className={`flex items-center justify-center w-6 h-6 rounded-full shrink-0 border border-slate-200 dark:border-slate-700 ${isVerification ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}`}>
-                                            {isVerification ? <ShieldCheck className="w-3 h-3" /> : <span className="text-[10px] font-mono font-bold">#{task.id}</span>}
-                                        </div>
-                                        <h4 className="font-semibold text-sm truncate text-slate-800 dark:text-slate-200" title={task.title}>
-                                            {task.title}
-                                        </h4>
-                                    </div>
-                                    <div className="flex items-center gap-2 shrink-0">
-                                         <StatusIcon status={task.status} />
-                                         <Badge variant={task.status === 'completed' ? 'default' : task.status === 'in_progress' ? 'secondary' : task.status === 'failed' ? 'destructive' : 'outline'}>
-                                            {task.status}
-                                        </Badge>
-                                    </div>
-                                </div>
-
-                                {/* Description Area - Fixed Height */}
-                                <div className="bg-slate-50 dark:bg-slate-950/50 rounded-md p-2.5 mb-2 border border-slate-100 dark:border-slate-800 h-24 overflow-y-auto custom-scrollbar">
-                                    <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed font-mono">
-                                        {task.description || "No description provided."}
-                                    </p>
-                                </div>
-
-                                {/* Footer Metadata Row */}
-                                <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-2 pt-2 border-t border-dashed border-slate-100 dark:border-slate-800">
-                                    <div className="flex items-center gap-3 overflow-hidden">
-                                        {/* Parent Plan */}
-                                        {parentPlan && (
-                                            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border border-purple-100 dark:border-purple-800/30 shrink-0 max-w-[200px]">
-                                                <ListTodo className="w-3 h-3 shrink-0" />
-                                                <span className="font-medium truncate" title={parentPlan.title}>
-                                                    Parent: {parentPlan.title}
-                                                </span>
-                                            </div>
-                                        )}
-                                        
-                                        {/* Binary Target */}
-                                        {task.binary_name && (
-                                            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 shrink-0">
-                                                <Code className="w-3 h-3" />
-                                                <span className="font-mono">{task.binary_name}</span>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Timestamp */}
-                                    <div className="flex items-center gap-1 opacity-70 shrink-0 ml-2">
-                                        <Clock className="w-3 h-3" />
-                                        <span>{new Date(task.updated_at * 1000).toLocaleString()}</span>
-                                    </div>
-                                </div>
-                             </div>
-                            );
-                        })
-                    ) : (
-                        <div className="flex flex-col items-center justify-center h-64 text-muted-foreground border rounded-lg bg-slate-50/50 dark:bg-slate-900/20 border-dashed">
-                            <ListTodo className="w-12 h-12 mb-4 opacity-20" />
-                            <p>No tasks generated yet.</p>
-                            <p className="text-xs mt-2">Set your requirements on the left and start the audit.</p>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* Macro Plan Modal */}
-            <Modal
-                isOpen={isMacroModalOpen}
-                onClose={() => setIsMacroModalOpen(false)}
-                title="Create Audit Strategy (Macro Plan)"
-            >
-                <div className="space-y-4">
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">Title</label>
-                        <Input 
-                            value={newMacroTitle} 
-                            onChange={(e) => setNewMacroTitle(e.target.value)} 
-                            placeholder="e.g., Attack Surface Enumeration"
-                        />
-                    </div>
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">Description</label>
-                        <Textarea 
-                            value={newMacroDesc} 
-                            onChange={(e) => setNewMacroDesc(e.target.value)} 
-                            placeholder="Describe the high-level goal of this phase..."
-                            className="h-24"
-                        />
-                    </div>
-                    <div className="flex justify-end gap-2 pt-2">
-                        <Button variant="ghost" onClick={() => setIsMacroModalOpen(false)}>Cancel</Button>
-                        <Button onClick={handleCreateMacroPlan} disabled={createMacroPlanMutation.isPending || !newMacroTitle || !newMacroDesc}>
-                            {createMacroPlanMutation.isPending ? "Creating..." : "Create Strategy"}
-                        </Button>
-                    </div>
-                </div>
-            </Modal>
-
-            {/* Task Modal */}
-            <Modal
-                isOpen={isTaskModalOpen}
-                onClose={() => setIsTaskModalOpen(false)}
-                title="Create Task"
-            >
-                <div className="space-y-4">
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">Task Type</label>
-                        <Select 
-                            value={newTaskType}
-                            onChange={(e) => setNewTaskType(e.target.value as 'ANALYSIS' | 'VERIFICATION')}
-                        >
-                            <option value="ANALYSIS">Analysis Task (Agent)</option>
-                            <option value="VERIFICATION">Verification Task</option>
-                        </Select>
-                    </div>
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">Parent Strategy</label>
-                        <Select 
-                            value={selectedPlanId}
-                            onChange={(e) => setSelectedPlanId(e.target.value)}
-                        >
-                            <option value="" disabled>Select a strategy...</option>
-                            {macroPlans.map(p => (
-                                <option key={p.id} value={p.id}>{p.title}</option>
-                            ))}
-                        </Select>
-                    </div>
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">Target Binary</label>
-                        <Select 
-                            value={newTaskBinary}
-                            onChange={(e) => setNewTaskBinary(e.target.value)}
-                        >
-                            <option value="" disabled>Select a binary...</option>
-                            {binaries?.map((b: { binary_name: string }) => (
-                                <option key={b.binary_name} value={b.binary_name}>{b.binary_name}</option>
-                            ))}
-                        </Select>
-                    </div>
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">Title</label>
-                        <Input 
-                            value={newTaskTitle} 
-                            onChange={(e) => setNewTaskTitle(e.target.value)} 
-                            placeholder="e.g., Analyze login function"
-                        />
-                    </div>
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">Description</label>
-                        <Textarea 
-                            value={newTaskDesc} 
-                            onChange={(e) => setNewTaskDesc(e.target.value)} 
-                            placeholder="Detailed instructions for the agent..."
-                            className="h-24"
-                        />
-                    </div>
-                    <div className="flex justify-end gap-2 pt-2">
-                        <Button variant="ghost" onClick={() => setIsTaskModalOpen(false)}>Cancel</Button>
-                        <Button onClick={handleCreateTask} disabled={createTaskMutation.isPending || !newTaskTitle || !newTaskDesc || !selectedPlanId || !newTaskBinary}>
-                            {createTaskMutation.isPending ? "Creating..." : "Create Task"}
-                        </Button>
-                    </div>
-                </div>
-            </Modal>
-        </div>
-    );
-}
-
-function FinishedPlansView({ completedTasks }: { completedTasks: AuditPlan[] }) {
-    const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
-    const [taskSummaries, setTaskSummaries] = useState<Record<number, string>>({});
-    
-    useEffect(() => {
-        if (!selectedTaskId && completedTasks.length > 0) {
-            setSelectedTaskId(completedTasks[0].id);
-        }
-    }, [selectedTaskId, completedTasks]);
-
-    useEffect(() => {
-        const fetchTaskSummary = async () => {
-            const task = completedTasks.find(t => t.id === selectedTaskId);
-            if (task && !task.summary && !taskSummaries[task.id]) {
-                try {
-                    const fullTask = await auditApi.getTask(task.id);
-                    if (fullTask.summary) {
-                        setTaskSummaries(prev => ({ ...prev, [task.id]: fullTask.summary! }));
-                    }
-                } catch (e) {
-                    console.error('Failed to fetch task summary:', e);
-                }
-            }
-        };
-        if (selectedTaskId) {
-            fetchTaskSummary();
-        }
-    }, [selectedTaskId, completedTasks]);
-    
-    const selectedTask = completedTasks.find(t => t.id === selectedTaskId);
-    
-    return (
-        <div className="h-full flex gap-4">
-            {/* Left: List of completed tasks */}
-            <div className="w-72 border-r pr-4 overflow-auto shrink-0">
-                <h3 className="font-semibold mb-4 flex items-center gap-2 text-sm">
-                    <Archive className="w-4 h-4 text-green-500" />
-                    Completed Tasks ({completedTasks.length})
-                </h3>
-                <div className="space-y-2">
-                    {completedTasks.map(task => (
-                        <button
-                            key={task.id}
-                            onClick={() => setSelectedTaskId(task.id)}
-                            className={`w-full text-left p-3 rounded-lg border transition-all ${
-                                selectedTaskId === task.id 
-                                    ? 'bg-green-50 dark:bg-green-950/30 border-green-300 dark:border-green-700' 
-                                    : 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800'
-                            }`}
-                        >
-                            <div className="flex items-center justify-between mb-1">
-                                <CheckCircle2 className="w-4 h-4 text-green-500" />
-                                <span className="text-[10px] text-muted-foreground">
-                                    {new Date(task.updated_at * 1000).toLocaleDateString()}
-                                </span>
-                            </div>
-                            <div className="font-medium text-sm line-clamp-2">{task.title}</div>
-                            <div className="text-xs text-muted-foreground mt-1">
-                                {task.plan_type === 'agent_plan' ? 'Agent Task' : task.plan_type === 'verification_plan' ? 'Verification Task' : 'Plan'}
-                            </div>
-                        </button>
-                    ))}
-                    {completedTasks.length === 0 && (
-                        <div className="text-center text-muted-foreground py-8 text-sm">
-                            No completed tasks yet.
-                        </div>
-                    )}
-                </div>
-            </div>
-            
-            {/* Right: Details */}
-            <div className="flex-1 overflow-auto">
-                {selectedTask ? (
-                    <div className="space-y-4">
-                        {/* Task Header */}
-                        <div className="border-b pb-4">
-                            <div className="flex items-center gap-2 mb-2">
-                                <CheckCircle2 className="w-5 h-5 text-green-500" />
-                                <Badge variant="default">Completed</Badge>
-                            </div>
-                            <h2 className="text-xl font-bold">{selectedTask.title}</h2>
-                            <p className="text-sm text-muted-foreground mt-1">{selectedTask.description}</p>
-                            {selectedTask.binary_name && (
-                                <div className="text-xs font-mono text-purple-600 dark:text-purple-400 mt-2">
-                                    Target: {selectedTask.binary_name}
-                                </div>
-                            )}
-                            <div className="text-xs text-muted-foreground mt-2 flex items-center gap-4">
-                                <span>ID: {selectedTask.id}</span>
-                                <span>Updated: {new Date(selectedTask.updated_at * 1000).toLocaleString()}</span>
-                            </div>
-                        </div>
-                        
-                        {/* Summary - Markdown Rendered */}
-                        {(selectedTask.summary || taskSummaries[selectedTask.id]) && (
-                            <div className="border rounded-lg overflow-hidden">
-                                <div className="bg-green-50 dark:bg-green-950/30 px-4 py-2 border-b border-green-200 dark:border-green-900">
-                                    <h3 className="font-semibold text-sm flex items-center gap-2 text-green-700 dark:text-green-400">
-                                        <StickyNote className="w-4 h-4" />
-                                        Summary
-                                    </h3>
-                                </div>
-                                <div className="p-4 prose prose-sm dark:prose-invert max-w-none 
-                                    prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-2
-                                    prose-p:my-2 prose-p:leading-relaxed
-                                    prose-ul:my-2 prose-ul:pl-4 prose-li:my-0.5
-                                    prose-ol:my-2 prose-ol:pl-4 prose-li:my-0.5
-                                    prose-code:bg-slate-100 dark:prose-code:bg-slate-800 prose-code:px-1 prose-code:rounded prose-code:text-purple-600 dark:prose-code:text-purple-400
-                                    prose-pre:bg-slate-900 dark:prose-pre:bg-slate-950 prose-pre:text-sm prose-pre:p-3 prose-pre:rounded-lg
-                                    prose-strong:text-slate-900 dark:prose-strong:text-slate-100
-                                    prose-blockquote:border-l-green-500 prose-blockquote:bg-green-50 dark:prose-blockquote:bg-green-950/30 prose-blockquote:py-1 prose-blockquote:px-3 prose-blockquote:not-italic
-                                    prose-hr:border-slate-200 dark:prose-hr:border-slate-800">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                        {selectedTask.summary || taskSummaries[selectedTask.id]}
-                                    </ReactMarkdown>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                ) : (
-                    <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                        <Archive className="w-12 h-12 mb-4 opacity-20" />
-                        <p>Select a completed task to view details</p>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-}
-
-function VulnerabilitiesView({ vulnerabilities }: { vulnerabilities: Vulnerability[] }) {
-    const [selectedVulnerabilityId, setSelectedVulnerabilityId] = useState<number | null>(null);
-
-    useEffect(() => {
-        if (!selectedVulnerabilityId && vulnerabilities.length > 0) {
-            setSelectedVulnerabilityId(vulnerabilities[0].id);
-        }
-    }, [selectedVulnerabilityId, vulnerabilities]);
-
-    const selectedVulnerability = vulnerabilities.find(f => f.id === selectedVulnerabilityId);
-
-    return (
-        <div className="h-full flex gap-4">
-            {/* Left: List of vulnerabilities */}
-            <div className="w-80 border-r pr-4 overflow-auto shrink-0">
-                <h3 className="font-semibold mb-4 flex items-center gap-2 text-sm">
-                    <AlertTriangle className="w-4 h-4 text-red-500" />
-                    Security Vulnerabilities ({vulnerabilities.length})
-                </h3>
-                <div className="space-y-2">
-                    {vulnerabilities.map(vulnerability => (
-                        <button
-                            key={vulnerability.id}
-                            onClick={() => setSelectedVulnerabilityId(vulnerability.id)}
-                            className={`w-full text-left p-3 rounded-lg border transition-all ${
-                                selectedVulnerabilityId === vulnerability.id 
-                                    ? 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-600' 
-                                    : 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800'
-                            }`}
-                        >
-                            <div className="flex items-center justify-between mb-1">
-                                <div className="flex gap-2">
-                                    <Badge variant={vulnerability.severity === 'critical' ? 'destructive' : vulnerability.severity === 'high' ? 'destructive' : vulnerability.severity === 'medium' ? 'warning' : 'info'}>
-                                        {vulnerability.severity}
-                                    </Badge>
-                                    <VerificationStatusBadge status={vulnerability.verification_status} />
-                                </div>
-                                <span className="text-[10px] text-muted-foreground">
-                                    {new Date(vulnerability.created_at).toLocaleDateString()}
-                                </span>
-                            </div>
-                            <div className="font-medium text-sm line-clamp-2 mb-1">{vulnerability.title || vulnerability.category}</div>
-                            <div className="text-xs text-muted-foreground truncate">
-                                {vulnerability.binary_name}
-                            </div>
-                        </button>
-                    ))}
-                    {vulnerabilities.length === 0 && (
-                        <div className="text-center text-muted-foreground py-8 text-sm">
-                            No vulnerabilities yet.
-                        </div>
-                    )}
-                </div>
-            </div>
-            
-            {/* Right: Details */}
-            <div className="flex-1 overflow-auto">
-                {selectedVulnerability ? (
-                    <div className="space-y-4">
-                        {/* Header */}
-                        <div className="border-b pb-4">
-                            <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                    <Badge variant={selectedVulnerability.severity === 'critical' ? 'destructive' : selectedVulnerability.severity === 'high' ? 'destructive' : selectedVulnerability.severity === 'medium' ? 'warning' : 'info'}>
-                                        {selectedVulnerability.severity.toUpperCase()}
-                                    </Badge>
-                                    <span className="text-sm font-mono text-muted-foreground uppercase">{selectedVulnerability.category}</span>
-                                </div>
-                                <VerificationStatusBadge status={selectedVulnerability.verification_status} />
-                            </div>
-                            <h2 className="text-xl font-bold">{selectedVulnerability.title || "Untitled Vulnerability"}</h2>
-                            <div className="text-xs text-muted-foreground mt-2 flex items-center gap-4">
-                                <span>ID: {selectedVulnerability.id}</span>
-                                <span>Found: {new Date(selectedVulnerability.created_at).toLocaleString()}</span>
-                                <div className="flex items-center gap-1">
-                                    <Code className="w-3 h-3" />
-                                    <span className="font-mono">{selectedVulnerability.binary_name}</span>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        {/* Verification Details */}
-                        {selectedVulnerability.verification_details && (
-                            <div className={`border rounded-lg p-4 ${selectedVulnerability.verification_status === 'confirmed' ? 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-900' : 'bg-slate-50 dark:bg-slate-900/50'}`}>
-                                <h3 className="font-semibold text-sm mb-2 flex items-center gap-2">
-                                    <CheckCircle2 className="w-4 h-4" />
-                                    Verification Report
-                                </h3>
-                                <div className="prose prose-sm dark:prose-invert max-w-none">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                        {selectedVulnerability.verification_details}
-                                    </ReactMarkdown>
-                                </div>
-                            </div>
-                        )}
-                        
-                        {/* Location Info */}
-                        {(selectedVulnerability.function_name || selectedVulnerability.address) && (
-                            <div className="bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg border flex items-center gap-4 text-sm font-mono">
-                                {selectedVulnerability.function_name && (
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-muted-foreground">Function:</span>
-                                        <span className="text-purple-600 dark:text-purple-400">{selectedVulnerability.function_name}</span>
-                                    </div>
-                                )}
-                                {selectedVulnerability.address && (
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-muted-foreground">Address:</span>
-                                        <span className="text-slate-700 dark:text-slate-300">{formatAddress(selectedVulnerability.address)}</span>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* Description */}
-                        <div>
-                            <h3 className="font-semibold text-sm mb-2">Description</h3>
-                            <div className="prose prose-sm dark:prose-invert max-w-none p-4 border rounded-lg bg-slate-50/50 dark:bg-slate-900/20">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                    {selectedVulnerability.description}
-                                </ReactMarkdown>
-                            </div>
-                        </div>
-
-                        {/* Evidence */}
-                        {selectedVulnerability.evidence && (
-                            <div>
-                                <h3 className="font-semibold text-sm mb-2">Evidence / Code Snippet</h3>
-                                <div className="bg-slate-900 text-slate-200 p-4 rounded-lg font-mono text-xs overflow-x-auto">
-                                    <pre>{selectedVulnerability.evidence}</pre>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Metadata Grid */}
-                        <div className="grid grid-cols-2 gap-4 mt-4">
-                            {selectedVulnerability.cvss && (
-                                <div className="border rounded p-3">
-                                    <div className="text-xs text-muted-foreground mb-1">CVSS Score</div>
-                                    <div className="font-mono font-bold">{selectedVulnerability.cvss}</div>
-                                </div>
-                            )}
-                            {selectedVulnerability.exploitability && (
-                                <div className="border rounded p-3">
-                                    <div className="text-xs text-muted-foreground mb-1">Exploitability</div>
-                                    <div className="font-medium">{selectedVulnerability.exploitability}</div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                ) : (
-                    <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                        <AlertTriangle className="w-12 h-12 mb-4 opacity-20" />
-                        <p>Select a vulnerability to view details</p>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-}
-
-function NotesView({ notes }: { notes: Note[] }) {
-    const [selectedNoteId, setSelectedNoteId] = useState<number | null>(null);
-
-    useEffect(() => {
-        if (!selectedNoteId && notes.length > 0) {
-            setSelectedNoteId(notes[0].note_id);
-        }
-    }, [selectedNoteId, notes]);
-
-    const selectedNote = notes.find(n => n.note_id === selectedNoteId);
-
-    return (
-        <div className="h-full flex gap-4">
-            {/* Left: List of notes */}
-            <div className="w-80 border-r pr-4 overflow-auto shrink-0">
-                <h3 className="font-semibold mb-4 flex items-center gap-2 text-sm">
-                    <StickyNote className="w-4 h-4 text-blue-500" />
-                    Analysis Notes ({notes.length})
-                </h3>
-                <div className="space-y-2">
-                    {notes.map(note => (
-                        <button
-                            key={note.note_id}
-                            onClick={() => setSelectedNoteId(note.note_id)}
-                            className={`w-full text-left p-3 rounded-lg border transition-all ${
-                                selectedNoteId === note.note_id 
-                                    ? 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-600' 
-                                    : 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800'
-                            }`}
-                        >
-                            <div className="flex items-center justify-between mb-1">
-                                <Badge variant="outline">
-                                    {note.note_type}
-                                </Badge>
-                                <span className="text-[10px] text-muted-foreground">
-                                    {new Date(note.created_at).toLocaleDateString()}
-                                </span>
-                            </div>
-                            <div className="font-medium text-sm line-clamp-2 mb-1">{note.title || "Untitled Note"}</div>
-                            <div className="text-xs text-muted-foreground truncate">
-                                {note.binary_name}
-                            </div>
-                            {note.tags && note.tags.length > 0 && (
-                                <div className="flex flex-wrap gap-1 mt-2">
-                                    {note.tags.slice(0, 3).map(tag => (
-                                        <span key={tag} className="text-[10px] bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded text-slate-700 dark:text-slate-300">#{tag}</span>
-                                    ))}
-                                    {note.tags.length > 3 && (
-                                        <span className="text-[10px] text-muted-foreground">+{note.tags.length - 3}</span>
-                                    )}
-                                </div>
-                            )}
-                        </button>
-                    ))}
-                    {notes.length === 0 && (
-                        <div className="text-center text-muted-foreground py-8 text-sm">
-                            No notes yet.
-                        </div>
-                    )}
-                </div>
-            </div>
-            
-            {/* Right: Details */}
-            <div className="flex-1 overflow-auto">
-                {selectedNote ? (
-                    <div className="space-y-4">
-                        {/* Header */}
-                        <div className="border-b pb-4">
-                            <div className="flex items-center gap-2 mb-2">
-                                <Badge variant="outline">
-                                    {selectedNote.note_type.toUpperCase()}
-                                </Badge>
-                                <span className="text-sm font-mono text-muted-foreground uppercase">{selectedNote.confidence} Confidence</span>
-                            </div>
-                            <h2 className="text-xl font-bold">{selectedNote.title || "Untitled Note"}</h2>
-                            <div className="text-xs text-muted-foreground mt-2 flex items-center gap-4">
-                                <span>ID: {selectedNote.note_id}</span>
-                                <span>Created: {new Date(selectedNote.created_at).toLocaleString()}</span>
-                                <div className="flex items-center gap-1">
-                                    <Code className="w-3 h-3" />
-                                    <span className="font-mono">{selectedNote.binary_name}</span>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        {/* Location Info */}
-                        {(selectedNote.function_name || selectedNote.address) && (
-                            <div className="bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg border flex items-center gap-4 text-sm font-mono">
-                                {selectedNote.function_name && (
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-muted-foreground">Function:</span>
-                                        <span className="text-purple-600 dark:text-purple-400">{selectedNote.function_name}</span>
-                                    </div>
-                                )}
-                                {selectedNote.address && (
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-muted-foreground">Address:</span>
-                                        <span className="text-slate-700 dark:text-slate-300">{formatAddress(selectedNote.address)}</span>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* Content */}
-                        <div>
-                            <h3 className="font-semibold text-sm mb-2">Content</h3>
-                            <div className="prose prose-sm dark:prose-invert max-w-none p-4 border rounded-lg bg-slate-50/50 dark:bg-slate-900/20">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                    {selectedNote.content}
-                                </ReactMarkdown>
-                            </div>
-                        </div>
-
-                        {/* Tags */}
-                        {selectedNote.tags && selectedNote.tags.length > 0 && (
-                            <div>
-                                <h3 className="font-semibold text-sm mb-2">Tags</h3>
-                                <div className="flex flex-wrap gap-2">
-                                    {selectedNote.tags.map(tag => (
-                                        <span key={tag} className="text-xs bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded border border-slate-200 dark:border-slate-700">
-                                            #{tag}
-                                        </span>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                ) : (
-                    <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                        <StickyNote className="w-12 h-12 mb-4 opacity-20" />
-                        <p>Select a note to view details</p>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-}
+import { PlanView } from '../components/PlanView';
+import { FinishedPlansView } from '../components/FinishedPlansView';
+import { VulnerabilitiesView } from '../components/VulnerabilitiesView';
+import { NotesView } from '../components/NotesView';
 
 export function AuditDashboard() {
   const queryClient = useQueryClient();
@@ -930,11 +32,9 @@ export function AuditDashboard() {
   
   const { data: status } = useQuery({ queryKey: ['auditStatus'], queryFn: auditApi.getStatus, refetchInterval: autoRefresh ? 2000 : false });
   
-  // Use new split APIs
   const { data: macroPlans } = useQuery({ queryKey: ['auditMacroPlans'], queryFn: () => auditApi.getMacroPlans(), refetchInterval: autoRefresh ? 5000 : false });
   const { data: tasks } = useQuery({ queryKey: ['auditTasks'], queryFn: () => auditApi.getTasks(), refetchInterval: autoRefresh ? 5000 : false });
-  
-  // Merge for compatibility with existing views
+
   const plans = useMemo(() => [...(macroPlans || []), ...(tasks || [])], [macroPlans, tasks]);
 
   const { data: logs } = useQuery({ queryKey: ['auditLogs'], queryFn: () => auditApi.getLogs(), refetchInterval: autoRefresh ? 2000 : false });
@@ -966,7 +66,6 @@ export function AuditDashboard() {
     : (manualSessionId && manualSessionId !== currentSessionId ? manualSessionId : defaultHistorySessionId);
   const isCurrentSession = status?.current_session_id === effectiveSessionId && status?.status === 'running';
 
-  // Load historical messages for completed sessions
   const { data: historicalMessages } = useQuery({ 
     queryKey: ['auditMessages', effectiveSessionId], 
     queryFn: () => auditApi.getMessages(effectiveSessionId || undefined), 
@@ -974,22 +73,17 @@ export function AuditDashboard() {
     staleTime: 0
   });
 
-  // Setup SSE streaming for current session only if user selected the active session
   useEffect(() => {
     if (isCurrentSession && effectiveSessionId) {
-      // Clear previous stream messages
       setStreamMessages([]);
       
-      // Close previous stream if exists
       if (streamRef.current) {
         streamRef.current.close();
       }
       
-      // Start new stream
       streamRef.current = auditApi.streamMessages(
         effectiveSessionId,
           (msg: { role?: string; content?: string; type?: string; chunk_type?: string }) => {
-            // Handle raw chunk for real-time display
           if (msg.type === 'chunk') {
             const chunkContent = msg.content || '';
             
@@ -1004,7 +98,6 @@ export function AuditDashboard() {
                 CLOSE: ['</think>', '&lt;/think&gt;']
               };
 
-              // Helper to find first occurrence of any tag in list
               const findFirstTag = (str: string, tags: string[]) => {
                 let firstIdx = -1;
                 let foundTag = '';
@@ -1018,7 +111,6 @@ export function AuditDashboard() {
                 return { index: firstIdx, tag: foundTag };
               };
 
-              // Helper to check for partial match at end of string
               const getPartialMatchLength = (str: string, tags: string[]) => {
                 let maxLen = 0;
                 for (const tag of tags) {
@@ -1032,59 +124,44 @@ export function AuditDashboard() {
                 return maxLen;
               };
               
-              // Process buffer loop
               while (true) {
                 if (inThinking) {
-                  // In thinking mode: look for closing tag
                   const { index: closeIdx, tag: closeTag } = findFirstTag(pending, TAGS.CLOSE);
                   
                   if (closeIdx !== -1) {
-                    // Found closing tag
                     newReasoning += pending.slice(0, closeIdx);
                     pending = pending.slice(closeIdx + closeTag.length);
                     inThinking = false;
-                    // Continue loop to process remaining buffer
                   } else {
-                    // No closing tag found yet
-                    // Check for partial closing tag at the end to avoid splitting it
                     const partialLen = getPartialMatchLength(pending, TAGS.CLOSE);
                     
                     if (partialLen > 0) {
-                      // Append safe part to reasoning, keep partial match in pending
                       newReasoning += pending.slice(0, pending.length - partialLen);
                       pending = pending.slice(pending.length - partialLen);
                     } else {
-                      // No partial match, safe to append all
                       newReasoning += pending;
                       pending = '';
                     }
-                    break; // Wait for more data
+                    break;
                   }
                 } else {
-                  // Not in thinking mode: look for opening tag
                   const { index: openIdx, tag: openTag } = findFirstTag(pending, TAGS.OPEN);
                   
                   if (openIdx !== -1) {
-                    // Found opening tag
                     newContent += pending.slice(0, openIdx);
                     pending = pending.slice(openIdx + openTag.length);
                     inThinking = true;
-                    // Continue loop
                   } else {
-                    // No opening tag found yet
-                    // Check for partial opening tag at the end
                     const partialLen = getPartialMatchLength(pending, TAGS.OPEN);
                     
                     if (partialLen > 0) {
-                      // Append safe part to content, keep partial match in pending
                       newContent += pending.slice(0, pending.length - partialLen);
                       pending = pending.slice(pending.length - partialLen);
                     } else {
-                      // No partial match, safe to append all
                       newContent += pending;
                       pending = '';
                     }
-                    break; // Wait for more data
+                    break;
                   }
                 }
               }
@@ -1094,10 +171,8 @@ export function AuditDashboard() {
             return;
           }
           
-          // Clear live chunk content when receiving a complete message
           setLiveChunkContent({ reasoning: '', content: '', inThinking: false, pending: '' });
           
-          // Add new message to stream
           const newMsg: AuditMessage = {
             id: Date.now(),
             session_id: effectiveSessionId,
@@ -1108,7 +183,6 @@ export function AuditDashboard() {
           setStreamMessages(prev => [...prev, newMsg]);
         },
         () => {
-          // Session ended
           queryClient.invalidateQueries({ queryKey: ['auditSessions'] });
           queryClient.invalidateQueries({ queryKey: ['auditStatus'] });
           setLiveChunkContent({ reasoning: '', content: '', inThinking: false, pending: '' });
@@ -1118,7 +192,6 @@ export function AuditDashboard() {
         }
       );
     } else {
-      // Not current session, close stream
       if (streamRef.current) {
         streamRef.current.close();
         streamRef.current = null;
@@ -1307,7 +380,6 @@ export function AuditDashboard() {
               </div>
             );
           })}
-          {/* Live chunk display - real-time streaming content */}
           {hasLiveChunk && (
             <div className="mb-4">
               {(liveChunk.reasoning || liveChunk.inThinking) && (
@@ -1344,7 +416,6 @@ export function AuditDashboard() {
 
   return (
     <div className="container mx-auto p-4 md:p-6 h-[calc(100vh-60px)] flex flex-col">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6 shrink-0">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">AIDA Audit Dashboard</h1>
@@ -1386,7 +457,6 @@ export function AuditDashboard() {
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="flex items-center gap-1 border-b mb-4 shrink-0 overflow-x-auto">
         <button 
           onClick={() => setActiveTab('plan')}
@@ -1432,7 +502,6 @@ export function AuditDashboard() {
         </button>
       </div>
 
-      {/* Content Area */}
       <div className="flex-1 min-h-0 overflow-hidden">
         {activeTab === 'plan' && (
           <Card className="h-full flex flex-col border-0 shadow-none bg-transparent">
@@ -1446,13 +515,13 @@ export function AuditDashboard() {
           <Card className="h-full flex flex-col border-0 shadow-none bg-transparent">
             <CardContent className="flex-1 overflow-auto p-0">
                {completedTasks && completedTasks.length > 0 ? (
-                  <FinishedPlansView completedTasks={completedTasks} />
+                 <FinishedPlansView completedTasks={completedTasks} />
                ) : (
-                  <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-                    <CheckCircle2 className="w-12 h-12 mb-4 opacity-20" />
-                    <p>No completed tasks yet.</p>
-                    <p className="text-xs mt-2">Complete an audit task to see results here.</p>
-                  </div>
+                 <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+                   <CheckCircle2 className="w-12 h-12 mb-4 opacity-20" />
+                   <p>No completed tasks yet.</p>
+                   <p className="text-xs mt-2">Complete an audit task to see results here.</p>
+                 </div>
                )}
             </CardContent>
           </Card>
@@ -1511,10 +580,10 @@ export function AuditDashboard() {
                {vulnerabilities && vulnerabilities.length > 0 ? (
                    <VulnerabilitiesView vulnerabilities={vulnerabilities} />
                ) : (
-                  <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
-                    <AlertTriangle className="w-12 h-12 mb-4 opacity-20" />
-                    <p>No security vulnerabilities yet.</p>
-                  </div>
+                 <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+                   <AlertTriangle className="w-12 h-12 mb-4 opacity-20" />
+                   <p>No security vulnerabilities yet.</p>
+                 </div>
                )}
             </CardContent>
           </Card>
@@ -1540,17 +609,17 @@ export function AuditDashboard() {
             <CardContent className="flex-1 bg-black rounded-lg p-0 overflow-hidden border border-slate-800">
                <div className="h-full overflow-auto p-4 font-mono text-xs text-green-400 space-y-1">
                {[...(logs || [])].reverse().map((log) => (
-                 <div key={log.id} className="break-all hover:bg-white/5 px-1 rounded">
-                   <span className="opacity-50 mr-3 text-blue-400">[{new Date(log.timestamp * 1000).toLocaleTimeString()}]</span>
-                   {log.message}
-                 </div>
-               ))}
-               {!logs?.length && (
-                   <div className="flex flex-col items-center justify-center h-full text-slate-600">
-                       <Terminal className="w-12 h-12 mb-4 opacity-20" />
-                       <p>Waiting for logs...</p>
-                   </div>
-               )}
+                  <div key={log.id} className="break-all hover:bg-white/5 px-1 rounded">
+                    <span className="opacity-50 mr-3 text-blue-400">[{new Date(log.timestamp * 1000).toLocaleTimeString()}]</span>
+                    {log.message}
+                  </div>
+                ))}
+                {!logs?.length && (
+                    <div className="flex flex-col items-center justify-center h-full text-slate-600">
+                        <Terminal className="w-12 h-12 mb-4 opacity-20" />
+                        <p>Waiting for logs...</p>
+                    </div>
+                )}
                </div>
             </CardContent>
            </Card>
