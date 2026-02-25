@@ -45,45 +45,29 @@ build_frontend() {
     echo "Running npm ci..."
     if ! npm ci; then
       popd >/dev/null
-      if [[ "$FRONTEND_MODE" == "always" ]]; then
-        echo "Error: frontend dependency install failed." >&2
-        exit 1
-      fi
-      echo "Warning: frontend dependency install failed. Skipping frontend build."
-      return 0
+      echo "Error: frontend dependency install failed." >&2
+      exit 1
     fi
   else
     echo "Running npm install..."
     if ! npm install; then
       popd >/dev/null
-      if [[ "$FRONTEND_MODE" == "always" ]]; then
-        echo "Error: frontend dependency install failed." >&2
-        exit 1
-      fi
-      echo "Warning: frontend dependency install failed. Skipping frontend build."
-      return 0
+      echo "Error: frontend dependency install failed." >&2
+      exit 1
     fi
   fi
 
   echo "Running npm run build..."
   if ! npm run build; then
     popd >/dev/null
-    if [[ "$FRONTEND_MODE" == "always" ]]; then
-      echo "Error: frontend build failed." >&2
-      exit 1
-    fi
-    echo "Warning: frontend build failed. Skipping frontend build."
-    return 0
+    echo "Error: frontend build failed." >&2
+    exit 1
   fi
   popd >/dev/null
 
   if [[ ! -d "$FRONTEND_DIR/dist" ]]; then
-    if [[ "$FRONTEND_MODE" == "always" ]]; then
-      echo "Error: frontend build output not found at '$FRONTEND_DIR/dist'." >&2
-      exit 1
-    fi
-    echo "Warning: frontend build output not found at '$FRONTEND_DIR/dist'. Skipping copy."
-    return 0
+    echo "Error: frontend build output not found at '$FRONTEND_DIR/dist'." >&2
+    exit 1
   fi
 
   echo "Copying frontend files to backend..."

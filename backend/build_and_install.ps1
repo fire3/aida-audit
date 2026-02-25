@@ -1,4 +1,5 @@
 # Build and Install Script for Windows
+$ErrorActionPreference = "Stop"
 
 # --- Frontend Build ---
 $FrontendDir = "..\frontend"
