@@ -15,8 +15,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import datetime
 
-from .report_generator import build_reportlab_pdf, _build_simple_pdf
-
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("aida_server")
@@ -846,105 +844,6 @@ def get_audit_status():
     if not audit_service:
         return {"status": "not_initialized", "error": "Audit service not available"}
     return audit_service.get_status()
-
-
-@api_router.get("/report/pdf")
-def export_analysis_report_pdf(
-    binary_name: Optional[str] = Query(None, description="Filter by binary name"),
-    tags: Optional[str] = Query(None, description="Comma-separated tag filter for notes"),
-    include_notes: bool = Query(True),
-    include_vulns: bool = Query(True),
-    include_summaries: bool = Query(True),
-    title: Optional[str] = Query(None, description="Report title")
-):
-    try:
-        lines = []
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        header = f"生成时间: {now}"
-        project = None
-        try:
-            project = get_service().get_project_overview()
-        except Exception:
-            project = None
-        if project:
-            lines.append(f"项目: {project.get('project', '')}")
-            lines.append(f"后端: {project.get('backend', '')}")
-        if binary_name:
-            lines.append(f"目标二进制: {binary_name}")
-        lines.append(header)
-        lines.append("")
-        if include_summaries and audit_db:
-            completed_tasks = audit_db.get_tasks(status="completed")
-            lines.append("## Summaries")
-            if completed_tasks:
-                for t in completed_tasks[:50]:
-                    lines.append(f"### 任务: {t.get('title','')}")
-                    lines.append(f"**状态:** {t.get('status','')}")
-                    if t.get("binary_name"):
-                        lines.append(f"**二进制:** {t['binary_name']}")
-                    summary = t.get("summary") or ""
-                    if summary:
-                        lines.append(summary)
-                    lines.append("")
-            else:
-                lines.append("无已完成任务摘要")
-            lines.append("")
-        if include_notes:
-            lines.append("## Notes")
-            notes = audit_mcp_tools.audit_get_notes(binary_name=binary_name, note_type=None, tags=tags, limit=200)
-            if notes:
-                for n in notes:
-                    lines.append(f"### [{n.get('note_type','').upper()}] {n.get('title') or 'Untitled'}")
-                    meta = []
-                    if n.get("confidence"): meta.append(f"**可信度:** {n['confidence']}")
-                    if n.get("function_name"): meta.append(f"**函数:** {n['function_name']}")
-                    if n.get("address") is not None: meta.append(f"**地址:** {n['address']}")
-                    if n.get("tags"): meta.append(f"**标签:** {','.join(n.get('tags') or [])}")
-                    if meta:
-                        lines.append(" | ".join(meta))
-                    content = n.get("content", "")
-                    if content:
-                        lines.append(content)
-                    lines.append("")
-            else:
-                lines.append("无记录")
-            lines.append("")
-        if include_vulns:
-            lines.append("## Vulnerabilities")
-            vulns = audit_mcp_tools.audit_get_vulnerabilities(binary_name=binary_name, severity=None, category=None, verification_status=None)
-            if vulns:
-                for v in vulns:
-                    lines.append(f"### [{v.get('severity','').upper()}] {v.get('title') or v.get('category')}")
-                    meta = []
-                    if v.get("binary_name"): meta.append(f"**二进制:** {v['binary_name']}")
-                    if v.get("function_name"): meta.append(f"**函数:** {v['function_name']}")
-                    if v.get("address") is not None: meta.append(f"**地址:** {v['address']}")
-                    if v.get("cvss") is not None: meta.append(f"**CVSS:** {v['cvss']}")
-                    if v.get("exploitability"): meta.append(f"**可利用性:** {v['exploitability']}")
-                    if v.get("verification_status"): meta.append(f"**核查:** {v['verification_status']}")
-                    if meta:
-                        lines.append(" | ".join(meta))
-                    if v.get("description"):
-                        lines.append(v.get("description"))
-                    if v.get("evidence"):
-                        lines.append("**证据:**")
-                        lines.append("```")
-                        lines.append(v.get("evidence"))
-                        lines.append("```")
-                    lines.append("")
-            else:
-                lines.append("无记录")
-            lines.append("")
-        report_title = title or "AIDA 安全分析报告"
-        try:
-            pdf_bytes = build_reportlab_pdf(lines, report_title)
-        except Exception:
-            pdf_bytes = _build_simple_pdf(lines, title=report_title)
-        return StreamingResponse(iter([pdf_bytes]), media_type="application/pdf", headers={
-            "Content-Disposition": f'attachment; filename="aida_report.pdf"'
-        })
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 class TimePeriod(BaseModel):

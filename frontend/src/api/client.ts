@@ -637,13 +637,3 @@ export const scheduleApi = {
   get: () => apiClient.get<ScheduleConfig>('/audit/schedule').then(res => res.data),
   update: (config: ScheduleConfig) => apiClient.post<{ status: string, schedule: ScheduleConfig }>('/audit/schedule', config).then(res => res.data),
 };
-
-export const reportApi = {
-  exportPdf: async (params: { binary_name?: string; tags?: string; include_notes?: boolean; include_vulns?: boolean; include_summaries?: boolean; title?: string }) => {
-    const res = await apiClient.get('/report/pdf', {
-      params,
-      responseType: 'blob'
-    });
-    return res.data as Blob;
-  }
-};
