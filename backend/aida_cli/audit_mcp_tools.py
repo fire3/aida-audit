@@ -106,7 +106,7 @@ def audit_get_task_summary(task_id: int) -> Dict[str, Any]:
         return {"task_id": task_id, "summary": task.get("summary")}
     return {"task_id": task_id, "summary": None, "error": "Task not found"}
 
-def audit_delete_task(task_id: int) -> Dict[str, Any]:
+def audit_delete_agent_task(task_id: int) -> Dict[str, Any]:
     db = get_audit_db()
     success = db.delete_task(task_id)
     return {"success": success}
@@ -220,7 +220,7 @@ def audit_get_vulnerabilities(binary_name: str = None, severity: str = None,
         verification_status=verification_status
     )
 
-def audit_update_vulnerability_verification(id: int, status: str, details: str = None) -> Dict[str, Any]:
+def audit_report_vulnerability_verification(id: int, status: str, details: str = None) -> Dict[str, Any]:
     """Update the verification status of a vulnerability."""
     db = get_audit_db()
     success = db.update_vulnerability_verification(

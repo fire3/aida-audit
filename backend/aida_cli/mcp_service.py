@@ -1170,20 +1170,20 @@ class McpService:
         """
         return audit_mcp_tools.audit_delete_macro_plan(plan_id)
 
-    @mcp_tool(name="audit_delete_task")
-    def audit_delete_task(self, task_id: int) -> Dict[str, Any]:
+    @mcp_tool(name="audit_delete_agent_task")
+    def audit_deletel_agent_task(self, task_id: int) -> Dict[str, Any]:
         """Delete an agent task.
 
         Args:
-            task_id: The ID of the task to delete.
+            task_id: The ID of the agent task to delete.
 
         Returns:
             dict: Contains 'success' boolean.
         """
-        return audit_mcp_tools.audit_delete_task(task_id)
+        return audit_mcp_tools.audit_delete_agent_task(task_id)
 
-    @mcp_tool(name="audit_update_vulnerability_verification")
-    def audit_update_vulnerability_verification(self, id: int, status: str, details: str = None) -> Dict[str, Any]:
+    @mcp_tool(name="audit_report_vulnerability_verification")
+    def audit_report_vulnerability_verification(self, id: int, status: str, details: str = None) -> Dict[str, Any]:
         """Update the verification status of a vulnerability.
 
         Args:
@@ -1194,7 +1194,7 @@ class McpService:
         Returns:
             dict: Contains 'success' boolean.
         """
-        return audit_mcp_tools.audit_update_vulnerability_verification(
+        return audit_mcp_tools.audit_report_vulnerability_verification(
             id=id,
             status=status,
             details=details
