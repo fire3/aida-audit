@@ -5,6 +5,8 @@ import os
 import sys
 import uvicorn
 import asyncio
+import io
+import html
 from contextlib import asynccontextmanager
 from typing import Optional, List, Union, Dict, Any
 from collections import defaultdict
@@ -13,6 +15,7 @@ from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -844,12 +847,222 @@ def get_audit_status():
         return {"status": "not_initialized", "error": "Audit service not available"}
     return audit_service.get_status()
 
+def _pdf_escape_text(s: str) -> str:
+    if s is None:
+        return ""
+    s = str(s).replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    try:
+        s.encode("ascii")
+    except Exception:
+        s = "".join(ch if ord(ch) < 128 else "?" for ch in s)
+    return s
+
+def _make_pdf_pages(lines: list, page_width: int = 595, page_height: int = 842, margin: int = 40, line_height: int = 14):
+    pages = []
+    y_start = page_height - margin - 20
+    y = y_start
+    current_page = []
+    for raw in lines:
+        text = _pdf_escape_text(raw)
+        if y < margin + 40:
+            pages.append(current_page)
+            current_page = []
+            y = y_start
+        current_page.append((margin, y, text))
+        y -= line_height
+    if current_page:
+        pages.append(current_page)
+    return pages
+
+def _build_simple_pdf(lines: list, title: str = "AIDA Report"):
+    page_width = 595
+    page_height = 842
+    margin = 40
+    line_height = 14
+    pages = _make_pdf_pages([f"{title}"] + [""] + lines, page_width=page_width, page_height=page_height, margin=margin, line_height=line_height)
+    objects = []
+    def add(obj):
+        objects.append(obj)
+        return len(objects)
+    pages_obj_id = add(None)
+    catalog_id = add(f"<< /Type /Catalog /Pages {pages_obj_id} 0 R >>")
+    font_id = add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    kids = []
+    for page in pages:
+        stream_lines = ["BT", "/F1 10 Tf"]
+        for (x, y, text) in page:
+            stream_lines.append(f"1 0 0 1 {x} {y} Tm ({text}) Tj")
+        stream_lines.append("ET")
+        stream_data = "\n".join(stream_lines).encode("latin-1", errors="ignore")
+        contents_str = f"<< /Length {len(stream_data)} >>\nstream\n{stream_data.decode('latin-1', errors='ignore')}\nendstream"
+        cid = add(contents_str)
+        page_obj = f"<< /Type /Page /Parent {pages_obj_id} 0 R /MediaBox [0 0 {page_width} {page_height}] /Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {cid} 0 R >>"
+        pid = add(page_obj)
+        kids.append(pid)
+    kids_str = "[ " + " ".join(f"{kid} 0 R" for kid in kids) + " ]"
+    pages_obj = f"<< /Type /Pages /Kids {kids_str} /Count {len(kids)} >>"
+    objects[pages_obj_id - 1] = pages_obj
+    xref_positions = []
+    out = []
+    out.append("%PDF-1.4\n")
+    for i, obj in enumerate(objects, start=1):
+        xref_positions.append(sum(len(s.encode("latin-1")) for s in out))
+        out.append(f"{i} 0 obj\n{obj}\nendobj\n")
+    xref_start = sum(len(s.encode("latin-1")) for s in out)
+    out.append("xref\n")
+    out.append(f"0 {len(objects)+1}\n")
+    out.append("0000000000 65535 f \n")
+    for pos in xref_positions:
+        out.append(f"{pos:010d} 00000 n \n")
+    out.append("trailer\n")
+    out.append(f"<< /Size {len(objects)+1} /Root {catalog_id} 0 R >>\n")
+    out.append("startxref\n")
+    out.append(f"{xref_start}\n")
+    out.append("%%EOF\n")
+    return "".join(out).encode("latin-1")
+
+def _build_reportlab_pdf(lines: list, title: str):
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    font_name = "Helvetica"
+    font_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "NotoSansSC-Regular.ttf")
+    if os.path.exists(font_path):
+        try:
+            pdfmetrics.registerFont(TTFont("NotoSansSC", font_path))
+            font_name = "NotoSansSC"
+        except Exception:
+            font_name = "Helvetica"
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("AidaTitle", parent=styles["Title"], fontName=font_name, fontSize=18, leading=22, spaceAfter=12)
+    heading_style = ParagraphStyle("AidaHeading", parent=styles["Heading2"], fontName=font_name, fontSize=13, leading=16, spaceBefore=10, spaceAfter=6)
+    normal_style = ParagraphStyle("AidaNormal", parent=styles["BodyText"], fontName=font_name, fontSize=10.5, leading=14)
+
+    def to_paragraph_text(text: str):
+        escaped = html.escape(text or "")
+        return escaped.replace("\n", "<br/>")
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
+    elements = [Paragraph(to_paragraph_text(title), title_style), Spacer(1, 8)]
+    for line in lines:
+        if line.startswith("=== "):
+            elements.append(Paragraph(to_paragraph_text(line.replace("=== ", "").strip()), heading_style))
+            continue
+        if line.startswith("- "):
+            elements.append(Paragraph(to_paragraph_text("• " + line[2:]), normal_style))
+            continue
+        if line.strip() == "":
+            elements.append(Spacer(1, 6))
+            continue
+        elements.append(Paragraph(to_paragraph_text(line), normal_style))
+    doc.build(elements)
+    return buffer.getvalue()
+
+@api_router.get("/report/pdf")
+def export_analysis_report_pdf(
+    binary_name: Optional[str] = Query(None, description="Filter by binary name"),
+    tags: Optional[str] = Query(None, description="Comma-separated tag filter for notes"),
+    include_notes: bool = Query(True),
+    include_vulns: bool = Query(True),
+    include_summaries: bool = Query(True),
+    title: Optional[str] = Query(None, description="Report title")
+):
+    try:
+        lines = []
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        header = f"生成时间: {now}"
+        project = None
+        try:
+            project = get_service().get_project_overview()
+        except Exception:
+            project = None
+        if project:
+            lines.append(f"项目: {project.get('project', '')}")
+            lines.append(f"后端: {project.get('backend', '')}")
+        if binary_name:
+            lines.append(f"目标二进制: {binary_name}")
+        lines.append(header)
+        lines.append("")
+        if include_summaries and audit_db:
+            completed_tasks = audit_db.get_tasks(status="completed")
+            lines.append("=== Summaries ===")
+            if completed_tasks:
+                for t in completed_tasks[:50]:
+                    lines.append(f"- 任务: {t.get('title','')} · 状态: {t.get('status','')}")
+                    if t.get("binary_name"):
+                        lines.append(f"  二进制: {t['binary_name']}")
+                    summary = t.get("summary") or ""
+                    for ln in str(summary).splitlines()[:10]:
+                        lines.append(f"  {ln}")
+                    lines.append("")
+            else:
+                lines.append("无已完成任务摘要")
+            lines.append("")
+        if include_notes:
+            lines.append("=== Notes ===")
+            notes = audit_mcp_tools.audit_get_notes(binary_name=binary_name, note_type=None, tags=tags, limit=200)
+            if notes:
+                for n in notes:
+                    lines.append(f"- [{n.get('note_type','').upper()}] {n.get('title') or 'Untitled'}")
+                    meta = []
+                    if n.get("confidence"): meta.append(f"可信度:{n['confidence']}")
+                    if n.get("function_name"): meta.append(f"函数:{n['function_name']}")
+                    if n.get("address") is not None: meta.append(f"地址:{n['address']}")
+                    if n.get("tags"): meta.append("标签:" + ",".join(n.get("tags") or []))
+                    if meta:
+                        lines.append("  " + " · ".join(meta))
+                    for ln in str(n.get("content","")).splitlines()[:8]:
+                        lines.append(f"  {ln}")
+                    lines.append("")
+            else:
+                lines.append("无记录")
+            lines.append("")
+        if include_vulns:
+            lines.append("=== Vulnerabilities ===")
+            vulns = audit_mcp_tools.audit_get_vulnerabilities(binary_name=binary_name, severity=None, category=None, verification_status=None)
+            if vulns:
+                for v in vulns:
+                    lines.append(f"- [{v.get('severity','').upper()}] {v.get('title') or v.get('category')}")
+                    meta = []
+                    if v.get("binary_name"): meta.append(f"二进制:{v['binary_name']}")
+                    if v.get("function_name"): meta.append(f"函数:{v['function_name']}")
+                    if v.get("address") is not None: meta.append(f"地址:{v['address']}")
+                    if v.get("cvss") is not None: meta.append(f"CVSS:{v['cvss']}")
+                    if v.get("exploitability"): meta.append(f"可利用性:{v['exploitability']}")
+                    if v.get("verification_status"): meta.append(f"核查:{v['verification_status']}")
+                    if meta:
+                        lines.append("  " + " · ".join(meta))
+                    for ln in str(v.get("description","")).splitlines()[:10]:
+                        lines.append(f"  {ln}")
+                    if v.get("evidence"):
+                        lines.append("  证据:")
+                        for ln in str(v.get("evidence","")).splitlines()[:6]:
+                            lines.append(f"    {ln}")
+                    lines.append("")
+            else:
+                lines.append("无记录")
+            lines.append("")
+        report_title = title or "AIDA 安全分析报告"
+        try:
+            pdf_bytes = _build_reportlab_pdf(lines, report_title)
+        except Exception:
+            pdf_bytes = _build_simple_pdf(lines, title=report_title)
+        return StreamingResponse(iter([pdf_bytes]), media_type="application/pdf", headers={
+            "Content-Disposition": f'attachment; filename="aida_report.pdf"'
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 class TimePeriod(BaseModel):
     start: str = Field(..., pattern=r"^\d{2}:\d{2}$")
     stop: str = Field(..., pattern=r"^\d{2}:\d{2}$")
 
-class ScheduleConfig(BaseModel):
     enabled: bool
     periods: List[TimePeriod] = []
 

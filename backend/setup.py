@@ -10,6 +10,7 @@ setup(
         "h11",
         "rich",
         "requests",
+        "reportlab>=4.0,<5.0",
     ],
     entry_points={
         "console_scripts": [

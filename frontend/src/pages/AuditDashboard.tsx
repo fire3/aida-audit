@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { auditApi, projectApi, type AuditPlan, type AuditMessage, type Vulnerability, type Note } from '../api/client';
+import { auditApi, projectApi, reportApi, type AuditPlan, type AuditMessage, type Vulnerability, type Note } from '../api/client';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { useState, useMemo, useEffect, useRef } from 'react';
@@ -927,6 +927,7 @@ export function AuditDashboard() {
   const [streamMessages, setStreamMessages] = useState<AuditMessage[]>([]);
   const [liveChunkContent, setLiveChunkContent] = useState<{ reasoning: string; content: string; inThinking: boolean; pending: string }>({ reasoning: '', content: '', inThinking: false, pending: '' });
   const streamRef = useRef<{ close: () => void } | null>(null);
+  const [exporting, setExporting] = useState(false);
   
   const { data: status } = useQuery({ queryKey: ['auditStatus'], queryFn: auditApi.getStatus, refetchInterval: autoRefresh ? 2000 : false });
   
@@ -1153,6 +1154,31 @@ export function AuditDashboard() {
     </div>
   );
 
+  const handleExportPdf = async () => {
+    setExporting(true);
+    try {
+      const blob = await reportApi.exportPdf({
+        include_notes: true,
+        include_vulns: true,
+        include_summaries: true,
+        title: 'AIDA 安全分析报告'
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'aida_report.pdf';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('导出失败', e);
+      alert('导出失败，请稍后重试');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab !== 'live') return;
     const container = document.getElementById('live-stream-output');
@@ -1352,6 +1378,9 @@ export function AuditDashboard() {
         </div>
         
         <div className="flex items-center gap-4">
+            <Button variant="outline" size="sm" onClick={handleExportPdf} disabled={exporting} className="gap-2">
+                {exporting ? '导出中...' : '导出PDF'}
+            </Button>
             <div className="flex items-center gap-2">
                 <label className="text-xs text-muted-foreground font-medium">Auto-Refresh</label>
                 <button 
