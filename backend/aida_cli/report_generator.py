@@ -107,64 +107,121 @@ def build_reportlab_pdf(lines: list, title: str):
     title_style = ParagraphStyle("AidaTitle", parent=styles["Title"], fontName=font_name, fontSize=18, leading=22, spaceAfter=12)
     heading_style = ParagraphStyle("AidaHeading", parent=styles["Heading2"], fontName=font_name, fontSize=13, leading=16, spaceBefore=10, spaceAfter=6)
     normal_style = ParagraphStyle("AidaNormal", parent=styles["BodyText"], fontName=font_name, fontSize=10.5, leading=14)
-    code_style = ParagraphStyle("AidaCode", fontName="Courier", fontSize=9, leading=12, spaceBefore=4, spaceAfter=4, leftIndent=20, rightIndent=20)
+    code_style = ParagraphStyle("AidaCode", fontName="Courier", fontSize=9, leading=12, spaceBefore=4, spaceAfter=4, leftIndent=20, rightIndent=20, backColor="#f5f5f5")
 
-    def render_markdown(text: str) -> str:
-        if not text:
-            return ""
-        md = markdown.Markdown(extensions=['nl2br', 'sane_lists'])
-        html_text = md.convert(text or "")
-        return html_text.replace("<br />", "<br/>").replace("<p>", "").replace("</p>", "<br/>")
+    md = markdown.Markdown(extensions=['tables', 'fenced_code', 'nl2br', 'def_list'])
 
-    def to_paragraph_text(text: str):
-        escaped = html.escape(text or "")
-        return escaped.replace("\n", "<br/>")
+    def parse_markdown_content(text: str) -> list:
+        """Parse markdown text and return list of ReportLab elements"""
+        elements = []
+        html = md.convert(text or "")
+        md.reset()
+        
+        lines = html.split('<br/>')
+        in_code_block = False
+        code_lines = []
+        
+        for line in lines:
+            line = line.strip()
+            
+            if line.startswith('<pre>') or line.startswith('<code>'):
+                in_code_block = True
+                code_content = line
+                if '</code>' in line and '</pre>' in line:
+                    code_text = line.replace('<pre>','').replace('</pre>','').replace('<code>','').replace('</code>','')
+                    elements.append(Paragraph(code_text, code_style))
+                    in_code_block = False
+                continue
+            
+            if in_code_block:
+                if '</code>' in line or '</pre>' in line:
+                    code_text = line.replace('<pre>','').replace('</pre>','').replace('<code>','').replace('</code>','')
+                    if code_text:
+                        code_lines.append(code_text)
+                    if code_lines:
+                        elements.append(Paragraph('<br/>'.join(code_lines), code_style))
+                    in_code_block = False
+                    code_lines = []
+                else:
+                    clean_line = line.replace('<code>','').replace('</code>','')
+                    code_lines.append(clean_line)
+                continue
+            
+            if line.startswith('<h2>') or line.startswith('<h3>'):
+                heading_text = line.replace('<h2>','').replace('</h2>','').replace('<h3>','').replace('</h3>','')
+                elements.append(Paragraph(heading_text, heading_style))
+            elif line.startswith('<ul>') or line.startswith('</ul>'):
+                continue
+            elif line.startswith('<li>'):
+                item_text = line.replace('<li>','').replace('</li>','')
+                item_text = item_text.replace('<p>','').replace('</p>','')
+                elements.append(Paragraph(f"• {item_text}", normal_style))
+            elif line.startswith('<p>'):
+                p_text = line.replace('<p>','').replace('</p>','')
+                if p_text:
+                    elements.append(Paragraph(p_text, normal_style))
+            elif line.startswith('<strong>') or line.startswith('<b>'):
+                bold_text = line.replace('<strong>','').replace('</strong>','').replace('<b>','').replace('</b>','')
+                elements.append(Paragraph(f"<b>{bold_text}</b>", normal_style))
+            elif line.startswith('<table>'):
+                table_lines = [line]
+                j = lines.index(line)
+                while j < len(lines) - 1 and '</table>' not in lines[j]:
+                    j += 1
+                    table_lines.append(lines[j])
+                table_html = '<br/>'.join(table_lines)
+                elements.extend(_parse_html_table(table_html, font_name))
+            elif line.strip():
+                elements.append(Paragraph(line, normal_style))
+        
+        return elements
 
-    def is_markdown_block(line: str) -> bool:
-        return any(line.startswith(m) for m in ["```", "##", "- [ ]", "- [x]", "|", "```python", "```c", "```bash"])
+    def _parse_html_table(html_table: str, fnt: str) -> list:
+        from reportlab.platypus import Table, TableStyle
+        from reportlab.lib import colors
+        
+        elements = []
+        rows = []
+        
+        tr_pattern = r'<tr>(.*?)</tr>'
+        td_pattern = r'<t[dh]>(.*?)</t[dh]>'
+        
+        import re
+        for tr in re.finditer(tr_pattern, html_table, re.DOTALL):
+            tr_content = tr.group(1)
+            cells = re.findall(td_pattern, tr_content)
+            if cells:
+                row = []
+                for cell in cells:
+                    cell = cell.replace('<p>','').replace('</p>','')
+                    row.append(cell)
+                rows.append(row)
+        
+        if rows:
+            col_widths = [None] * len(rows[0]) if rows else []
+            table = Table(rows, colWidths=col_widths)
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, -1), fnt),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ]))
+            elements.append(table)
+            elements.append(Spacer(1, 10))
+        
+        return elements
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
-    elements = [Paragraph(to_paragraph_text(title), title_style), Spacer(1, 8)]
+    elements = [Paragraph(title, title_style), Spacer(1, 8)]
     
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        
-        if line.startswith("=== "):
-            elements.append(Paragraph(to_paragraph_text(line.replace("=== ", "").strip()), heading_style))
-        
-        elif line.startswith("- ") and i + 1 < len(lines) and lines[i + 1].startswith("  "):
-            bullet_text = "• " + line[2:]
-            meta_lines = []
-            i += 1
-            while i < len(lines) and lines[i].startswith("  "):
-                meta_lines.append(lines[i].strip())
-                i += 1
-            if meta_lines:
-                bullet_text += "<br/>" + "<br/>".join(html.escape(m) for m in meta_lines)
-            elements.append(Paragraph(bullet_text, normal_style))
-            continue
-        
-        elif line.strip() == "":
-            elements.append(Spacer(1, 6))
-        
-        elif is_markdown_block(line):
-            md_block = [line]
-            i += 1
-            while i < len(lines) and not lines[i].startswith("===") and not lines[i].startswith("- "):
-                if lines[i].strip() == "" and i + 1 < len(lines) and not lines[i+1].startswith("  "):
-                    break
-                md_block.append(lines[i])
-                i += 1
-            md_text = "<br/>".join(html.escape(x) for x in md_block)
-            elements.append(Paragraph(md_text, code_style))
-            continue
-        
-        else:
-            elements.append(Paragraph(to_paragraph_text(line), normal_style))
-        
-        i += 1
+    content_text = '<br/>'.join(lines)
+    content_elements = parse_markdown_content(content_text)
+    elements.extend(content_elements)
     
     doc.build(elements)
     return buffer.getvalue()

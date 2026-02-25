@@ -875,59 +875,62 @@ def export_analysis_report_pdf(
         lines.append("")
         if include_summaries and audit_db:
             completed_tasks = audit_db.get_tasks(status="completed")
-            lines.append("=== Summaries ===")
+            lines.append("## Summaries")
             if completed_tasks:
                 for t in completed_tasks[:50]:
-                    lines.append(f"- 任务: {t.get('title','')} · 状态: {t.get('status','')}")
+                    lines.append(f"### 任务: {t.get('title','')}")
+                    lines.append(f"**状态:** {t.get('status','')}")
                     if t.get("binary_name"):
-                        lines.append(f"  二进制: {t['binary_name']}")
+                        lines.append(f"**二进制:** {t['binary_name']}")
                     summary = t.get("summary") or ""
-                    for ln in str(summary).splitlines()[:10]:
-                        lines.append(f"  {ln}")
+                    if summary:
+                        lines.append(summary)
                     lines.append("")
             else:
                 lines.append("无已完成任务摘要")
             lines.append("")
         if include_notes:
-            lines.append("=== Notes ===")
+            lines.append("## Notes")
             notes = audit_mcp_tools.audit_get_notes(binary_name=binary_name, note_type=None, tags=tags, limit=200)
             if notes:
                 for n in notes:
-                    lines.append(f"- [{n.get('note_type','').upper()}] {n.get('title') or 'Untitled'}")
+                    lines.append(f"### [{n.get('note_type','').upper()}] {n.get('title') or 'Untitled'}")
                     meta = []
-                    if n.get("confidence"): meta.append(f"可信度:{n['confidence']}")
-                    if n.get("function_name"): meta.append(f"函数:{n['function_name']}")
-                    if n.get("address") is not None: meta.append(f"地址:{n['address']}")
-                    if n.get("tags"): meta.append("标签:" + ",".join(n.get("tags") or []))
+                    if n.get("confidence"): meta.append(f"**可信度:** {n['confidence']}")
+                    if n.get("function_name"): meta.append(f"**函数:** {n['function_name']}")
+                    if n.get("address") is not None: meta.append(f"**地址:** {n['address']}")
+                    if n.get("tags"): meta.append(f"**标签:** {','.join(n.get('tags') or [])}")
                     if meta:
-                        lines.append("  " + " · ".join(meta))
-                    for ln in str(n.get("content","")).splitlines()[:8]:
-                        lines.append(f"  {ln}")
+                        lines.append(" | ".join(meta))
+                    content = n.get("content", "")
+                    if content:
+                        lines.append(content)
                     lines.append("")
             else:
                 lines.append("无记录")
             lines.append("")
         if include_vulns:
-            lines.append("=== Vulnerabilities ===")
+            lines.append("## Vulnerabilities")
             vulns = audit_mcp_tools.audit_get_vulnerabilities(binary_name=binary_name, severity=None, category=None, verification_status=None)
             if vulns:
                 for v in vulns:
-                    lines.append(f"- [{v.get('severity','').upper()}] {v.get('title') or v.get('category')}")
+                    lines.append(f"### [{v.get('severity','').upper()}] {v.get('title') or v.get('category')}")
                     meta = []
-                    if v.get("binary_name"): meta.append(f"二进制:{v['binary_name']}")
-                    if v.get("function_name"): meta.append(f"函数:{v['function_name']}")
-                    if v.get("address") is not None: meta.append(f"地址:{v['address']}")
-                    if v.get("cvss") is not None: meta.append(f"CVSS:{v['cvss']}")
-                    if v.get("exploitability"): meta.append(f"可利用性:{v['exploitability']}")
-                    if v.get("verification_status"): meta.append(f"核查:{v['verification_status']}")
+                    if v.get("binary_name"): meta.append(f"**二进制:** {v['binary_name']}")
+                    if v.get("function_name"): meta.append(f"**函数:** {v['function_name']}")
+                    if v.get("address") is not None: meta.append(f"**地址:** {v['address']}")
+                    if v.get("cvss") is not None: meta.append(f"**CVSS:** {v['cvss']}")
+                    if v.get("exploitability"): meta.append(f"**可利用性:** {v['exploitability']}")
+                    if v.get("verification_status"): meta.append(f"**核查:** {v['verification_status']}")
                     if meta:
-                        lines.append("  " + " · ".join(meta))
-                    for ln in str(v.get("description","")).splitlines()[:10]:
-                        lines.append(f"  {ln}")
+                        lines.append(" | ".join(meta))
+                    if v.get("description"):
+                        lines.append(v.get("description"))
                     if v.get("evidence"):
-                        lines.append("  证据:")
-                        for ln in str(v.get("evidence","")).splitlines()[:6]:
-                            lines.append(f"    {ln}")
+                        lines.append("**证据:**")
+                        lines.append("```")
+                        lines.append(v.get("evidence"))
+                        lines.append("```")
                     lines.append("")
             else:
                 lines.append("无记录")
