@@ -75,6 +75,15 @@ build_frontend() {
   mkdir -p "$BACKEND_STATIC_DIR"
   cp -R "$FRONTEND_DIR/dist/." "$BACKEND_STATIC_DIR/"
 
+  FRONTEND_PUBLIC="$FRONTEND_DIR/public"
+  if [[ -d "$FRONTEND_PUBLIC" ]]; then
+    FONT_FILES=("$FRONTEND_PUBLIC"/*.ttf "$FRONTEND_PUBLIC"/*.otf)
+    if [[ ${#FONT_FILES[@]} -gt 0 && -f "${FONT_FILES[0]}" ]]; then
+      echo "Copying font files..."
+      cp -n "$FRONTEND_PUBLIC"/*.ttf "$FRONTEND_PUBLIC"/*.otf "$BACKEND_STATIC_DIR/" 2>/dev/null || true
+    fi
+  fi
+
   if [[ -f "$BACKEND_STATIC_DIR/help.md" ]]; then
     echo "Verified: help.md copied successfully."
   else

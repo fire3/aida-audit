@@ -1250,6 +1250,15 @@ export function AuditDashboard() {
     try {
       const payload = await buildExportPayload();
       const pdf = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' });
+      
+      // Load Chinese font
+      const fontResponse = await fetch('/NotoSansSC-Regular.ttf');
+      const fontBuffer = await fontResponse.arrayBuffer();
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(fontBuffer)));
+      pdf.addFileToVFS('NotoSansSC-Regular.ttf', base64);
+      pdf.addFont('NotoSansSC-Regular.ttf', 'NotoSansSC', 'normal');
+      pdf.setFont('NotoSansSC');
+      
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
       const margin = 40;
@@ -1266,7 +1275,7 @@ export function AuditDashboard() {
       const addText = (text: string, fontSize: number, isBold: boolean = false, color: number[] = [0, 0, 0]) => {
         if (!text) return;
         pdf.setFontSize(fontSize);
-        pdf.setFont('helvetica', isBold ? 'bold' : 'normal');
+        pdf.setFont('NotoSansSC', isBold ? 'bold' : 'normal');
         pdf.setTextColor(color[0], color[1], color[2]);
         
         const lines = pdf.splitTextToSize(text, contentWidth);
@@ -1280,7 +1289,7 @@ export function AuditDashboard() {
       const addHeading = (text: string, fontSize: number) => {
         checkNewPage(fontSize * 2);
         pdf.setFontSize(fontSize);
-        pdf.setFont('helvetica', 'bold');
+        pdf.setFont('NotoSansSC', 'bold');
         pdf.setTextColor(0, 0, 0);
         const lines = pdf.splitTextToSize(text, contentWidth);
         for (const line of lines) {
@@ -1408,7 +1417,7 @@ export function AuditDashboard() {
           
           if (vuln.evidence) {
             checkNewPage(50);
-            pdf.setFont('courier', 'normal');
+                        pdf.setFont('NotoSansSC', 'normal');
             pdf.setFontSize(8);
             const evidenceLines = pdf.splitTextToSize(vuln.evidence, contentWidth);
             for (const line of evidenceLines) {

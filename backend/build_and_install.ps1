@@ -34,6 +34,17 @@ if (Test-Path $FrontendDir) {
         New-Item -ItemType Directory -Force -Path $BackendStaticDir | Out-Null
         Copy-Item -Recurse -Force "$FrontendDir\dist\*" $BackendStaticDir
 
+        $FrontendPublic = "$FrontendDir\public"
+        if (Test-Path $FrontendPublic) {
+            $fontFiles = Get-ChildItem -Path $FrontendPublic -Include *.ttf,*.otf -ErrorAction SilentlyContinue
+            if ($fontFiles) {
+                Write-Host "Copying font files..."
+                foreach ($font in $fontFiles) {
+                    Copy-Item -Force $font.FullName "$BackendStaticDir\"
+                }
+            }
+        }
+
         if (Test-Path "$BackendStaticDir\help.md") {
             Write-Host "Verified: help.md copied successfully."
         } else {
