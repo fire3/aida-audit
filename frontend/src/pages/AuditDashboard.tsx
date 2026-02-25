@@ -18,7 +18,8 @@ import {
   Code,
   Archive,
   ShieldCheck,
-  Plus
+  Plus,
+  Globe
 } from 'lucide-react';
 import { formatAddress } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
@@ -76,7 +77,80 @@ function VerificationStatusBadge({ status }: { status: string | undefined }) {
   )
 }
 
-function UserPromptConfig() {
+function ReportLanguageConfig() {
+    const [isEditing, setIsEditing] = useState(false);
+    const [language, setLanguage] = useState("Chinese");
+    const [loading, setLoading] = useState(false);
+
+    const { data, refetch } = useQuery({ 
+        queryKey: ['reportLanguage'], 
+        queryFn: auditApi.getReportLanguage,
+        refetchOnWindowFocus: false
+    });
+
+    useEffect(() => {
+        if (data) {
+            setLanguage(data.language);
+        }
+    }, [data]);
+
+    const handleSave = async () => {
+        setLoading(true);
+        try {
+            await auditApi.updateReportLanguage(language);
+            await refetch();
+            setIsEditing(false);
+        } catch (error) {
+            console.error("Failed to save language", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="mb-4 border rounded-lg p-3 bg-white dark:bg-slate-900 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+                <h3 className="font-semibold text-sm flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-green-500" />
+                    Report Language
+                </h3>
+                {!isEditing && (
+                    <Button variant="ghost" size="sm" onClick={() => setIsEditing(true)} className="h-6 text-xs">
+                        Edit
+                    </Button>
+                )}
+            </div>
+            
+            {isEditing ? (
+                <div className="space-y-2">
+                    <select 
+                        className="w-full text-xs p-2 border rounded bg-slate-50 dark:bg-slate-800 focus:outline-none focus:ring-1 focus:ring-green-500"
+                        value={language}
+                        onChange={(e) => setLanguage(e.target.value)}
+                    >
+                        <option value="Chinese">Chinese (中文)</option>
+                        <option value="English">English (英文)</option>
+                    </select>
+                    <div className="flex justify-end gap-2">
+                        <Button variant="ghost" size="sm" onClick={() => {
+                            setIsEditing(false);
+                            setLanguage(data?.language || "Chinese");
+                        }} className="h-7 text-xs">
+                            Cancel
+                        </Button>
+                        <Button size="sm" onClick={handleSave} disabled={loading} className="h-7 text-xs">
+                            {loading ? "Saving..." : "Save"}
+                        </Button>
+                    </div>
+                </div>
+            ) : (
+                <div className="text-xs text-muted-foreground">
+                    <p>{language === "Chinese" ? "中文" : "English"}</p>
+                </div>
+            )}
+        </div>
+    );
+}
     const [isEditing, setIsEditing] = useState(false);
     const [prompt, setPrompt] = useState("");
     const [loading, setLoading] = useState(false);
@@ -236,6 +310,7 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
         <div className="h-full flex gap-4">
             <div className="w-1/3 border-r pr-4 overflow-auto">
                 <UserPromptConfig />
+                <ReportLanguageConfig />
                 <div className="flex items-center justify-between mb-4">
                     <h3 className="font-semibold flex items-center gap-2">
                         <ListTodo className="w-4 h-4 text-purple-500" />

@@ -173,6 +173,20 @@ def update_user_prompt(prompt: UserPrompt):
     audit_db.set_config("user_prompt", prompt.content)
     return {"status": "ok"}
 
+class ReportLanguage(BaseModel):
+    language: str
+
+@api_router.get("/config/report-language")
+def get_report_language():
+    config = Config()
+    return {"language": config.get_report_language()}
+
+@api_router.post("/config/report-language")
+def update_report_language(lang: ReportLanguage):
+    config = Config()
+    config.set_report_language(lang.language)
+    return {"status": "ok"}
+
 @api_router.get("/config")
 def get_config():
     config = Config()

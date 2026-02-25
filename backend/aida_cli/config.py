@@ -15,7 +15,8 @@ DEFAULT_CONFIG = {
         "url": "http://127.0.0.1:8765/mcp",
         "command": [sys.executable, "-m", "aida_cli.mcp_stdio_server", "--project", "."],
         "working_directory": "."
-    }
+    },
+    "report_language": "Chinese"
 }
 
 class Config:
@@ -71,3 +72,10 @@ class Config:
 
     def get_llm_model(self) -> str:
         return os.environ.get("AIDA_LLM_MODEL") or self.llm.get("model")
+
+    def get_report_language(self) -> str:
+        return os.environ.get("AIDA_REPORT_LANGUAGE") or self.data.get("report_language", "Chinese")
+
+    def set_report_language(self, language: str):
+        self.data["report_language"] = language
+        self.save()

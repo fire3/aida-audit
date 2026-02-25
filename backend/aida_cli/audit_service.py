@@ -9,14 +9,24 @@ from .config import Config
 from .llm_client import LLMClient
 from .mcp_client import HttpMcpClient, StdioMcpClient, McpClient
 from .audit_database import AuditDatabase
+from .config import Config
 
-def load_agent_prompt(agent_name: str) -> str:
+def load_agent_prompt(agent_name: str, audit_db: Optional[AuditDatabase] = None) -> str:
     """Load the system prompt from templates."""
     filename = f"{agent_name}.md"
     template_path = os.path.join(os.path.dirname(__file__), "templates", filename)
     try:
         with open(template_path, 'r', encoding='utf-8') as f:
-            return f.read()
+            base_prompt = f.read()
+        
+        # Inject report language requirement
+        config = Config()
+        report_language = config.get_report_language()
+        lang_label = "Chinese" if report_language == "Chinese" else "English"
+        language_instruction = f"\n\n## 报告语言要求 / Report Language Requirement\n请使用 **{report_language}** ({lang_label}) 语言撰写所有报告、漏洞描述和总结。\nPlease use **{report_language}** ({lang_label}) for all reports, vulnerability descriptions, and summaries.\n"
+        base_prompt += language_instruction
+        
+        return base_prompt
     except FileNotFoundError:
         print(f"Warning: {filename} not found, using default prompt.")
         return "你是一位专业的安全审计专家。"
@@ -107,7 +117,7 @@ class BaseAgent:
         raise NotImplementedError
         
     def get_system_prompt(self) -> str:
-        return load_agent_prompt(self.name)
+        return load_agent_prompt(self.name, self.audit_db)
         
     def get_initial_message(self) -> str:
         return "根据系统提示，开始你的工作。"
@@ -406,12 +416,12 @@ class PlanAgent(BaseAgent):
         try:
             plans = self.audit_db.get_plans()
             if not plans:
-                base_prompt = load_agent_prompt("INITIAL_PLANER")
+                base_prompt = load_agent_prompt("INITIAL_PLANER", self.audit_db)
             else:
-                base_prompt = load_agent_prompt("PLAN_REVIEWER")
+                base_prompt = load_agent_prompt("PLAN_REVIEWER", self.audit_db)
         except Exception as e:
             print(f"Error checking plans: {e}")
-            base_prompt = load_agent_prompt("INITIAL_PLANER")
+            base_prompt = load_agent_prompt("INITIAL_PLANER", self.audit_db)
 
         # Append user prompt if exists
         user_prompt = self.audit_db.get_config("user_prompt", "")

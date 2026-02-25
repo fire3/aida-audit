@@ -387,6 +387,16 @@ export const auditApi = {
     return res.data;
   },
 
+  getReportLanguage: async () => {
+    const res = await apiClient.get<{language: string}>('/config/report-language');
+    return res.data;
+  },
+
+  updateReportLanguage: async (language: string) => {
+    const res = await apiClient.post('/config/report-language', { language });
+    return res.data;
+  },
+
   start: async () => {
     const res = await apiClient.post('/audit/start');
     return res.data;
