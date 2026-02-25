@@ -18,8 +18,7 @@ import {
   Code,
   Archive,
   ShieldCheck,
-  Plus,
-  FileDown
+  Plus
 } from 'lucide-react';
 import { formatAddress } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
@@ -28,22 +27,6 @@ import { Modal } from '../components/ui/modal';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { Select } from '../components/ui/select';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-
-type ExportSections = {
-    finished: boolean;
-    vulnerabilities: boolean;
-    notes: boolean;
-};
-
-type ExportPayload = {
-    title: string;
-    generatedAt: string;
-    finishedTasks: AuditPlan[];
-    vulnerabilities: Vulnerability[];
-    notes: Note[];
-};
 
 function Badge({ children, variant }: { children: React.ReactNode, variant: string }) {
     const colors = {
@@ -944,10 +927,6 @@ export function AuditDashboard() {
   const [streamMessages, setStreamMessages] = useState<AuditMessage[]>([]);
   const [liveChunkContent, setLiveChunkContent] = useState<{ reasoning: string; content: string; inThinking: boolean; pending: string }>({ reasoning: '', content: '', inThinking: false, pending: '' });
   const streamRef = useRef<{ close: () => void } | null>(null);
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [exportTitle, setExportTitle] = useState('AIDA 审计报告');
-  const [exportSections, setExportSections] = useState<ExportSections>({ finished: true, vulnerabilities: true, notes: true });
-  const [isExporting, setIsExporting] = useState(false);
   
   const { data: status } = useQuery({ queryKey: ['auditStatus'], queryFn: auditApi.getStatus, refetchInterval: autoRefresh ? 2000 : false });
   
@@ -1198,277 +1177,6 @@ export function AuditDashboard() {
     }
   });
 
-  const anySectionSelected = exportSections.finished || exportSections.vulnerabilities || exportSections.notes;
-  const selectedSectionCount = (exportSections.finished ? 1 : 0) + (exportSections.vulnerabilities ? 1 : 0) + (exportSections.notes ? 1 : 0);
-
-  const buildExportPayload = async (): Promise<ExportPayload> => {
-    const finishedTasks = completedTasks || [];
-    const hydratedFinished = await Promise.all(
-      finishedTasks.map(async (task) => {
-        if (task.summary) return task;
-        try {
-          const fullTask = await auditApi.getTask(task.id);
-          return { ...task, summary: fullTask.summary ?? task.summary, notes: fullTask.notes ?? task.notes };
-        } catch {
-          return task;
-        }
-      })
-    );
-    return {
-      title: exportTitle.trim() || 'AIDA 审计报告',
-      generatedAt: new Date().toLocaleString(),
-      finishedTasks: hydratedFinished,
-      vulnerabilities: vulnerabilities || [],
-      notes: notes || []
-    };
-  };
-
-  const markdownToPlainText = (md: string): string => {
-    if (!md) return '';
-    return md
-      .replace(/^```[\s\S]*?```$/gm, '')
-      .replace(/```[\s\S]*?```/g, '')
-      .replace(/`[^`]+`/g, (match) => match.slice(1, -1))
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      .replace(/^#{1,6}\s+/gm, '')
-      .replace(/^[-*+]\s+/gm, '  • ')
-      .replace(/^\d+\.\s+/gm, (match) => '  ' + match)
-      .replace(/^>\s+/gm, '  ')
-      .replace(/\*\*([^*]+)\*\*/g, '$1')
-      .replace(/\*([^*]+)\*/g, '$1')
-      .replace(/__([^_]+)__/g, '$1')
-      .replace(/_([^_]+)_/g, '$1')
-      .replace(/~~([^~]+)~~/g, '$1')
-      .replace(/^\s+$/gm, '')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
-  };
-
-  const handleExportPdf = async () => {
-    if (isExporting || !anySectionSelected) return;
-    setIsExporting(true);
-    try {
-      const payload = await buildExportPayload();
-      const pdf = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' });
-      
-      // Load Chinese font
-      const fontResponse = await fetch('/NotoSansSC-Regular.ttf');
-      const fontBuffer = await fontResponse.arrayBuffer();
-      const base64 = btoa(String.fromCharCode(...new Uint8Array(fontBuffer)));
-      pdf.addFileToVFS('NotoSansSC-Regular.ttf', base64);
-      pdf.addFont('NotoSansSC-Regular.ttf', 'NotoSansSC', 'normal');
-      pdf.setFont('NotoSansSC');
-      
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 40;
-      const contentWidth = pageWidth - margin * 2;
-      let yPos = margin;
-
-      const checkNewPage = (needed: number) => {
-        if (yPos + needed > pageHeight - margin) {
-          pdf.addPage();
-          yPos = margin;
-        }
-      };
-
-      const addText = (text: string, fontSize: number, isBold: boolean = false, color: number[] = [0, 0, 0]) => {
-        if (!text) return;
-        pdf.setFontSize(fontSize);
-        pdf.setFont('NotoSansSC', isBold ? 'bold' : 'normal');
-        pdf.setTextColor(color[0], color[1], color[2]);
-        
-        const lines = pdf.splitTextToSize(text, contentWidth);
-        for (const line of lines) {
-          checkNewPage(fontSize * 1.5);
-          pdf.text(line, margin, yPos);
-          yPos += fontSize * 1.5;
-        }
-      };
-
-      const addHeading = (text: string, fontSize: number) => {
-        checkNewPage(fontSize * 2);
-        pdf.setFontSize(fontSize);
-        pdf.setFont('NotoSansSC', 'bold');
-        pdf.setTextColor(0, 0, 0);
-        const lines = pdf.splitTextToSize(text, contentWidth);
-        for (const line of lines) {
-          pdf.text(line, margin, yPos);
-          yPos += fontSize * 1.4;
-        }
-        yPos += 10;
-      };
-
-      const addSeparator = () => {
-        yPos += 10;
-        pdf.setDrawColor(200, 200, 200);
-        pdf.line(margin, yPos, pageWidth - margin, yPos);
-        yPos += 15;
-      };
-
-      pdf.setFont('helvetica', 'normal');
-      pdf.setTextColor(0, 0, 0);
-
-      addHeading(payload.title, 24);
-      pdf.setFontSize(10);
-      pdf.setTextColor(100, 100, 100);
-      pdf.text(`生成时间: ${payload.generatedAt}`, margin, yPos);
-      yPos += 20;
-
-      pdf.setFontSize(12);
-      pdf.setTextColor(0, 0, 0);
-      pdf.text(`已完成任务: ${payload.finishedTasks.length}`, margin, yPos);
-      yPos += 15;
-      pdf.text(`漏洞数量: ${payload.vulnerabilities.length}`, margin, yPos);
-      yPos += 15;
-      pdf.text(`笔记数量: ${payload.notes.length}`, margin, yPos);
-      yPos += 25;
-
-      if (exportSections.finished && payload.finishedTasks.length > 0) {
-        addHeading('已完成任务汇总', 16);
-        
-        for (const task of payload.finishedTasks) {
-          checkNewPage(80);
-          
-          const taskType = task.plan_type === 'verification_plan' ? '[验证任务]' : 
-                          task.plan_type === 'agent_plan' ? '[分析任务]' : '[计划]';
-          const status = task.status === 'completed' ? '✓ 已完成' : task.status;
-          addText(`${taskType} #${task.id} - ${task.title} (${status})`, 12, true);
-          
-          if (task.binary_name) {
-            addText(`目标: ${task.binary_name}`, 10, false, [100, 100, 100]);
-          }
-          
-          if (task.description) {
-            addText(markdownToPlainText(task.description), 10);
-          }
-          
-          if (task.summary) {
-            checkNewPage(60);
-            addText('摘要:', 10, true);
-            addText(markdownToPlainText(task.summary), 10);
-          }
-          
-          if (task.notes) {
-            checkNewPage(60);
-            addText('笔记:', 10, true);
-            addText(markdownToPlainText(task.notes), 10);
-          }
-          
-          addSeparator();
-        }
-      }
-
-      if (exportSections.vulnerabilities && payload.vulnerabilities.length > 0) {
-        addHeading('安全漏洞清单', 16);
-        
-        const vulnData = payload.vulnerabilities.map(v => [
-          v.severity.toUpperCase(),
-          v.title || v.category,
-          v.binary_name || '-',
-          v.verification_status || 'unverified'
-        ]);
-
-        autoTable(pdf, {
-          startY: yPos,
-          head: [['严重级别', '漏洞名称', '目标', '验证状态']],
-          body: vulnData,
-          margin: { left: margin, right: margin },
-          headStyles: { fillColor: [220, 53, 69], textColor: 255, fontStyle: 'bold' },
-          bodyStyles: { textColor: 0 },
-          alternateRowStyles: { fillColor: [245, 245, 245] },
-          columnStyles: {
-            0: { cellWidth: 50, fontStyle: 'bold' },
-            1: { cellWidth: contentWidth * 0.5 },
-            2: { cellWidth: 80 },
-            3: { cellWidth: 60 }
-          },
-          didDrawPage: (data: any) => { yPos = data.table.finalY + 20; },
-          willDrawCell: (data: any) => {
-            if (data.section === 'body' && data.column.index === 0) {
-              const severity = data.cell.raw as string;
-              if (severity === 'CRITICAL' || severity === 'HIGH') {
-                data.cell.styles.textColor = [220, 53, 69];
-              } else if (severity === 'MEDIUM') {
-                data.cell.styles.textColor = [255, 193, 7];
-              }
-            }
-          }
-        });
-
-        // Use lastAutoTable if available, otherwise keep yPos from above
-        if ((pdf as any).lastAutoTable) {
-          yPos = (pdf as any).lastAutoTable.finalY + 20;
-        }
-
-        for (const vuln of payload.vulnerabilities) {
-          checkNewPage(100);
-          yPos += 10;
-          
-          const severityColor = vuln.severity === 'critical' || vuln.severity === 'high' ? [220, 53, 69] :
-                               vuln.severity === 'medium' ? [255, 193, 7] : [23, 162, 184];
-          addText(`[${vuln.severity.toUpperCase()}] ${vuln.title || vuln.category}`, 12, true, severityColor);
-          
-          if (vuln.function_name || vuln.address) {
-            addText(`位置: ${vuln.function_name || ''} ${vuln.address || ''}`.trim(), 10, false, [100, 100, 100]);
-          }
-          
-          addText(markdownToPlainText(vuln.description), 10);
-          
-          if (vuln.evidence) {
-            checkNewPage(50);
-                        pdf.setFont('NotoSansSC', 'normal');
-            pdf.setFontSize(8);
-            const evidenceLines = pdf.splitTextToSize(vuln.evidence, contentWidth);
-            for (const line of evidenceLines) {
-              checkNewPage(12);
-              pdf.text(line, margin, yPos);
-              yPos += 12;
-            }
-          }
-          
-          addSeparator();
-        }
-      }
-
-      if (exportSections.notes && payload.notes.length > 0) {
-        addHeading('分析笔记汇总', 16);
-        
-        for (const note of payload.notes) {
-          checkNewPage(80);
-          
-          addText(`[${note.note_type}] ${note.title || '无标题'} (${note.confidence} 置信度)`, 12, true);
-          
-          if (note.binary_name) {
-            addText(`目标: ${note.binary_name}`, 10, false, [100, 100, 100]);
-          }
-          
-          if (note.function_name || note.address) {
-            addText(`位置: ${note.function_name || ''} ${note.address || ''}`.trim(), 10, false, [100, 100, 100]);
-          }
-          
-          addText(markdownToPlainText(note.content), 10);
-          
-          if (note.tags && note.tags.length > 0) {
-            addText(`标签: ${note.tags.join(', ')}`, 10, false, [100, 100, 100]);
-          }
-          
-          addSeparator();
-        }
-      }
-
-      const safeTitle = payload.title.replace(/[\\/:*?"<>|]/g, '-');
-      const dateStamp = new Date().toISOString().slice(0, 10);
-      pdf.save(`${safeTitle}_${dateStamp}.pdf`);
-      setIsExportModalOpen(false);
-    } catch (error) {
-      console.error('Export failed:', error);
-      alert('导出失败，请重试');
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
   const splitThinkContent = (content: string) => {
     if (typeof content !== 'string') {
       return { thinkContent: null as string | null, mainContent: String(content ?? '') };
@@ -1644,9 +1352,6 @@ export function AuditDashboard() {
         </div>
         
         <div className="flex items-center gap-4">
-            <Button variant="outline" size="sm" onClick={() => setIsExportModalOpen(true)} className="gap-2" disabled={isExporting}>
-                <FileDown className="w-4 h-4" /> 导出PDF
-            </Button>
             <div className="flex items-center gap-2">
                 <label className="text-xs text-muted-foreground font-medium">Auto-Refresh</label>
                 <button 
@@ -1851,61 +1556,6 @@ export function AuditDashboard() {
            </Card>
         )}
       </div>
-      <Modal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} title="导出 PDF" className="max-w-xl">
-        <div className="space-y-4">
-            <div className="space-y-2">
-                <label className="text-sm font-medium">报告标题</label>
-                <Input value={exportTitle} onChange={(e) => setExportTitle(e.target.value)} placeholder="AIDA 审计报告" />
-            </div>
-            <div className="space-y-2">
-                <label className="text-sm font-medium">包含内容</label>
-                <div className="grid grid-cols-1 gap-2">
-                    <label className="flex items-center gap-2 text-sm">
-                        <input
-                            type="checkbox"
-                            checked={exportSections.finished}
-                            onChange={() => setExportSections(prev => ({ ...prev, finished: !prev.finished }))}
-                            className="h-4 w-4"
-                        />
-                        Finished Report（{completedTasks?.length || 0}）
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                        <input
-                            type="checkbox"
-                            checked={exportSections.vulnerabilities}
-                            onChange={() => setExportSections(prev => ({ ...prev, vulnerabilities: !prev.vulnerabilities }))}
-                            className="h-4 w-4"
-                        />
-                        Vulnerabilities（{vulnerabilities?.length || 0}）
-                    </label>
-                    <label className="flex items-center gap-2 text-sm">
-                        <input
-                            type="checkbox"
-                            checked={exportSections.notes}
-                            onChange={() => setExportSections(prev => ({ ...prev, notes: !prev.notes }))}
-                            className="h-4 w-4"
-                        />
-                        Notes（{notes?.length || 0}）
-                    </label>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>已选择 {selectedSectionCount} 项</span>
-                    <Button variant="ghost" size="sm" onClick={() => setExportSections({ finished: true, vulnerabilities: true, notes: true })}>
-                        全选
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => setExportSections({ finished: false, vulnerabilities: false, notes: false })}>
-                        清空
-                    </Button>
-                </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-                <Button variant="ghost" onClick={() => setIsExportModalOpen(false)}>取消</Button>
-                <Button onClick={handleExportPdf} disabled={!anySectionSelected || isExporting} className="gap-2">
-                    <FileDown className="w-4 h-4" /> {isExporting ? '导出中...' : '导出 PDF'}
-                </Button>
-            </div>
-        </div>
-      </Modal>
     </div>
   );
 }

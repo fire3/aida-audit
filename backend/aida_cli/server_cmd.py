@@ -731,17 +731,23 @@ def get_audit_tasks():
              return []
         return audit_mcp_tools.audit_list_agent_tasks()
     except Exception as e:
+        import traceback
+        print(f"Error fetching tasks: {e}", file=sys.stderr)
+        print(traceback.format_exc(), file=sys.stderr)
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/audit/tasks")
 def create_audit_task(task: TaskCreate):
     try:
         if not audit_db:
-             return {"error": "Database not initialized"}
+             raise HTTPException(status_code=500, detail="Database not initialized")
         return audit_mcp_tools.audit_create_agent_task(task.title, task.description, task.plan_id, task.binary_name, task.task_type)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        import traceback
+        print(f"Error creating task: {e}", file=sys.stderr)
+        print(traceback.format_exc(), file=sys.stderr)
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/audit/task/{task_id}")
