@@ -21,10 +21,10 @@ Task types include the following values:
 ### Task Status
 Each agent task has a status indicating the current execution status. The term "agent task status" will be used to refer to this throughout the document.
 Task statuses include the following values:
-- `PENDING`: Task created but not assigned to any Agent.
-- `RUNNING`: Task assigned to an Agent and currently executing.
-- `COMPLETED`: Task completed successfully.
-- `FAILED`: Error occurred during task execution.
+- `pending`: Task created but not assigned to any Agent.
+- `in_progress`: Task assigned to an Agent and currently executing.
+- `completed`: Task completed successfully.
+- `failed`: Error occurred during task execution.
 
 ## Core Objectives
 1. **Target Identification**: Based on the provided binary file list, identify targets requiring priority analysis (e.g., main program, critical libraries).

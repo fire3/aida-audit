@@ -163,7 +163,7 @@ class AuditDatabase:
                 created_at INTEGER,
                 updated_at INTEGER,
                 binary_name TEXT,
-                task_type TEXT DEFAULT 'agent_task',
+                task_type TEXT DEFAULT 'ANALYSIS',
                 summary TEXT,
                 notes TEXT,
                 FOREIGN KEY(plan_id) REFERENCES plans(id)
@@ -323,7 +323,7 @@ class AuditDatabase:
         return None
 
     # ========== Task Operations (Micro) ==========
-    def create_task(self, plan_id: int, title: str, description: str, binary_name: str, task_type: str = 'agent_task') -> int:
+    def create_task(self, plan_id: int, title: str, description: str, binary_name: str, task_type: str = 'ANALYSIS') -> int:
         timestamp = int(time.time())
         cursor = self.conn.cursor()
         cursor.execute(

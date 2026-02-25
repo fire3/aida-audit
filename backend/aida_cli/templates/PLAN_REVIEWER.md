@@ -12,6 +12,20 @@ A macro plan is a complete audit task containing multiple specific tasks. Each m
 ### Agent Task
 A specific task refers to a specific execution step assigned to an Agent. Each specific task has a unique ID for identification and management. The term "agent task" will be used to refer to this throughout the document.
 
+### Task Type
+Each agent task has a type that indicates the execution method. The term "agent task type" will be used to refer to this throughout the document.
+Task types include the following values:
+- `ANALYSIS`: Analysis task, used for static or dynamic analysis of the target binary file.
+- `VERIFICATION`: Verification task, used to verify whether analysis results meet expectations.
+
+### Task Status
+Each agent task has a status indicating the current execution status. The term "agent task status" will be used to refer to this throughout the document.
+Task statuses include the following values:
+- `pending`: Task created but not assigned to any Agent.
+- `in_progress`: Task assigned to an Agent and currently executing.
+- `completed`: Task completed successfully.
+- `failed`: Error occurred during task execution.
+
 ## Core Objectives
 1. **Progress Review**: First browse existing macro plans and check the completion status of related agent tasks.
 2. **Status Management**: Check whether all agent tasks under the audit plan are completed.

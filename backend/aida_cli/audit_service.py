@@ -677,8 +677,8 @@ class AuditService:
 
             while not self._stop_event.is_set():
                 # 获取当前所有 Pending 任务
-                pending_verifications = self.audit_db.get_tasks(status="pending", task_type="verification_task")
-                pending_audits = self.audit_db.get_tasks(status="pending", task_type="agent_task")
+                pending_verifications = self.audit_db.get_tasks(status="pending", task_type="VERIFICATION")
+                pending_audits = self.audit_db.get_tasks(status="pending", task_type="ANALYSIS")
                 total_pending = len(pending_verifications) + len(pending_audits)
 
                 # Step 1: Run Plan Agent (Conditional)
@@ -709,8 +709,8 @@ class AuditService:
 
                 # 重新从数据库获取最新的 Pending 任务列表，确保任务数据最新
                 # (注意：LLM agent 执行过程中可能会添加新的 plan，因此每轮都需重新获取)
-                pending_verifications = self.audit_db.get_tasks(status="pending", task_type="verification_task")
-                pending_audits = self.audit_db.get_tasks(status="pending", task_type="agent_task")
+                pending_verifications = self.audit_db.get_tasks(status="pending", task_type="VERIFICATION")
+                pending_audits = self.audit_db.get_tasks(status="pending", task_type="ANALYSIS")
                 
                 task = None
                 AgentClass = None

@@ -76,8 +76,7 @@ def audit_create_agent_task(title: str, description: str, parent_plan_id: int, b
     """
     _validate_option("task_type", task_type, VALID_TASK_TYPES)
     db = get_audit_db()
-    db_task_type = "verification_task" if task_type == "VERIFICATION" else "agent_task"
-    task_id = db.create_task(parent_plan_id, title, description, binary_name, db_task_type)
+    task_id = db.create_task(parent_plan_id, title, description, binary_name, task_type)
     return {"task_id": task_id, "status": "success", "task_type": task_type}
 
 def audit_get_task(task_id: int) -> Dict[str, Any]:
