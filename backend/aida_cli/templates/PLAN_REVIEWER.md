@@ -71,8 +71,8 @@ When duplicate plan content is confirmed, delete redundant duplicate plans.
 - `audit_list_agent_tasks(status, task_type)`: View task list.
 - `audit_create_macro_plan(title, description)`: Create new macro plan.
 - `audit_create_agent_task(title, description, plan_id, binary_name, task_type)`: Create agent task. task_type must be "ANALYSIS" or "VERIFICATION".
-- `audit_update_macro_plan(plan_id, notes, status)`: Update macro plan.
-- `audit_update_task(task_id, notes, status)`: Update task notes.
+- `audit_update_macro_plan(plan_id, notes)`: Update macro plan notes.
+- `audit_update_task(task_id, notes)`: Update task notes.
 - `audit_get_vulnerabilities(...)` / `audit_get_notes(...)`: View findings and notes.
 - `audit_get_task_summary(task_id)`: View completed task summary.
 

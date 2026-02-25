@@ -1201,29 +1201,27 @@ class McpService:
         )
 
     @mcp_tool(name="audit_update_macro_plan")
-    def audit_update_macro_plan(self, plan_id: int, notes: str = None, status: str = None) -> Dict[str, Any]:
-        """Update a macro audit plan.
+    def audit_update_macro_plan(self, plan_id: int, notes: str = None) -> Dict[str, Any]:
+        """Update a macro audit plan notes.
         
         Args:
             plan_id: The ID of the macro plan.
             notes: Optional notes to append.
-            status: Optional new status.
 
         Returns:
             dict: Contains 'success' boolean.
         """
-        return audit_mcp_tools.audit_update_macro_plan(plan_id, notes, status)
+        return audit_mcp_tools.audit_update_macro_plan(plan_id, notes)
 
     @mcp_tool(name="audit_update_task")
-    def audit_update_task(self, task_id: int, notes: str = None, status: str = None) -> Dict[str, Any]:
-        """Update an agent task.
+    def audit_update_task(self, task_id: int, notes: str = None) -> Dict[str, Any]:
+        """Update an agent task notes.
         
         Args:
             task_id: The ID of the task.
             notes: Optional notes to append.
-            status: Optional new status (though status is usually managed by the system).
 
         Returns:
             dict: Contains 'success' boolean.
         """
-        return audit_mcp_tools.audit_update_task(task_id, notes, status)
+        return audit_mcp_tools.audit_update_task(task_id, notes)

@@ -36,18 +36,14 @@ def audit_get_macro_plan(plan_id: int) -> Dict[str, Any]:
         return plan
     return {"error": "Plan not found"}
 
-def audit_update_macro_plan(plan_id: int, notes: Optional[str] = None, status: Optional[str] = None) -> Dict[str, Any]:
+def audit_update_macro_plan(plan_id: int, notes: Optional[str] = None) -> Dict[str, Any]:
     db = get_audit_db()
-    if status:
-        _validate_option("status", status, VALID_PLAN_STATUSES)
     
     current_plan = db.get_plan(plan_id)
     if not current_plan:
         return {"error": "Plan not found"}
     
-    current_status = status if status else current_plan['status']
-    
-    success = db.update_plan_status(plan_id, current_status, notes)
+    success = db.update_plan_status(plan_id, current_plan['status'], notes)
     if notes:
         db.log_progress(f"Plan {plan_id} updated: {notes}", plan_id=plan_id)
     return {"success": success}
@@ -86,18 +82,14 @@ def audit_get_task(task_id: int) -> Dict[str, Any]:
         return task
     return {"error": "Task not found"}
 
-def audit_update_task(task_id: int, notes: Optional[str] = None, status: Optional[str] = None) -> Dict[str, Any]:
+def audit_update_task(task_id: int, notes: Optional[str] = None) -> Dict[str, Any]:
     db = get_audit_db()
-    if status:
-        _validate_option("status", status, VALID_PLAN_STATUSES)
         
     current_task = db.get_task(task_id)
     if not current_task:
         return {"error": "Task not found"}
         
-    current_status = status if status else current_task['status']
-    
-    success = db.update_task_status(task_id, current_status, notes)
+    success = db.update_task_status(task_id, current_task['status'], notes)
     if notes:
         db.log_progress(f"Task {task_id} updated: {notes}", task_id=task_id)
     return {"success": success}
