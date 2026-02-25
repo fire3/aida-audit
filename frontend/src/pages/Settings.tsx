@@ -69,6 +69,7 @@ export function Settings() {
         enabled: false,
         periods: [{ start: '09:00', stop: '18:00' }]
     });
+    const [reportLanguage, setReportLanguage] = useState("Chinese");
     const [isLoading, setIsLoading] = useState(false);
     const [availableModels, setAvailableModels] = useState<string[]>([]);
     const [status, setStatus] = useState<{ type: 'success' | 'error' | null, message: string }>({ type: null, message: '' });
@@ -76,6 +77,7 @@ export function Settings() {
     useEffect(() => {
         fetchConfig();
         fetchSchedule();
+        fetchReportLanguage();
     }, []);
 
     const fetchSchedule = async () => {
@@ -97,6 +99,32 @@ export function Settings() {
             setStatus({ type: 'success', message: "Schedule updated successfully" });
         } catch (error: any) {
             setStatus({ type: 'error', message: error.message || "Failed to update schedule" });
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const fetchReportLanguage = async () => {
+        try {
+            const res = await fetch('/api/v1/config/report-language');
+            const data = await res.json();
+            setReportLanguage(data.language || "Chinese");
+        } catch (error) {
+            console.error('Failed to fetch report language:', error);
+        }
+    };
+
+    const handleSaveReportLanguage = async () => {
+        setIsLoading(true);
+        try {
+            await fetch('/api/v1/config/report-language', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ language: reportLanguage })
+            });
+            setStatus({ type: 'success', message: "Report language updated successfully" });
+        } catch (error) {
+            setStatus({ type: 'error', message: "Failed to update report language" });
         } finally {
             setIsLoading(false);
         }
@@ -379,6 +407,33 @@ export function Settings() {
                     <div className="flex justify-end pt-4">
                         <Button onClick={handleSaveSchedule} disabled={isLoading}>
                             {isLoading ? "Saving..." : "Save Schedule"}
+                        </Button>
+                    </div>
+                </CardContent>
+            </Card>
+
+            <Card className="mt-6">
+                <CardHeader>
+                    <CardTitle>Report Language</CardTitle>
+                    <CardDescription>
+                        Configure the language for audit reports and vulnerability descriptions.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium leading-none">Language</label>
+                        <select
+                            className="w-full px-3 py-2 border rounded-md bg-background"
+                            value={reportLanguage}
+                            onChange={(e) => setReportLanguage(e.target.value)}
+                        >
+                            <option value="Chinese">Chinese (中文)</option>
+                            <option value="English">English (英文)</option>
+                        </select>
+                    </div>
+                    <div className="flex justify-end pt-4">
+                        <Button onClick={handleSaveReportLanguage} disabled={isLoading}>
+                            {isLoading ? "Saving..." : "Save Language"}
                         </Button>
                     </div>
                 </CardContent>
