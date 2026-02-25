@@ -1063,8 +1063,11 @@ class TimePeriod(BaseModel):
     start: str = Field(..., pattern=r"^\d{2}:\d{2}$")
     stop: str = Field(..., pattern=r"^\d{2}:\d{2}$")
 
+
+class ScheduleConfig(BaseModel):
     enabled: bool
-    periods: List[TimePeriod] = []
+    periods: List["TimePeriod"] = []
+
 
 def get_audit_schedule():
     if not audit_db:
