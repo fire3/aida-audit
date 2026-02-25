@@ -18,7 +18,8 @@ import {
   Code,
   Archive,
   ShieldCheck,
-  Plus
+  Plus,
+  FileDown
 } from 'lucide-react';
 import { formatAddress } from '../lib/utils';
 import ReactMarkdown from 'react-markdown';
@@ -27,6 +28,22 @@ import { Modal } from '../components/ui/modal';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { Select } from '../components/ui/select';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
+
+type ExportSections = {
+    finished: boolean;
+    vulnerabilities: boolean;
+    notes: boolean;
+};
+
+type ExportPayload = {
+    title: string;
+    generatedAt: string;
+    finishedTasks: AuditPlan[];
+    vulnerabilities: Vulnerability[];
+    notes: Note[];
+};
 
 function Badge({ children, variant }: { children: React.ReactNode, variant: string }) {
     const colors = {
@@ -919,6 +936,202 @@ function NotesView({ notes }: { notes: Note[] }) {
     );
 }
 
+function ExportLayout({ payload, sections }: { payload: ExportPayload; sections: ExportSections }) {
+    const { title, generatedAt, finishedTasks, vulnerabilities, notes } = payload;
+    const finishedLabel = (task: AuditPlan) => {
+        if (task.plan_type === 'verification_plan') return 'Verification';
+        if (task.plan_type === 'agent_plan') return 'Agent';
+        return 'Plan';
+    };
+    const severityVariant = (severity: string) => {
+        if (severity === 'critical' || severity === 'high') return 'destructive';
+        if (severity === 'medium') return 'warning';
+        if (severity === 'low') return 'info';
+        return 'secondary';
+    };
+    const confidenceVariant = (confidence: string) => {
+        if (confidence === 'high') return 'default';
+        if (confidence === 'medium') return 'warning';
+        if (confidence === 'low') return 'info';
+        return 'outline';
+    };
+    const verificationVariant = (status?: string) => {
+        if (status === 'confirmed') return 'destructive';
+        if (status === 'false_positive') return 'secondary';
+        return 'outline';
+    };
+
+    return (
+        <div className="w-[794px] bg-white text-slate-900 p-10 font-sans">
+            <div className="flex items-start justify-between border-b pb-4">
+                <div>
+                    <div className="text-[10px] uppercase tracking-[0.2em] text-slate-400">AIDA Audit Report</div>
+                    <h1 className="text-2xl font-bold mt-2">{title}</h1>
+                    <div className="text-xs text-slate-500 mt-2">生成时间: {generatedAt}</div>
+                </div>
+                <div className="text-xs text-slate-500 space-y-1 text-right">
+                    <div>Finished Reports: {finishedTasks.length}</div>
+                    <div>Vulnerabilities: {vulnerabilities.length}</div>
+                    <div>Notes: {notes.length}</div>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4 mt-6">
+                <div className="border rounded-lg p-4">
+                    <div className="text-xs text-slate-500 uppercase tracking-wide">Finished Report</div>
+                    <div className="text-2xl font-semibold mt-2">{finishedTasks.length}</div>
+                </div>
+                <div className="border rounded-lg p-4">
+                    <div className="text-xs text-slate-500 uppercase tracking-wide">Vulnerabilities</div>
+                    <div className="text-2xl font-semibold mt-2">{vulnerabilities.length}</div>
+                </div>
+                <div className="border rounded-lg p-4">
+                    <div className="text-xs text-slate-500 uppercase tracking-wide">Notes</div>
+                    <div className="text-2xl font-semibold mt-2">{notes.length}</div>
+                </div>
+            </div>
+
+            {sections.finished && (
+                <div className="mt-8 space-y-4">
+                    <div className="flex items-center gap-2">
+                        <Badge variant="default">Finished Report</Badge>
+                        <span className="text-sm font-semibold text-slate-700">已完成任务汇总</span>
+                    </div>
+                    {finishedTasks.length === 0 && (
+                        <div className="text-sm text-slate-500 border rounded-lg p-4">暂无已完成任务</div>
+                    )}
+                    {finishedTasks.map(task => (
+                        <div key={task.id} className="border rounded-lg p-4 space-y-3">
+                            <div className="flex items-start justify-between gap-4">
+                                <div className="space-y-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <Badge variant="default">Completed</Badge>
+                                        <Badge variant="secondary">{finishedLabel(task)}</Badge>
+                                        {task.binary_name && <Badge variant="purple">{task.binary_name}</Badge>}
+                                    </div>
+                                    <div className="text-lg font-semibold">{task.title}</div>
+                                </div>
+                                <div className="text-xs text-slate-500 shrink-0">
+                                    {new Date(task.updated_at * 1000).toLocaleString()}
+                                </div>
+                            </div>
+                            {task.description && (
+                                <div className="text-sm text-slate-600 whitespace-pre-wrap">{task.description}</div>
+                            )}
+                            {(task.summary || task.notes) && (
+                                <div className="border rounded-lg bg-slate-50 p-3">
+                                    <div className="text-xs text-slate-500 uppercase tracking-wide mb-2">Summary</div>
+                                    <div className="prose prose-sm max-w-none text-slate-700">
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                            {task.summary || task.notes || ''}
+                                        </ReactMarkdown>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {sections.vulnerabilities && (
+                <div className="mt-8 space-y-4">
+                    <div className="flex items-center gap-2">
+                        <Badge variant="destructive">Vulnerabilities</Badge>
+                        <span className="text-sm font-semibold text-slate-700">安全漏洞清单</span>
+                    </div>
+                    {vulnerabilities.length === 0 && (
+                        <div className="text-sm text-slate-500 border rounded-lg p-4">暂无漏洞记录</div>
+                    )}
+                    {vulnerabilities.map(vulnerability => (
+                        <div key={vulnerability.id} className="border rounded-lg p-4 space-y-3">
+                            <div className="flex items-start justify-between gap-4">
+                                <div className="space-y-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <Badge variant={severityVariant(vulnerability.severity)}>{vulnerability.severity.toUpperCase()}</Badge>
+                                        <Badge variant="outline">{vulnerability.category}</Badge>
+                                        {vulnerability.verification_status && (
+                                            <Badge variant={verificationVariant(vulnerability.verification_status)}>{vulnerability.verification_status.replace('_', ' ')}</Badge>
+                                        )}
+                                    </div>
+                                    <div className="text-lg font-semibold">{vulnerability.title || 'Untitled Vulnerability'}</div>
+                                </div>
+                                <div className="text-xs text-slate-500 shrink-0">{vulnerability.binary_name}</div>
+                            </div>
+                            {(vulnerability.function_name || vulnerability.address) && (
+                                <div className="flex items-center gap-4 text-xs text-slate-600 font-mono">
+                                    {vulnerability.function_name && <span>{vulnerability.function_name}</span>}
+                                    {vulnerability.address && <span>{formatAddress(vulnerability.address)}</span>}
+                                </div>
+                            )}
+                            <div className="prose prose-sm max-w-none text-slate-700">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {vulnerability.description}
+                                </ReactMarkdown>
+                            </div>
+                            {vulnerability.evidence && (
+                                <div className="bg-slate-900 text-slate-100 p-3 rounded-lg text-xs font-mono whitespace-pre-wrap">
+                                    {vulnerability.evidence}
+                                </div>
+                            )}
+                            <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
+                                {vulnerability.cvss !== null && vulnerability.cvss !== undefined && (
+                                    <span>CVSS: {vulnerability.cvss}</span>
+                                )}
+                                {vulnerability.exploitability && (
+                                    <span>Exploitability: {vulnerability.exploitability}</span>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {sections.notes && (
+                <div className="mt-8 space-y-4">
+                    <div className="flex items-center gap-2">
+                        <Badge variant="info">Notes</Badge>
+                        <span className="text-sm font-semibold text-slate-700">分析笔记汇总</span>
+                    </div>
+                    {notes.length === 0 && (
+                        <div className="text-sm text-slate-500 border rounded-lg p-4">暂无笔记</div>
+                    )}
+                    {notes.map(note => (
+                        <div key={note.note_id} className="border rounded-lg p-4 space-y-3">
+                            <div className="flex items-start justify-between gap-4">
+                                <div className="space-y-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <Badge variant="outline">{note.note_type}</Badge>
+                                        <Badge variant={confidenceVariant(note.confidence)}>{note.confidence} confidence</Badge>
+                                        {note.tags?.map(tag => (
+                                            <Badge key={`${note.note_id}-${tag}`} variant="secondary">#{tag}</Badge>
+                                        ))}
+                                    </div>
+                                    <div className="text-lg font-semibold">{note.title || 'Untitled Note'}</div>
+                                </div>
+                                <div className="text-xs text-slate-500 shrink-0">
+                                    {new Date(note.created_at).toLocaleString()}
+                                </div>
+                            </div>
+                            {(note.function_name || note.address) && (
+                                <div className="flex items-center gap-4 text-xs text-slate-600 font-mono">
+                                    {note.function_name && <span>{note.function_name}</span>}
+                                    {note.address && <span>{formatAddress(note.address)}</span>}
+                                </div>
+                            )}
+                            <div className="text-xs text-slate-500">{note.binary_name}</div>
+                            <div className="prose prose-sm max-w-none text-slate-700">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {note.content}
+                                </ReactMarkdown>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export function AuditDashboard() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'plan' | 'finished' | 'live' | 'logs' | 'chat' | 'vulnerabilities' | 'notes'>('plan');
@@ -927,6 +1140,12 @@ export function AuditDashboard() {
   const [streamMessages, setStreamMessages] = useState<AuditMessage[]>([]);
   const [liveChunkContent, setLiveChunkContent] = useState<{ reasoning: string; content: string; inThinking: boolean; pending: string }>({ reasoning: '', content: '', inThinking: false, pending: '' });
   const streamRef = useRef<{ close: () => void } | null>(null);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportTitle, setExportTitle] = useState('AIDA 审计报告');
+  const [exportSections, setExportSections] = useState<ExportSections>({ finished: true, vulnerabilities: true, notes: true });
+  const [exportPayload, setExportPayload] = useState<ExportPayload | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const exportRef = useRef<HTMLDivElement | null>(null);
   
   const { data: status } = useQuery({ queryKey: ['auditStatus'], queryFn: auditApi.getStatus, refetchInterval: autoRefresh ? 2000 : false });
   
@@ -1177,6 +1396,67 @@ export function AuditDashboard() {
     }
   });
 
+  const anySectionSelected = exportSections.finished || exportSections.vulnerabilities || exportSections.notes;
+  const selectedSectionCount = (exportSections.finished ? 1 : 0) + (exportSections.vulnerabilities ? 1 : 0) + (exportSections.notes ? 1 : 0);
+
+  const buildExportPayload = async () => {
+    const finishedTasks = completedTasks || [];
+    const hydratedFinished = await Promise.all(
+      finishedTasks.map(async (task) => {
+        if (task.summary) return task;
+        try {
+          const fullTask = await auditApi.getTask(task.id);
+          return { ...task, summary: fullTask.summary ?? task.summary, notes: fullTask.notes ?? task.notes };
+        } catch {
+          return task;
+        }
+      })
+    );
+    return {
+      title: exportTitle.trim() || 'AIDA 审计报告',
+      generatedAt: new Date().toLocaleString(),
+      finishedTasks: hydratedFinished,
+      vulnerabilities: vulnerabilities || [],
+      notes: notes || []
+    };
+  };
+
+  const handleExportPdf = async () => {
+    if (isExporting || !anySectionSelected) return;
+    setIsExporting(true);
+    try {
+      const payload = await buildExportPayload();
+      setExportPayload(payload);
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const container = exportRef.current;
+      if (!container) return;
+      const canvas = await html2canvas(container, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = pageWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+      while (heightLeft > 0) {
+        position -= pageHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+      const safeTitle = payload.title.replace(/[\\/:*?"<>|]/g, '-');
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      pdf.save(`${safeTitle}_${dateStamp}.pdf`);
+      setIsExportModalOpen(false);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const splitThinkContent = (content: string) => {
     if (typeof content !== 'string') {
       return { thinkContent: null as string | null, mainContent: String(content ?? '') };
@@ -1352,6 +1632,9 @@ export function AuditDashboard() {
         </div>
         
         <div className="flex items-center gap-4">
+            <Button variant="outline" size="sm" onClick={() => setIsExportModalOpen(true)} className="gap-2" disabled={isExporting}>
+                <FileDown className="w-4 h-4" /> 导出PDF
+            </Button>
             <div className="flex items-center gap-2">
                 <label className="text-xs text-muted-foreground font-medium">Auto-Refresh</label>
                 <button 
@@ -1556,6 +1839,68 @@ export function AuditDashboard() {
            </Card>
         )}
       </div>
+      <Modal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} title="导出 PDF" className="max-w-xl">
+        <div className="space-y-4">
+            <div className="space-y-2">
+                <label className="text-sm font-medium">报告标题</label>
+                <Input value={exportTitle} onChange={(e) => setExportTitle(e.target.value)} placeholder="AIDA 审计报告" />
+            </div>
+            <div className="space-y-2">
+                <label className="text-sm font-medium">包含内容</label>
+                <div className="grid grid-cols-1 gap-2">
+                    <label className="flex items-center gap-2 text-sm">
+                        <input
+                            type="checkbox"
+                            checked={exportSections.finished}
+                            onChange={() => setExportSections(prev => ({ ...prev, finished: !prev.finished }))}
+                            className="h-4 w-4"
+                        />
+                        Finished Report（{completedTasks?.length || 0}）
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                        <input
+                            type="checkbox"
+                            checked={exportSections.vulnerabilities}
+                            onChange={() => setExportSections(prev => ({ ...prev, vulnerabilities: !prev.vulnerabilities }))}
+                            className="h-4 w-4"
+                        />
+                        Vulnerabilities（{vulnerabilities?.length || 0}）
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                        <input
+                            type="checkbox"
+                            checked={exportSections.notes}
+                            onChange={() => setExportSections(prev => ({ ...prev, notes: !prev.notes }))}
+                            className="h-4 w-4"
+                        />
+                        Notes（{notes?.length || 0}）
+                    </label>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>已选择 {selectedSectionCount} 项</span>
+                    <Button variant="ghost" size="sm" onClick={() => setExportSections({ finished: true, vulnerabilities: true, notes: true })}>
+                        全选
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setExportSections({ finished: false, vulnerabilities: false, notes: false })}>
+                        清空
+                    </Button>
+                </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+                <Button variant="ghost" onClick={() => setIsExportModalOpen(false)}>取消</Button>
+                <Button onClick={handleExportPdf} disabled={!anySectionSelected || isExporting} className="gap-2">
+                    <FileDown className="w-4 h-4" /> {isExporting ? '导出中...' : '导出 PDF'}
+                </Button>
+            </div>
+        </div>
+      </Modal>
+      {exportPayload && (
+        <div className="fixed left-[-9999px] top-0">
+            <div ref={exportRef}>
+                <ExportLayout payload={exportPayload} sections={exportSections} />
+            </div>
+        </div>
+      )}
     </div>
   );
 }
