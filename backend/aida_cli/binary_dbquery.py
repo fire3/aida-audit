@@ -1273,6 +1273,7 @@ class BinaryDbQuery:
         except Exception:
             length = 1
         length = max(1, min(4096, length))
+        
         if self._table_exists("data_items"):
             rows = self._fetchall(
                 "SELECT address, size, kind, type_name, repr, target_va FROM data_items WHERE address >= ? AND address < ? ORDER BY address ASC",
@@ -1290,7 +1291,35 @@ class BinaryDbQuery:
                         "target_address": _format_address(r["target_va"]),
                     }
                 )
-            return out
+            if out:
+                return out
+        
+        if self._table_exists("disasm_chunks"):
+            rows = self._fetchall(
+                "SELECT start_va, end_va, content FROM disasm_chunks WHERE end_va > ? AND start_va < ? ORDER BY start_va ASC",
+                (va, va + length),
+            )
+            for chunk in rows:
+                content = chunk.get("content") or ""
+                for line in content.splitlines():
+                    m = re.match(r"^\s*(0x[0-9a-fA-F]+)\s*:\s*(.*)$", line)
+                    if not m:
+                        continue
+                    try:
+                        insn_va = _parse_address(m.group(1))
+                    except Exception:
+                        continue
+                    if va <= insn_va < va + length:
+                        return [
+                            {
+                                "address": _format_address(insn_va),
+                                "size": 0,
+                                "kind": "instruction",
+                                "type_name": None,
+                                "repr": m.group(2),
+                                "target_address": None,
+                            }
+                        ]
         return []
 
     def _va_to_file_offset(self, va):
