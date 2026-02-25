@@ -2,6 +2,8 @@ import sqlite3
 import json
 import os
 import time
+import sys
+import traceback
 from typing import List, Dict, Optional, Any
 
 NOTE_TYPES = [
@@ -401,11 +403,15 @@ class AuditDatabase:
 
     def get_task(self, task_id: int) -> Optional[Dict[str, Any]]:
         cursor = self.conn.cursor()
-        cursor.execute("SELECT id, plan_id, title, description, status, created_at, updated_at, binary_name, task_type, summary, notes FROM tasks WHERE id = ?", (task_id,))
-        row = cursor.fetchone()
-        if row:
-            columns = [column[0] for column in cursor.description]
-            return dict(zip(columns, row))
+        try:
+            cursor.execute("SELECT id, plan_id, title, description, status, created_at, updated_at, binary_name, task_type, summary, notes FROM tasks WHERE id = ?", (task_id,))
+            row = cursor.fetchone()
+            if row:
+                columns = [column[0] for column in cursor.description]
+                return dict(zip(columns, row))
+        except Exception as e:
+            print(f"Error fetching task {task_id}: {e}", file=sys.stderr)
+            traceback.print_exc()
         return None
 
     def reset_in_progress_tasks(self) -> int:

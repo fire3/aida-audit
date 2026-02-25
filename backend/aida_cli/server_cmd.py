@@ -748,9 +748,18 @@ def create_audit_task(task: TaskCreate):
 def get_audit_task(task_id: int = Path(..., description="Task ID")):
     try:
         if not audit_db:
-             return {"error": "Database not initialized"}
-        return audit_mcp_tools.audit_get_task(task_id)
+             raise HTTPException(status_code=500, detail="Database not initialized")
+        task_id_int = int(task_id)
+        result = audit_mcp_tools.audit_get_task(task_id_int)
+        if "error" in result:
+            raise HTTPException(status_code=404, detail=result.get("error", "Task not found"))
+        return result
+    except HTTPException:
+        raise
     except Exception as e:
+        import traceback
+        print(f"Error fetching task {task_id}: {e}", file=sys.stderr)
+        print(traceback.format_exc(), file=sys.stderr)
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.get("/audit/logs")

@@ -1431,7 +1431,12 @@ export function AuditDashboard() {
       await new Promise(resolve => setTimeout(resolve, 50));
       const container = exportRef.current;
       if (!container) return;
-      const canvas = await html2canvas(container, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+      const canvas = await html2canvas(container, { 
+        scale: 1, 
+        backgroundColor: '#ffffff', 
+        useCORS: true,
+        logging: false
+      });
       const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4' });
       const pageWidth = pdf.internal.pageSize.getWidth();
@@ -1452,6 +1457,9 @@ export function AuditDashboard() {
       const dateStamp = new Date().toISOString().slice(0, 10);
       pdf.save(`${safeTitle}_${dateStamp}.pdf`);
       setIsExportModalOpen(false);
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert('导出失败，请重试');
     } finally {
       setIsExporting(false);
     }
@@ -1895,8 +1903,8 @@ export function AuditDashboard() {
         </div>
       </Modal>
       {exportPayload && (
-        <div className="fixed left-[-9999px] top-0">
-            <div ref={exportRef}>
+        <div className="fixed inset-0 pointer-events-none z-[-1]">
+            <div ref={exportRef} className="absolute left-0 top-0">
                 <ExportLayout payload={exportPayload} sections={exportSections} />
             </div>
         </div>
