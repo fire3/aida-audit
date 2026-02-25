@@ -458,7 +458,7 @@ class AuditAgent(BaseAgent):
     def get_tools(self) -> List[Dict]:
         exclude_tools = {
             'audit_create_macro_plan', 'audit_delete_macro_plan', 'audit_update_macro_plan',
-            'audit_create_agent_task', 'audit_create_verification_task',
+            'audit_create_agent_task',
             'audit_delete_task', 'audit_list_macro_plans',
             'audit_update_vulnerability_verification'
         }
@@ -488,7 +488,7 @@ class VerificationAgent(AuditAgent):
     def get_tools(self) -> List[Dict]:
         exclude_tools = {
             'audit_create_macro_plan', 'audit_delete_macro_plan', 'audit_update_macro_plan',
-            'audit_create_agent_task', 'audit_create_verification_task',
+            'audit_create_agent_task',
             'audit_delete_task', 'audit_list_macro_plans',
             'audit_report_vulnerability'
         }

@@ -122,7 +122,7 @@ export interface AuditPlan {
   // Specific to Tasks (Agent/Verification)
   plan_id?: number; // The new field for parent link
   plan_type?: string; // 'audit_plan', 'agent_plan', 'verification_plan' (legacy/compat)
-  task_type?: 'agent_task' | 'verification_task'; // New field
+  task_type?: 'ANALYSIS' | 'VERIFICATION'; // Task type
   binary_name?: string;
   summary?: string;
 }
@@ -148,7 +148,7 @@ export interface TaskCreate {
   description: string;
   plan_id: number;
   binary_name: string;
-  task_type?: 'agent_task' | 'verification_task';
+  task_type?: 'ANALYSIS' | 'VERIFICATION';
 }
 
 export interface AuditTask {
@@ -158,7 +158,7 @@ export interface AuditTask {
   description: string;
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
   binary_name?: string;
-  task_type: 'agent_task' | 'verification_task';
+  task_type: 'ANALYSIS' | 'VERIFICATION';
   summary?: string;
   notes?: string;
   created_at: number;
@@ -284,13 +284,13 @@ export const auditApi = {
     const res = await apiClient.get<AuditTask[]>('/audit/tasks');
     return res.data.map(t => ({
         ...t,
-        plan_type: t.task_type === 'verification_task' ? 'verification_plan' : 'agent_plan',
+        plan_type: t.task_type === 'VERIFICATION' ? 'verification_plan' : 'agent_plan',
         id: Number(t.id)
     })) as AuditPlan[];
   },
 
   createTask: async (data: TaskCreate) => {
-    const res = await apiClient.post<{ task_id: number }>('/audit/tasks', data);
+    const res = await apiClient.post<{ task_id: number; task_type: string }>('/audit/tasks', data);
     return res.data;
   },
 
@@ -299,7 +299,7 @@ export const auditApi = {
     const completed = res.data.filter(t => t.status === 'completed');
     return completed.map(t => ({
         ...t,
-        plan_type: t.task_type === 'verification_task' ? 'verification_plan' : 'agent_plan',
+        plan_type: t.task_type === 'VERIFICATION' ? 'verification_plan' : 'agent_plan',
         id: Number(t.id)
     })) as AuditPlan[];
   },
@@ -308,7 +308,7 @@ export const auditApi = {
     const res = await apiClient.get<AuditTask>(`/audit/task/${taskId}`);
     return {
       ...res.data,
-      plan_type: res.data.task_type === 'verification_task' ? 'verification_plan' : 'agent_plan',
+      plan_type: res.data.task_type === 'VERIFICATION' ? 'verification_plan' : 'agent_plan',
       id: Number(res.data.id)
     } as AuditPlan;
   },

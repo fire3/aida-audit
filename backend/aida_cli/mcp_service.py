@@ -1091,7 +1091,7 @@ class McpService:
         return audit_mcp_tools.audit_create_macro_plan(title, description)
 
     @mcp_tool(name="audit_create_agent_task")
-    def audit_create_agent_task(self, title: str, description: str, plan_id: int, binary_name: str) -> Dict[str, Any]:
+    def audit_create_agent_task(self, title: str, description: str, plan_id: int, binary_name: str, task_type: str = "ANALYSIS") -> Dict[str, Any]:
         """Create a specific executable task for the Audit Agent (Agent Task).
         
         Use this for assigning concrete work (e.g., 'Analyze login() function').
@@ -1102,29 +1102,12 @@ class McpService:
             description: Specific instructions for the agent (function name, address, goal).
             plan_id: The ID of the Macro Plan this task belongs to.
             binary_name: The name of the binary to analyze.
+            task_type: Must be either "ANALYSIS" or "VERIFICATION". Defaults to "ANALYSIS".
 
         Returns:
-            dict: Contains 'task_id' of the created task.
+            dict: Contains 'task_id' of the created task and 'task_type'.
         """
-        return audit_mcp_tools.audit_create_agent_task(title, description, plan_id, binary_name)
-
-    @mcp_tool(name="audit_create_verification_task")
-    def audit_create_verification_task(self, title: str, description: str, plan_id: int, binary_name: str) -> Dict[str, Any]:
-        """Create a verification task for a specific finding.
-        
-        Use this to create a task specifically for verifying a suspected vulnerability (finding).
-        MUST be linked to a Macro Plan.
-        
-        Args:
-            title: The title of the verification task.
-            description: Detailed instructions for verification (e.g., 'Construct PoC for buffer overflow').
-            plan_id: The ID of the Macro Plan.
-            binary_name: The name of the binary.
-
-        Returns:
-            dict: Contains 'task_id' of the created task and 'type'='verification_task'.
-        """
-        return audit_mcp_tools.audit_create_verification_task(title, description, plan_id, binary_name)
+        return audit_mcp_tools.audit_create_agent_task(title, description, plan_id, binary_name, task_type)
 
     @mcp_tool(name="audit_submit_task_summary")
     def audit_submit_task_summary(self, task_id: int, summary: str) -> Dict[str, Any]:
@@ -1166,14 +1149,14 @@ class McpService:
         """
         return audit_mcp_tools.audit_list_macro_plans(status)
 
-    @mcp_tool(name="audit_list_tasks")
-    def audit_list_tasks(self) -> List[Dict[str, Any]]:
+    @mcp_tool(name="audit_list_agent_tasks")
+    def audit_list_agent_tasks(self) -> List[Dict[str, Any]]:
         """List all agent execution tasks with basic status.
         
         Returns:
             list: List of task objects with basic status (id, plan_id, title, status, binary_name, task_type).
         """
-        return audit_mcp_tools.audit_list_tasks()
+        return audit_mcp_tools.audit_list_agent_tasks()
 
     @mcp_tool(name="audit_delete_macro_plan")
     def audit_delete_macro_plan(self, plan_id: int) -> Dict[str, Any]:

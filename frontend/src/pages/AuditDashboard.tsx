@@ -181,7 +181,7 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
     const [newTaskDesc, setNewTaskDesc] = useState("");
     const [selectedPlanId, setSelectedPlanId] = useState<string>("");
     const [newTaskBinary, setNewTaskBinary] = useState("");
-    const [newTaskType, setNewTaskType] = useState<'agent_task' | 'verification_task'>('agent_task');
+    const [newTaskType, setNewTaskType] = useState<'ANALYSIS' | 'VERIFICATION'>('ANALYSIS');
 
     const { data: binaries } = useQuery({
         queryKey: ['projectBinaries'],
@@ -209,7 +209,7 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
             setNewTaskDesc("");
             setSelectedPlanId("");
             setNewTaskBinary("");
-            setNewTaskType('agent_task');
+            setNewTaskType('ANALYSIS');
         }
     });
 
@@ -431,10 +431,10 @@ function PlanView({ plans }: { plans: AuditPlan[] }) {
                         <label className="text-sm font-medium">Task Type</label>
                         <Select 
                             value={newTaskType}
-                            onChange={(e) => setNewTaskType(e.target.value as 'agent_task' | 'verification_task')}
+                            onChange={(e) => setNewTaskType(e.target.value as 'ANALYSIS' | 'VERIFICATION')}
                         >
-                            <option value="agent_task">Analysis Task (Agent)</option>
-                            <option value="verification_task">Verification Task</option>
+                            <option value="ANALYSIS">Analysis Task (Agent)</option>
+                            <option value="VERIFICATION">Verification Task</option>
                         </Select>
                     </div>
                     <div className="space-y-2">
@@ -943,10 +943,10 @@ export function AuditDashboard() {
   const isAuditAgent = status?.current_agent === 'AUDIT_AGENT';
   
   const { data: inProgressAgentPlans } = useQuery({ 
-    queryKey: ['auditTasks', 'in_progress', 'agent_task'], 
+    queryKey: ['auditTasks', 'in_progress', 'ANALYSIS'], 
     queryFn: async () => {
       const allTasks = await auditApi.getTasks();
-      return allTasks.filter((t: any) => t.status === 'in_progress' && t.task_type === 'agent_task');
+      return allTasks.filter((t: any) => t.status === 'in_progress' && t.task_type === 'ANALYSIS');
     },
     enabled: isAuditAgent,
     refetchInterval: autoRefresh ? 5000 : false

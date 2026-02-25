@@ -14,7 +14,7 @@ def get_audit_db() -> AuditDatabase:
     return _audit_db
 
 VALID_PLAN_STATUSES = ["pending", "in_progress", "completed", "failed"]
-VALID_PLAN_TYPES = ["audit_plan", "agent_plan", "verification_plan"]
+VALID_TASK_TYPES = ["ANALYSIS", "VERIFICATION"]
 
 def _validate_option(name: str, value: Optional[str], options: List[str]):
     if value and value not in options:
@@ -68,17 +68,17 @@ def audit_list_macro_plans(status: Optional[str] = None) -> List[Dict[str, Any]]
 
 # ========== Task (Micro) Tools ==========
 
-def audit_create_agent_task(title: str, description: str, parent_plan_id: int, binary_name: str) -> Dict[str, Any]:
-    """Create a specific executable task for an agent (Agent Plan)."""
+def audit_create_agent_task(title: str, description: str, parent_plan_id: int, binary_name: str, task_type: str = "ANALYSIS") -> Dict[str, Any]:
+    """Create a specific executable task for an agent (Agent Plan).
+    
+    Args:
+        task_type: Must be either "ANALYSIS" or "VERIFICATION".
+    """
+    _validate_option("task_type", task_type, VALID_TASK_TYPES)
     db = get_audit_db()
-    task_id = db.create_task(parent_plan_id, title, description, binary_name, 'agent_task')
-    return {"task_id": task_id, "status": "success", "type": "agent_task"}
-
-def audit_create_verification_task(title: str, description: str, parent_plan_id: int, binary_name: str) -> Dict[str, Any]:
-    """Create a verification task for a specific vulnerability."""
-    db = get_audit_db()
-    task_id = db.create_task(parent_plan_id, title, description, binary_name, 'verification_task')
-    return {"task_id": task_id, "status": "success", "type": "verification_task"}
+    db_task_type = "verification_task" if task_type == "VERIFICATION" else "agent_task"
+    task_id = db.create_task(parent_plan_id, title, description, binary_name, db_task_type)
+    return {"task_id": task_id, "status": "success", "task_type": task_type}
 
 def audit_get_task(task_id: int) -> Dict[str, Any]:
     db = get_audit_db()
@@ -120,7 +120,7 @@ def audit_delete_task(task_id: int) -> Dict[str, Any]:
     success = db.delete_task(task_id)
     return {"success": success}
 
-def audit_list_tasks() -> List[Dict[str, Any]]:
+def audit_list_agent_tasks() -> List[Dict[str, Any]]:
     db = get_audit_db()
     tasks = db.get_tasks()
     for t in tasks:

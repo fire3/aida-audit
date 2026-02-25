@@ -146,7 +146,7 @@ class TaskCreate(BaseModel):
     description: str
     plan_id: int
     binary_name: str
-    task_type: str = "agent_task"
+    task_type: str = "ANALYSIS"
 
 # --- REST API Implementation ---
 
@@ -715,7 +715,7 @@ def get_audit_tasks():
     try:
         if not audit_db:
              return []
-        return audit_mcp_tools.audit_list_tasks()
+        return audit_mcp_tools.audit_list_agent_tasks()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -724,10 +724,9 @@ def create_audit_task(task: TaskCreate):
     try:
         if not audit_db:
              return {"error": "Database not initialized"}
-        if task.task_type == 'verification_task':
-            return audit_mcp_tools.audit_create_verification_task(task.title, task.description, task.plan_id, task.binary_name)
-        else:
-            return audit_mcp_tools.audit_create_agent_task(task.title, task.description, task.plan_id, task.binary_name)
+        return audit_mcp_tools.audit_create_agent_task(task.title, task.description, task.plan_id, task.binary_name, task.task_type)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
