@@ -234,3 +234,69 @@ def audit_get_analysis_progress(binary_name: str) -> Dict[str, Any]:
     """Get analysis progress statistics for a binary."""
     db = get_audit_db()
     return db.get_analysis_progress(binary_name)
+
+# ========== Browse Tracking Tools ==========
+
+def audit_record_browse(binary_name: str, record_type: str, target_type: str,
+                        target_value: Optional[str] = None, view_types: Optional[str] = None) -> Dict[str, Any]:
+    """Record that the agent has viewed a specific item.
+
+    Args:
+        binary_name: The binary file name.
+        record_type: Type of record (function, string, symbol, import, export, xref).
+        target_type: Type of target (function_name, address, etc).
+        target_value: The target identifier (function name, address, etc).
+        view_types: Comma-separated view types (disasm, pseudocode, callers, etc).
+
+    Returns:
+        dict: Contains record_id and status.
+    """
+    db = get_audit_db()
+    record_id = db.add_browse_record(
+        binary_name=binary_name,
+        record_type=record_type,
+        target_type=target_type,
+        target_value=target_value,
+        view_types=view_types
+    )
+    # Update summary
+    db.update_browse_summary(binary_name, record_type)
+    return {"record_id": record_id, "status": "success"}
+
+def audit_get_browse_statistics(binary_name: str) -> Dict[str, Any]:
+    """Get browse statistics for a binary.
+
+    Args:
+        binary_name: The binary file name.
+
+    Returns:
+        dict: Statistics including totals, viewed counts, and coverage percentages.
+    """
+    db = get_audit_db()
+    return db.get_browse_statistics(binary_name)
+
+def audit_init_browse_summaries(binary_name: str, total_functions: int = 0, total_strings: int = 0,
+                                total_symbols: int = 0, total_imports: int = 0, total_exports: int = 0) -> Dict[str, Any]:
+    """Initialize or update total counts for browse statistics.
+
+    Args:
+        binary_name: The binary file name.
+        total_functions: Total number of functions in the binary.
+        total_strings: Total number of strings in the binary.
+        total_symbols: Total number of symbols in the binary.
+        total_imports: Total number of imports in the binary.
+        total_exports: Total number of exports in the binary.
+
+    Returns:
+        dict: Contains success boolean.
+    """
+    db = get_audit_db()
+    success = db.init_browse_summaries(
+        binary_name=binary_name,
+        total_functions=total_functions,
+        total_strings=total_strings,
+        total_symbols=total_symbols,
+        total_imports=total_imports,
+        total_exports=total_exports
+    )
+    return {"success": success}

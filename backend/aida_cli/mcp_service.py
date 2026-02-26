@@ -228,7 +228,9 @@ class McpService:
         Returns:
             list: A list of symbol objects, each containing 'name', 'address', and 'type'.
         """
-        return self._get_binary(binary_name).list_symbols(query, offset, limit)
+        result = self._get_binary(binary_name).list_symbols(query, offset, limit)
+        self._record_browse(binary_name, "symbol", "query", query or "", "details")
+        return result
 
     @mcp_tool(name="resolve_address")
     def resolve_address(self, binary_name: str, address: Union[str, int]) -> Dict[str, Any]:
@@ -294,7 +296,10 @@ class McpService:
             str: The read bytes formatted as a hex string (e.g., '4d5a90...') or base64 string.
         """
         try:
-            return self._get_binary(binary_name).get_bytes(address, length, format_type)
+            result = self._get_binary(binary_name).get_bytes(address, length, format_type)
+            addr_str = hex(int(address)) if isinstance(address, int) else address
+            self._record_browse(binary_name, "function", "address", addr_str, "bytes")
+            return result
         except LookupError as e:
             raise McpError("NOT_FOUND", str(e))
         except RuntimeError as e:
@@ -364,7 +369,11 @@ class McpService:
             str: A text block containing the function's assembly code.
         """
         try:
-            return self._get_binary(binary_name).get_function_disassembly_text(function_address)
+            result = self._get_binary(binary_name).get_function_disassembly_text(function_address)
+            # Record browse
+            addr_str = hex(int(function_address)) if isinstance(function_address, int) else function_address
+            self._record_browse(binary_name, "function", "address", addr_str, "disasm")
+            return result
         except LookupError as e:
             raise McpError("NOT_FOUND", str(e))
         except ValueError as e:
@@ -489,7 +498,12 @@ class McpService:
                  addresses = self._coerce_json_list(addresses)
             if not isinstance(addresses, list):
                 addresses = [addresses]
-            return self._get_binary(binary_name).get_pseudocode_by_address(addresses, options)
+            result = self._get_binary(binary_name).get_pseudocode_by_address(addresses, options)
+            # Record browse for each address
+            for addr in addresses:
+                addr_str = hex(int(addr)) if isinstance(addr, int) else addr
+                self._record_browse(binary_name, "function", "address", addr_str, "pseudocode")
+            return result
         except LookupError as e:
             raise McpError("NOT_FOUND", str(e))
         except ValueError as e:
@@ -514,7 +528,10 @@ class McpService:
             dict: Contains 'results' (list of called functions), 'has_more', and 'next_offset'.
         """
         try:
-            return self._get_binary(binary_name).get_callees(function_address, offset, limit)
+            result = self._get_binary(binary_name).get_callees(function_address, offset, limit)
+            addr_str = hex(int(function_address)) if isinstance(function_address, int) else function_address
+            self._record_browse(binary_name, "function", "address", addr_str, "callees")
+            return result
         except LookupError as e:
             raise McpError("NOT_FOUND", str(e))
         except ValueError as e:
@@ -539,7 +556,10 @@ class McpService:
             dict: Contains 'results' (list of callers with count), 'has_more', and 'next_offset'.
         """
         try:
-            return self._get_binary(binary_name).get_caller_functions(function_address, offset, limit)
+            result = self._get_binary(binary_name).get_caller_functions(function_address, offset, limit)
+            addr_str = hex(int(function_address)) if isinstance(function_address, int) else function_address
+            self._record_browse(binary_name, "function", "address", addr_str, "callers")
+            return result
         except LookupError as e:
             raise McpError("NOT_FOUND", str(e))
         except ValueError as e:
@@ -564,7 +584,10 @@ class McpService:
             dict: Contains 'results' (list of call sites), 'has_more', and 'next_offset'.
         """
         try:
-            return self._get_binary(binary_name).get_call_sites(function_address, offset, limit)
+            result = self._get_binary(binary_name).get_call_sites(function_address, offset, limit)
+            addr_str = hex(int(function_address)) if isinstance(function_address, int) else function_address
+            self._record_browse(binary_name, "function", "address", addr_str, "callsites")
+            return result
         except LookupError as e:
             raise McpError("NOT_FOUND", str(e))
         except ValueError as e:
@@ -620,10 +643,19 @@ class McpService:
             dict: An object with 'to' (incoming references) and 'from' (outgoing references) lists.
         """
         try:
-            return {
+            result = {
                 "to": self.get_binary_cross_references_to_address(binary_name, address, offset, limit, summary=not detail),
                 "from": self.get_binary_cross_references_from_address(binary_name, address, offset, limit, summary=not detail)
             }
+            addr_str = hex(int(address)) if isinstance(address, int) else address
+            self._record_browse(binary_name, "xref", "address", addr_str, "xrefs")
+            return result
+        except LookupError as e:
+            raise McpError("NOT_FOUND", str(e))
+        except ValueError as e:
+            raise McpError("INVALID_ARGUMENT", str(e))
+        except Exception as e:
+            raise McpError("INTERNAL_ERROR", str(e))
         except LookupError as e:
             raise McpError("NOT_FOUND", str(e))
         except ValueError as e:
@@ -648,7 +680,9 @@ class McpService:
         Returns:
             list: A list of string objects, including 'value', 'address', and 'encoding'.
         """
-        return self._get_binary(binary_name).list_strings(query, None, None, offset, limit)
+        result = self._get_binary(binary_name).list_strings(query, None, None, offset, limit)
+        self._record_browse(binary_name, "string", "query", query or "", "content")
+        return result
 
     @mcp_tool(name="list_binary_imports")
     def list_binary_imports(self, binary_name: str, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
@@ -665,7 +699,9 @@ class McpService:
         Returns:
             list: A list of import objects, each containing 'name', 'library', and 'address'.
         """
-        return self._get_binary(binary_name).list_imports(offset, limit)
+        result = self._get_binary(binary_name).list_imports(offset, limit)
+        self._record_browse(binary_name, "import", "list", "", "details")
+        return result
 
     @mcp_tool(name="list_binary_exports")
     def list_binary_exports(self, binary_name: str, query: str = None, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
@@ -683,7 +719,9 @@ class McpService:
         Returns:
             list: A list of export objects, each containing 'name', 'ordinal', and 'address'.
         """
-        return self._get_binary(binary_name).list_exports(query, offset, limit)
+        result = self._get_binary(binary_name).list_exports(query, offset, limit)
+        self._record_browse(binary_name, "export", "list", "", "details")
+        return result
 
     @mcp_tool(name="search_string_symbol_in_binary")
     def search_string_in_binary(self, binary_name: str, search_string: str, match: str = "contains") -> List[Dict[str, Any]]:
@@ -705,6 +743,7 @@ class McpService:
         if match == "exact":
             hits = b.list_strings(query=search_string, offset=0, limit=500)
             hits = [h for h in hits if h.get("string") == search_string]
+            self._record_browse(binary_name, "string", "exact", search_string, "content")
             return hits
         if match == "regex":
             try:
@@ -713,8 +752,11 @@ class McpService:
                 raise McpError("INVALID_ARGUMENT", "regex_invalid", {"error": str(e)})
             hits = b.list_strings(query=None, offset=0, limit=500)
             hits = [h for h in hits if isinstance(h.get("string"), str) and rx.search(h["string"])]
+            self._record_browse(binary_name, "string", "regex", search_string, "content")
             return hits
-        return b.list_strings(query=search_string, offset=0, limit=500)
+        result = b.list_strings(query=search_string, offset=0, limit=500)
+        self._record_browse(binary_name, "string", "contains", search_string, "content")
+        return result
 
     #@mcp_tool(name="search_immediates_in_binary")
     def search_immediates_in_binary(self, binary_name: str, value: Any, width: int = None, offset: int = 0, limit: int = 50) -> List[Dict[str, Any]]:
@@ -1216,7 +1258,7 @@ class McpService:
     @mcp_tool(name="audit_update_agent_task")
     def audit_update_agent_task(self, task_id: int, notes: str = None) -> Dict[str, Any]:
         """Update an agent task notes.
-        
+
         Args:
             task_id: The ID of the task.
             notes: Optional notes to append.
@@ -1225,3 +1267,47 @@ class McpService:
             dict: Contains 'success' boolean.
         """
         return audit_mcp_tools.audit_update_agent_task(task_id, notes)
+
+    # --- Browse Tracking Helper ---
+    def _record_browse(self, binary_name: str, record_type: str, target_type: str,
+                       target_value: Optional[str] = None, view_types: Optional[str] = None):
+        """Internal method to record browse activity.
+
+        Args:
+            binary_name: The binary file name.
+            record_type: Type of record (function, string, symbol, import, export, xref).
+            target_type: Type of target (function_name, address, etc).
+            target_value: The target identifier.
+            view_types: Comma-separated view types.
+        """
+        try:
+            audit_mcp_tools.audit_record_browse(
+                binary_name=binary_name,
+                record_type=record_type,
+                target_type=target_type,
+                target_value=target_value,
+                view_types=view_types
+            )
+        except Exception as e:
+            # Log but don't fail the main operation
+            print(f"[BrowseRecord] Failed to record browse: {e}")
+
+    @mcp_tool(name="audit_get_browse_statistics")
+    def audit_get_browse_statistics(self, binary_name: str) -> Dict[str, Any]:
+        """Get browse statistics for a binary.
+
+        This tool shows the analysis progress by tracking what functions, strings, symbols,
+        imports, and exports have been viewed during the audit.
+
+        Args:
+            binary_name: The binary file name to get statistics for.
+
+        Returns:
+            dict: Contains binary_name and statistics for each type:
+                - functions: {total, viewed, coverage}
+                - strings: {total, viewed, coverage}
+                - symbols: {total, viewed, coverage}
+                - imports: {total, viewed, coverage}
+                - exports: {total, viewed, coverage}
+        """
+        return audit_mcp_tools.audit_get_browse_statistics(binary_name=binary_name)

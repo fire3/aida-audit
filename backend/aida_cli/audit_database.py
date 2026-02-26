@@ -203,6 +203,39 @@ class AuditDatabase:
             )
         """)
 
+        # Browse Records - tracks what the agent has viewed
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS browse_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                binary_name TEXT NOT NULL,
+                record_type TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                target_value TEXT,
+                view_types TEXT,
+                created_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+
+        # Browse Summaries - cached statistics per binary
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS browse_summaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                binary_name TEXT NOT NULL,
+                total_functions INTEGER DEFAULT 0,
+                viewed_functions INTEGER DEFAULT 0,
+                total_strings INTEGER DEFAULT 0,
+                viewed_strings INTEGER DEFAULT 0,
+                total_symbols INTEGER DEFAULT 0,
+                viewed_symbols INTEGER DEFAULT 0,
+                total_imports INTEGER DEFAULT 0,
+                viewed_imports INTEGER DEFAULT 0,
+                total_exports INTEGER DEFAULT 0,
+                viewed_exports INTEGER DEFAULT 0,
+                updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+                UNIQUE(binary_name)
+            )
+        """)
+
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_notes_binary ON notes(binary_name)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_notes_type ON notes(note_type)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_notes_func ON notes(function_name)")
@@ -212,6 +245,8 @@ class AuditDatabase:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_plans_status ON plans(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_plan ON tasks(plan_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_browse_binary ON browse_records(binary_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_browse_type ON browse_records(record_type)")
 
         self._ensure_tags(cursor)
         # self._ensure_columns(cursor) # Skipped as we are redesigning
@@ -756,4 +791,198 @@ class AuditDatabase:
             "notes_by_type": notes_by_type,
             "findings_count": findings_count,
             "findings_by_severity": findings_by_severity
+        }
+
+    # ========== Browse Record Operations ==========
+    def add_browse_record(self, binary_name: str, record_type: str, target_type: str,
+                          target_value: Optional[str] = None, view_types: Optional[str] = None) -> int:
+        """Add a browse record to track what the agent has viewed.
+
+        Args:
+            binary_name: The binary file name.
+            record_type: Type of record (function, string, symbol, import, export, xref).
+            target_type: Type of target (function_name, address, etc).
+            target_value: The target identifier (function name, address, etc).
+            view_types: Comma-separated view types (disasm, pseudocode, callers, etc).
+
+        Returns:
+            int: The ID of the inserted record.
+        """
+        cursor = self.conn.cursor()
+
+        # Check if record already exists (same binary, type, target)
+        if target_value:
+            cursor.execute("""
+                SELECT id, view_types FROM browse_records
+                WHERE binary_name = ? AND record_type = ? AND target_type = ? AND target_value = ?
+            """, (binary_name, record_type, target_type, target_value))
+            existing = cursor.fetchone()
+            if existing:
+                # Update view_types (append new ones)
+                existing_types = set(existing[1].split(",")) if existing[1] else set()
+                new_types = set(view_types.split(",")) if view_types else set()
+                combined = existing_types.union(new_types)
+                updated_types = ",".join(sorted(combined))
+                cursor.execute("""
+                    UPDATE browse_records SET view_types = ?, created_at = strftime('%s', 'now')
+                    WHERE id = ?
+                """, (updated_types, existing[0]))
+                self.commit()
+                return existing[0]
+
+        cursor.execute("""
+            INSERT INTO browse_records (binary_name, record_type, target_type, target_value, view_types)
+            VALUES (?, ?, ?, ?, ?)
+        """, (binary_name, record_type, target_type, target_value, view_types))
+
+        self.commit()
+        return cursor.lastrowid
+
+    def update_browse_summary(self, binary_name: str, record_type: str) -> bool:
+        """Update the viewed count in browse_summaries for the given record type.
+
+        Args:
+            binary_name: The binary file name.
+            record_type: The type of record viewed (function, string, symbol, import, export).
+
+        Returns:
+            bool: True if updated successfully.
+        """
+        timestamp = int(time.time())
+        cursor = self.conn.cursor()
+
+        # Get count of unique viewed items for this type
+        cursor.execute("""
+            SELECT COUNT(DISTINCT target_value) FROM browse_records
+            WHERE binary_name = ? AND record_type = ?
+        """, (binary_name, record_type))
+        row = cursor.fetchone()
+        viewed_count = row[0] if row else 0
+
+        # Map record_type to column name
+        type_to_col = {
+            "function": "viewed_functions",
+            "string": "viewed_strings",
+            "symbol": "viewed_symbols",
+            "import": "viewed_imports",
+            "export": "viewed_exports"
+        }
+
+        col_name = type_to_col.get(record_type)
+        if not col_name:
+            return False
+
+        # Ensure summary exists
+        cursor.execute("""
+            INSERT OR IGNORE INTO browse_summaries (binary_name, updated_at)
+            VALUES (?, ?)
+        """, (binary_name, timestamp))
+
+        # Update the count
+        cursor.execute(f"""
+            UPDATE browse_summaries
+            SET {col_name} = ?, updated_at = ?
+            WHERE binary_name = ?
+        """, (viewed_count, timestamp, binary_name))
+
+        self.commit()
+        return True
+
+    def init_browse_summaries(self, binary_name: str, total_functions: int = 0, total_strings: int = 0,
+                              total_symbols: int = 0, total_imports: int = 0, total_exports: int = 0) -> bool:
+        """Initialize or update the total counts in browse_summaries.
+
+        Args:
+            binary_name: The binary file name.
+            total_functions: Total number of functions in the binary.
+            total_strings: Total number of strings in the binary.
+            total_symbols: Total number of symbols in the binary.
+            total_imports: Total number of imports in the binary.
+            total_exports: Total number of exports in the binary.
+
+        Returns:
+            bool: True if successful.
+        """
+        timestamp = int(time.time())
+        cursor = self.conn.cursor()
+
+        cursor.execute("""
+            INSERT INTO browse_summaries
+            (binary_name, total_functions, total_strings, total_symbols, total_imports, total_exports, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(binary_name) DO UPDATE SET
+                total_functions = excluded.total_functions,
+                total_strings = excluded.total_strings,
+                total_symbols = excluded.total_symbols,
+                total_imports = excluded.total_imports,
+                total_exports = excluded.total_exports,
+                updated_at = excluded.updated_at
+        """, (binary_name, total_functions, total_strings, total_symbols, total_imports, total_exports, timestamp))
+
+        self.commit()
+        return True
+
+    def get_browse_statistics(self, binary_name: str) -> Dict[str, Any]:
+        """Get browse statistics for a binary.
+
+        Args:
+            binary_name: The binary file name.
+
+        Returns:
+            dict: Statistics including totals, viewed counts, and coverage percentages.
+        """
+        cursor = self.conn.cursor()
+
+        # Get or create summary
+        cursor.execute("""
+            SELECT total_functions, viewed_functions, total_strings, viewed_strings,
+                   total_symbols, viewed_symbols, total_imports, viewed_imports,
+                   total_exports, viewed_exports
+            FROM browse_summaries WHERE binary_name = ?
+        """, (binary_name,))
+        row = cursor.fetchone()
+
+        if not row:
+            # Return empty statistics
+            return {
+                "binary_name": binary_name,
+                "functions": {"total": 0, "viewed": 0, "coverage": 0.0},
+                "strings": {"total": 0, "viewed": 0, "coverage": 0.0},
+                "symbols": {"total": 0, "viewed": 0, "coverage": 0.0},
+                "imports": {"total": 0, "viewed": 0, "coverage": 0.0},
+                "exports": {"total": 0, "viewed": 0, "coverage": 0.0}
+            }
+
+        def calc_coverage(viewed, total):
+            if total == 0:
+                return 0.0
+            return round((viewed / total) * 100, 2)
+
+        return {
+            "binary_name": binary_name,
+            "functions": {
+                "total": row[0] or 0,
+                "viewed": row[1] or 0,
+                "coverage": calc_coverage(row[1], row[0])
+            },
+            "strings": {
+                "total": row[2] or 0,
+                "viewed": row[3] or 0,
+                "coverage": calc_coverage(row[3], row[2])
+            },
+            "symbols": {
+                "total": row[4] or 0,
+                "viewed": row[5] or 0,
+                "coverage": calc_coverage(row[5], row[4])
+            },
+            "imports": {
+                "total": row[6] or 0,
+                "viewed": row[7] or 0,
+                "coverage": calc_coverage(row[7], row[6])
+            },
+            "exports": {
+                "total": row[8] or 0,
+                "viewed": row[9] or 0,
+                "coverage": calc_coverage(row[9], row[8])
+            }
         }
