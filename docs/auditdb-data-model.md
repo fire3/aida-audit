@@ -23,6 +23,8 @@ AuditDB 是 AIDA-CLI 用于存储安全审计工作数据的 SQLite 数据库。
 | [audit_logs](#audit_logs) | 审计日志 | id |
 | [audit_messages](#audit_messages) | 审计会话消息 | id |
 | [system_config](#system_config) | 系统配置 | key |
+| [browse_records](#browse_records) | 浏览记录 | id |
+| [browse_summaries](#browse_summaries) | 浏览统计汇总 | id |
 
 ---
 
@@ -258,6 +260,99 @@ AuditDB 是 AIDA-CLI 用于存储安全审计工作数据的 SQLite 数据库。
 
 ---
 
+### browse_records
+
+浏览记录表，记录 AI 审计代理查看过的内容类型。不区分具体 session，只需要记录来自 audit service。
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | INTEGER | PRIMARY KEY AUTOINCREMENT | 记录唯一标识 |
+| binary_name | TEXT | NOT NULL | 所属二进制文件名 |
+| record_type | TEXT | NOT NULL | 记录类型 |
+| target_type | TEXT | NOT NULL | 目标类型 |
+| target_value | TEXT | | 目标标识（函数名/地址等） |
+| view_types | TEXT | | 查看类型（逗号分隔） |
+| created_at | INTEGER | DEFAULT (strftime('%s', 'now')) | 创建时间戳 |
+
+#### record_type 取值
+
+| 值 | 说明 |
+|----|------|
+| function | 函数 |
+| string | 字符串 |
+| symbol | 符号 |
+| import | 导入 |
+| export | 导出 |
+| xref | 交叉引用 |
+
+#### target_type 取值
+
+| 值 | 说明 |
+|----|------|
+| address | 地址 |
+| function_name | 函数名 |
+| query | 查询字符串 |
+| list | 列表操作 |
+| exact | 精确匹配 |
+| contains | 包含匹配 |
+| regex | 正则匹配 |
+
+#### view_types 取值
+
+**函数相关：**
+
+| 值 | 说明 |
+|----|------|
+| disasm | 反汇编 |
+| pseudocode | 伪代码 |
+| callers | 调用者 |
+| callees | 被调用函数 |
+| callsites | 调用点 |
+| xrefs | 交叉引用 |
+| bytes | 原始字节 |
+
+**字符串相关：**
+
+| 值 | 说明 |
+|----|------|
+| content | 内容 |
+
+**符号/导入/导出相关：**
+
+| 值 | 说明 |
+|----|------|
+| details | 详情 |
+
+**交叉引用相关：**
+
+| 值 | 说明 |
+|----|------|
+| xrefs | 交叉引用 |
+
+---
+
+### browse_summaries
+
+浏览统计汇总表，按二进制存储统计信息（因为 BinaryDB 只读，总数可缓存）。
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | INTEGER | PRIMARY KEY AUTOINCREMENT | 记录唯一标识 |
+| binary_name | TEXT | NOT NULL, UNIQUE | 二进制文件名 |
+| total_functions | INTEGER | DEFAULT 0 | 函数总数 |
+| viewed_functions | INTEGER | DEFAULT 0 | 已查看函数数 |
+| total_strings | INTEGER | DEFAULT 0 | 字符串总数 |
+| viewed_strings | INTEGER | DEFAULT 0 | 已查看字符串数 |
+| total_symbols | INTEGER | DEFAULT 0 | 符号总数 |
+| viewed_symbols | INTEGER | DEFAULT 0 | 已查看符号数 |
+| total_imports | INTEGER | DEFAULT 0 | 导入总数 |
+| viewed_imports | INTEGER | DEFAULT 0 | 已查看导入数 |
+| total_exports | INTEGER | DEFAULT 0 | 导出总数 |
+| viewed_exports | INTEGER | DEFAULT 0 | 已查看导出数 |
+| updated_at | INTEGER | DEFAULT (strftime('%s', 'now')) | 更新时间戳 |
+
+---
+
 ## 数据访问
 
 推荐使用 `AuditDatabase` 类访问 AuditDB：
@@ -290,4 +385,5 @@ note_id = audit_db.add_note(
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
-| 1.0.0 | 2025-02 | 初始版本 |
+| 1.0.0 | 2026-01 | 初始版本 |
+| 1.1.0 | 2026-02 | 新增浏览跟踪功能：browse_records、browse_summaries 表 |

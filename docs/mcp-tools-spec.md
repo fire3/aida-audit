@@ -136,6 +136,11 @@
 | audit_submit_agent_task_summary | 提交任务摘要 |
 | audit_get_agent_task_summary | 获取任务摘要 |
 
+### 审计工具 - 浏览统计
+| 工具名称 | 说明 |
+|----------|------|
+| audit_get_browse_statistics | 获取浏览统计信息 |
+
 ---
 
 ## 未启用的工具
@@ -149,6 +154,29 @@
 | get_binary_bytes | 获取原始字节 | 已注释 |
 | search_immediates_in_binary | 搜索立即数 | 已注释 |
 | search_bytes_pattern_in_binary | 搜索字节模式 | 已注释 |
+
+---
+
+## 浏览跟踪机制
+
+AI 审计代理在使用以下工具时会自动记录浏览行为，用于计算分析覆盖率：
+
+| 工具 | 记录的 view_types |
+|------|-------------------|
+| get_binary_function_disassembly_text | disasm |
+| get_binary_function_pseudocode_by_address | pseudocode |
+| get_binary_function_callers | callers |
+| get_binary_function_callees | callees |
+| get_binary_function_callsites | callsites |
+| get_binary_cross_references | xrefs |
+| get_binary_bytes | bytes |
+| list_binary_strings | content |
+| search_string_in_binary | content |
+| list_binary_symbols | details |
+| list_binary_imports | details |
+| list_binary_exports | details |
+
+浏览记录会自动去重（同一目标多次查看只会增加 view_types），并更新对应的统计计数。
 
 ---
 
@@ -754,6 +782,54 @@
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | task_id | int | 是 | 任务 ID |
+
+---
+
+### audit_get_browse_statistics
+
+获取浏览统计信息。该工具显示分析进度，追踪在审计过程中查看了哪些函数、字符串、符号、导入和导出。
+
+**参数**:
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| binary_name | string | 是 | 二进制文件名 |
+
+**返回**:
+```json
+{
+    "binary_name": "example.exe",
+    "functions": {
+        "total": 150,
+        "viewed": 45,
+        "coverage": 30.0
+    },
+    "strings": {
+        "total": 500,
+        "viewed": 100,
+        "coverage": 20.0
+    },
+    "symbols": {
+        "total": 200,
+        "viewed": 50,
+        "coverage": 25.0
+    },
+    "imports": {
+        "total": 80,
+        "viewed": 40,
+        "coverage": 50.0
+    },
+    "exports": {
+        "total": 30,
+        "viewed": 10,
+        "coverage": 33.33
+    }
+}
+```
+
+**说明**：
+- `total` 字段需要通过 `audit_init_browse_summaries` 初始化（或手动设置）
+- `viewed` 字段由系统自动跟踪，当使用代码分析工具时自动更新
+- `coverage` 百分比 = (viewed / total) * 100
 
 ---
 
