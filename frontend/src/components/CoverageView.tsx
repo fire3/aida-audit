@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { auditApi } from '../api/client';
 import { useQuery } from '@tanstack/react-query';
-import { Layers, Code2, FileCode, FileText, MoreHorizontal, ChevronRight, Search } from 'lucide-react';
+import { Layers, Code2, FileCode, MoreHorizontal, Search } from 'lucide-react';
 
 interface CoverageFunction {
   address: string;
