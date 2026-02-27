@@ -3,7 +3,7 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
-import { scheduleApi, type ScheduleConfig } from '../api/client';
+import { auditApi, configApi, scheduleApi, type ScheduleConfig, type LlmConfig } from '../api/client';
 import { Bot, Clock, Globe, Settings as SettingsIcon } from 'lucide-react';
 
 function TimePicker({ 
@@ -54,17 +54,11 @@ function TimePicker({
     );
 }
 
-interface ConfigData {
-    base_url: string;
-    api_key: string;
-    model: string;
-}
-
 type TabType = 'llm' | 'schedule' | 'language';
 
 export function Settings() {
     const [activeTab, setActiveTab] = useState<TabType>('llm');
-    const [config, setConfig] = useState<ConfigData>({
+    const [config, setConfig] = useState<LlmConfig>({
         base_url: '',
         api_key: '',
         model: ''
@@ -110,8 +104,7 @@ export function Settings() {
 
     const fetchReportLanguage = async () => {
         try {
-            const res = await fetch('/api/v1/config/report-language');
-            const data = await res.json();
+            const data = await auditApi.getReportLanguage();
             setReportLanguage(data.language || "Chinese");
         } catch (error) {
             console.error('Failed to fetch report language:', error);
@@ -121,11 +114,7 @@ export function Settings() {
     const handleSaveReportLanguage = async () => {
         setIsLoading(true);
         try {
-            await fetch('/api/v1/config/report-language', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ language: reportLanguage })
-            });
+            await auditApi.updateReportLanguage(reportLanguage);
             setStatus({ type: 'success', message: "Report language updated successfully" });
         } catch (error) {
             setStatus({ type: 'error', message: "Failed to update report language" });
@@ -137,9 +126,7 @@ export function Settings() {
 
     const fetchConfig = async () => {
         try {
-            const res = await fetch('/api/v1/config');
-            if (!res.ok) throw new Error('Failed to fetch config');
-            const data = await res.json();
+            const data = await configApi.get();
             setConfig(data);
             if (data.base_url && data.api_key && !data.api_key.includes('*')) {
                 fetchModels(data.base_url, data.api_key, data.model || '');
@@ -153,24 +140,15 @@ export function Settings() {
     const fetchModels = async (baseUrl: string, apiKey: string, model: string) => {
         if (!apiKey || apiKey.includes('*')) {
             console.warn('Cannot fetch models: API key is masked or empty');
-            return;
+            return [];
         }
-        
+
         try {
-            const res = await fetch('/api/v1/config/validate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    base_url: baseUrl, 
-                    api_key: apiKey, 
-                    model: model || 'gpt-4o' 
-                })
+            const data = await configApi.validate({
+                base_url: baseUrl,
+                api_key: apiKey,
+                model: model || 'gpt-4o'
             });
-            if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.detail || 'Failed to fetch models');
-            }
-            const data = await res.json();
             if (data.models) {
                 setAvailableModels(data.models);
                 return data.models;
@@ -185,29 +163,16 @@ export function Settings() {
         setIsLoading(true);
         setStatus({ type: null, message: '' });
         try {
-            const res = await fetch('/api/v1/config', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
-            });
-            
-            if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.detail || 'Failed to save config');
-            }
-            
+            await configApi.update(config);
             setStatus({ type: 'success', message: "Configuration saved successfully" });
-            
+
+            const data = await configApi.get();
+            setConfig(data);
+
             const originalApiKey = config.api_key;
             const originalBaseUrl = config.base_url;
             const originalModel = config.model;
-            
-            const res2 = await fetch('/api/v1/config');
-            if (res2.ok) {
-                const data = await res2.json();
-                setConfig(data);
-            }
-            
+
             if (originalApiKey && !originalApiKey.includes('*') && originalBaseUrl) {
                 setTimeout(() => {
                     fetchModels(originalBaseUrl, originalApiKey, originalModel || '');
@@ -224,18 +189,8 @@ export function Settings() {
         setIsLoading(true);
         setStatus({ type: null, message: '' });
         try {
-            const res = await fetch('/api/v1/config/validate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
-            });
-            
-            if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.detail || 'Connection failed');
-            }
-            
-            const data = await res.json();
+            const data = await configApi.validate(config);
+
             if (data.valid) {
                 setStatus({ type: 'success', message: "Connection successful! Models retrieved." });
                 if (data.models) {

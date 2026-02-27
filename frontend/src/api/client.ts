@@ -665,7 +665,27 @@ export interface ScheduleConfig {
   periods: TimePeriod[];
 }
 
+export interface LlmConfig {
+  base_url: string;
+  api_key: string;
+  model: string;
+}
+
+export interface ValidateConfigResult {
+  valid: boolean;
+  models: string[];
+}
+
 export const scheduleApi = {
   get: () => apiClient.get<ScheduleConfig>('/audit/schedule').then(res => res.data),
   update: (config: ScheduleConfig) => apiClient.post<{ status: string, schedule: ScheduleConfig }>('/audit/schedule', config).then(res => res.data),
+};
+
+export const configApi = {
+  get: () => apiClient.get<LlmConfig>('/config').then(res => res.data),
+
+  update: (config: LlmConfig) => apiClient.post('/config', config).then(res => res.data),
+
+  validate: (config: { base_url: string; api_key: string; model: string }) =>
+    apiClient.post<ValidateConfigResult>('/config/validate', config).then(res => res.data),
 };
