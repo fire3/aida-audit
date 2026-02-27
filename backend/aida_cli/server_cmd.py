@@ -893,19 +893,89 @@ def get_browse_records_coverage(binary_name: str = Path(..., description="Binary
     if not audit_db:
         raise HTTPException(status_code=503, detail="Audit database not initialized")
 
-    # Get function coverage data
-    functions = audit_db.get_browse_records_for_coverage(binary_name)
+    # Get total functions from binary metadata
+    total_functions = 0
+    all_functions_dict: Dict[str, Dict[str, Any]] = {}
 
-    # Get coverage summary
-    summary = audit_db.get_function_coverage_summary(binary_name)
+    try:
+        svc = get_service()
+        binary_meta = svc.get_binary_metadata(binary_name)
+        counts = binary_meta.get("counts", {})
+        total_functions = counts.get("functions", 0)
+
+        # Get all functions from binary database (handle pagination)
+        if total_functions > 0:
+            all_funcs = []
+            offset = 0
+            batch_size = 500
+            while True:
+                batch = svc.list_binary_functions(binary_name, offset=offset, limit=batch_size)
+                if not batch:
+                    break
+                all_funcs.extend(batch)
+                if len(batch) < batch_size:
+                    break
+                offset += batch_size
+
+            for f in all_funcs:
+                addr = f.get("address")
+                if addr:
+                    all_functions_dict[addr] = {
+                        "address": addr,
+                        "target_value": addr,
+                        "has_disasm": False,
+                        "has_pseudocode": False,
+                        "has_other": False,
+                        "coverage_status": "none"
+                    }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        pass
+
+    # Get viewed functions and update status
+    viewed_functions = audit_db.get_browse_records_for_coverage(binary_name)
+    viewed_set = set()
+    coverage = {
+        "disasm_only": 0,
+        "pseudocode_only": 0,
+        "both": 0,
+        "full": 0,
+        "partial": 0,
+        "none": 0
+    }
+
+    # Update viewed functions in the dict
+    for func in viewed_functions:
+        addr = func.get("address")
+        if addr:
+            viewed_set.add(addr)
+            all_functions_dict[addr] = func
+            status = func.get("coverage_status", "none")
+            if status in coverage:
+                coverage[status] += 1
+
+    # Calculate none = total - viewed
+    coverage["none"] = max(0, total_functions - len(viewed_set))
+
+    # Sort all functions by address
+    def parse_addr(addr: str) -> int:
+        try:
+            if addr.startswith("0x") or addr.startswith("0X"):
+                return int(addr, 16)
+            return int(addr, 16) if "x" in addr.lower() else int(addr)
+        except (ValueError, TypeError):
+            return 0
+
+    all_functions = sorted(all_functions_dict.values(), key=lambda f: parse_addr(f.get("address", "0")))
 
     return {
         "ok": True,
         "data": {
             "binary_name": binary_name,
-            "total_functions": summary["total_functions"],
-            "coverage": summary["coverage"],
-            "functions": functions
+            "total_functions": total_functions,
+            "coverage": coverage,
+            "functions": all_functions
         }
     }
 

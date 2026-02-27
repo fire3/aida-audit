@@ -50,15 +50,6 @@ function formatAddress(addr: string): string {
 }
 
 function BlockMatrix({ functions, onSelect }: { functions: CoverageFunction[]; onSelect: (f: CoverageFunction) => void }) {
-  // Group functions into rows of 32 for a block matrix view
-  const rows = useMemo(() => {
-    const result: CoverageFunction[][] = [];
-    for (let i = 0; i < functions.length; i += 32) {
-      result.push(functions.slice(i, i + 32));
-    }
-    return result;
-  }, [functions]);
-
   if (functions.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
@@ -70,26 +61,18 @@ function BlockMatrix({ functions, onSelect }: { functions: CoverageFunction[]; o
   }
 
   return (
-    <div className="space-y-1">
-      {rows.map((row, rowIdx) => (
-        <div key={rowIdx} className="flex gap-0.5">
-          {row.map((func) => {
-            const colors = STATUS_COLORS[func.coverage_status] || STATUS_COLORS.none;
-            return (
-              <button
-                key={func.address}
-                onClick={() => onSelect(func)}
-                title={`${formatAddress(func.address)}: ${colors.label}`}
-                className={`w-4 h-6 ${colors.bg} ${colors.border} border rounded-sm hover:opacity-80 transition-opacity`}
-              />
-            );
-          })}
-          {/* Fill empty slots */}
-          {row.length < 32 && Array(32 - row.length).fill(null).map((_, i) => (
-            <div key={`empty-${i}`} className="w-4 h-6" />
-          ))}
-        </div>
-      ))}
+    <div className="flex flex-wrap gap-0.5">
+      {functions.map((func) => {
+        const colors = STATUS_COLORS[func.coverage_status] || STATUS_COLORS.none;
+        return (
+          <button
+            key={func.address}
+            onClick={() => onSelect(func)}
+            title={`${formatAddress(func.address)}: ${colors.label}`}
+            className={`w-4 h-6 flex-shrink-0 ${colors.bg} ${colors.border} border rounded-sm hover:opacity-80 transition-opacity`}
+          />
+        );
+      })}
     </div>
   );
 }
