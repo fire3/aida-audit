@@ -4,15 +4,16 @@ import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import {
-  CheckCircle2, 
-  Circle, 
-  Terminal, 
-  MessageSquare, 
+  CheckCircle2,
+  Circle,
+  Terminal,
+  MessageSquare,
   ListTodo,
   Play,
   Square,
   StickyNote,
-  AlertTriangle
+  AlertTriangle,
+  Layers
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -20,10 +21,11 @@ import { PlanView } from '../components/PlanView';
 import { FinishedPlansView } from '../components/FinishedPlansView';
 import { VulnerabilitiesView } from '../components/VulnerabilitiesView';
 import { NotesView } from '../components/NotesView';
+import { CoverageView } from '../components/CoverageView';
 
 export function AuditDashboard() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'plan' | 'finished' | 'live' | 'logs' | 'chat' | 'vulnerabilities' | 'notes'>('plan');
+  const [activeTab, setActiveTab] = useState<'plan' | 'finished' | 'live' | 'logs' | 'chat' | 'vulnerabilities' | 'notes' | 'coverage'>('plan');
   const [manualSessionId, setManualSessionId] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [streamMessages, setStreamMessages] = useState<AuditMessage[]>([]);
@@ -476,13 +478,19 @@ export function AuditDashboard() {
         >
           <AlertTriangle className="w-4 h-4" /> Vulnerabilities
         </button>
-        <button 
+        <button
           onClick={() => setActiveTab('notes')}
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'notes' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
           <StickyNote className="w-4 h-4" /> Notes
         </button>
-        <button 
+        <button
+          onClick={() => setActiveTab('coverage')}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'coverage' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+        >
+          <Layers className="w-4 h-4" /> Coverage
+        </button>
+        <button
           onClick={() => setActiveTab('chat')}
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'chat' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
@@ -600,6 +608,14 @@ export function AuditDashboard() {
                         <p>No analysis notes yet.</p>
                     </div>
                 )}
+            </CardContent>
+          </Card>
+        )}
+
+        {activeTab === 'coverage' && (
+          <Card className="h-full flex flex-col border-0 shadow-none bg-transparent">
+            <CardContent className="flex-1 overflow-auto p-0">
+                <CoverageView />
             </CardContent>
           </Card>
         )}

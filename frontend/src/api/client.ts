@@ -372,6 +372,33 @@ export const auditApi = {
     return res.data;
   },
 
+  getBrowseCoverage: async (binaryName: string) => {
+    const res = await apiClient.get<{
+      ok: boolean;
+      data: {
+        binary_name: string;
+        total_functions: number;
+        coverage: {
+          disasm_only: number;
+          pseudocode_only: number;
+          both: number;
+          full: number;
+          partial: number;
+          none: number;
+        };
+        functions: Array<{
+          address: string;
+          target_value: string;
+          has_disasm: boolean;
+          has_pseudocode: boolean;
+          has_other: boolean;
+          coverage_status: string;
+        }>;
+      };
+    }>(`/audit/browse-records/${encodeURIComponent(binaryName)}/coverage`);
+    return res.data;
+  },
+
   getStatus: async () => {
     const res = await apiClient.get<AuditStatus>('/audit/status');
     return res.data;

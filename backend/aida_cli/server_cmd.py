@@ -884,6 +884,32 @@ def stop_audit():
     return {"status": "stopping"}
 
 
+@api_router.get("/audit/browse-records/{binary_name}/coverage")
+def get_browse_records_coverage(binary_name: str = Path(..., description="Binary name")):
+    """Get function coverage visualization data for a binary.
+
+    Returns coverage data sorted by address with color-coded status for each function.
+    """
+    if not audit_db:
+        raise HTTPException(status_code=503, detail="Audit database not initialized")
+
+    # Get function coverage data
+    functions = audit_db.get_browse_records_for_coverage(binary_name)
+
+    # Get coverage summary
+    summary = audit_db.get_function_coverage_summary(binary_name)
+
+    return {
+        "ok": True,
+        "data": {
+            "binary_name": binary_name,
+            "total_functions": summary["total_functions"],
+            "coverage": summary["coverage"],
+            "functions": functions
+        }
+    }
+
+
 class ExecuteDSLRequest(BaseModel):
     script: str
 

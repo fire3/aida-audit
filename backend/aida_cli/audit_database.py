@@ -957,3 +957,115 @@ class AuditDatabase:
                 "coverage": calc_coverage(row[9], row[8])
             }
         }
+
+    def get_browse_records_for_coverage(self, binary_name: str) -> List[Dict[str, Any]]:
+        """Get function coverage data sorted by address.
+
+        Args:
+            binary_name: The binary file name.
+
+        Returns:
+            List of function coverage records with address, view types, and coverage status.
+        """
+        cursor = self.conn.cursor()
+
+        # Get all function browse records for this binary
+        cursor.execute("""
+            SELECT target_value, view_types
+            FROM browse_records
+            WHERE binary_name = ? AND record_type = 'function'
+            ORDER BY
+                CAST(target_value AS INTEGER)
+        """, (binary_name,))
+
+        rows = cursor.fetchall()
+
+        # Group by target_value and build coverage info
+        functions_map: Dict[str, Dict[str, Any]] = {}
+
+        for target_value, view_types in rows:
+            if not target_value:
+                continue
+
+            if target_value not in functions_map:
+                functions_map[target_value] = {
+                    "address": target_value,
+                    "target_value": target_value,
+                    "has_disasm": False,
+                    "has_pseudocode": False,
+                    "has_other": False,
+                }
+
+            # Parse view types
+            if view_types:
+                types_set = set(v.strip() for v in view_types.split(",") if v.strip())
+                if "disasm" in types_set:
+                    functions_map[target_value]["has_disasm"] = True
+                if "pseudocode" in types_set:
+                    functions_map[target_value]["has_pseudocode"] = True
+                # Other view types besides disasm and pseudocode
+                other_types = types_set - {"disasm", "pseudocode"}
+                if other_types:
+                    functions_map[target_value]["has_other"] = True
+
+        # Calculate coverage status for each function
+        result = []
+        for address, func in sorted(functions_map.items(), key=lambda x: int(x[0], 0) if x[0].startswith("0x") else int(x[0], 0)):
+            has_disasm = func["has_disasm"]
+            has_pseudocode = func["has_pseudocode"]
+            has_other = func["has_other"]
+
+            if has_disasm and has_pseudocode:
+                if has_other:
+                    status = "full"  # disasm + pseudocode + other
+                else:
+                    status = "both"  # disasm + pseudocode
+            elif has_disasm:
+                status = "disasm_only"
+            elif has_pseudocode:
+                status = "pseudocode_only"
+            else:
+                status = "partial"  # only other views
+
+            func["coverage_status"] = status
+            result.append(func)
+
+        return result
+
+    def get_function_coverage_summary(self, binary_name: str) -> Dict[str, Any]:
+        """Get coverage summary statistics for functions.
+
+        Args:
+            binary_name: The binary file name.
+
+        Returns:
+            dict: Coverage summary with counts for each status category.
+        """
+        functions = self.get_browse_records_for_coverage(binary_name)
+
+        coverage = {
+            "disasm_only": 0,
+            "pseudocode_only": 0,
+            "both": 0,
+            "full": 0,
+            "partial": 0,
+            "none": 0
+        }
+
+        for func in functions:
+            status = func.get("coverage_status", "none")
+            if status in coverage:
+                coverage[status] += 1
+
+        # Get total functions from summary table
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT total_functions FROM browse_summaries WHERE binary_name = ?
+        """, (binary_name,))
+        row = cursor.fetchone()
+        total_functions = row[0] if row else 0
+
+        return {
+            "total_functions": total_functions,
+            "coverage": coverage
+        }
