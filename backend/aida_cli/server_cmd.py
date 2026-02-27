@@ -529,15 +529,6 @@ def report_vulnerability(vuln: VulnerabilityCreate):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.get("/binary/{binary_name}/analysis-progress")
-def get_analysis_progress(binary_name: str):
-    try:
-        return audit_mcp_tools.audit_get_analysis_progress(binary_name)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Analysis Endpoints
-
 @api_router.get("/binary/{binary_name}/disassembly")
 def get_binary_disassembly(
     binary_name: str,

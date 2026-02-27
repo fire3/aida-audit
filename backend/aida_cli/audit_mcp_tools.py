@@ -230,12 +230,6 @@ def audit_report_vulnerability_verification(id: int, status: str, details: str =
     )
     return {"success": success}
 
-def audit_get_analysis_progress(binary_name: str) -> Dict[str, Any]:
-    """Get analysis progress statistics for a binary."""
-    db = get_audit_db()
-    return db.get_analysis_progress(binary_name)
-
-# ========== Browse Tracking Tools ==========
 
 def audit_record_browse(binary_name: str, record_type: str, target_type: str,
                         target_value: Optional[str] = None, view_types: Optional[str] = None) -> Dict[str, Any]:

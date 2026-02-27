@@ -1103,18 +1103,6 @@ class McpService:
             verification_status=verification_status
         )
 
-    @mcp_tool(name="audit_get_analysis_progress")
-    def audit_get_analysis_progress(self, binary_name: str) -> Dict[str, Any]:
-        """Get analysis progress statistics for a binary.
-
-        Args:
-            binary_name: The binary file name to get statistics for.
-
-        Returns:
-            dict: Contains binary_name, total_notes, notes_by_type, findings_count, findings_by_severity.
-        """
-        return audit_mcp_tools.audit_get_analysis_progress(binary_name=binary_name)
-
     # --- Audit Management Tools ---
 
     @mcp_tool(name="audit_create_macro_plan")

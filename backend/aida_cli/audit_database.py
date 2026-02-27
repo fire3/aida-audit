@@ -764,35 +764,6 @@ class AuditDatabase:
             for row in rows
         ]
 
-    def get_analysis_progress(self, binary_name: str) -> Dict[str, Any]:
-        cursor = self.conn.cursor()
-        
-        # Count notes
-        cursor.execute("SELECT COUNT(*) FROM notes WHERE binary_name = ?", (binary_name,))
-        row = cursor.fetchone()
-        total_notes = row[0] if row else 0
-        
-        # Count notes by type
-        cursor.execute("SELECT note_type, COUNT(*) FROM notes WHERE binary_name = ? GROUP BY note_type", (binary_name,))
-        notes_by_type = {row[0]: row[1] for row in cursor.fetchall()}
-        
-        # Count findings (vulnerabilities)
-        cursor.execute("SELECT COUNT(*) FROM vulnerabilities WHERE binary_name = ?", (binary_name,))
-        row = cursor.fetchone()
-        findings_count = row[0] if row else 0
-        
-        # Count findings by severity
-        cursor.execute("SELECT severity, COUNT(*) FROM vulnerabilities WHERE binary_name = ? GROUP BY severity", (binary_name,))
-        findings_by_severity = {row[0]: row[1] for row in cursor.fetchall()}
-        
-        return {
-            "binary_name": binary_name,
-            "total_notes": total_notes,
-            "notes_by_type": notes_by_type,
-            "findings_count": findings_count,
-            "findings_by_severity": findings_by_severity
-        }
-
     # ========== Browse Record Operations ==========
     def add_browse_record(self, binary_name: str, record_type: str, target_type: str,
                           target_value: Optional[str] = None, view_types: Optional[str] = None) -> int:
