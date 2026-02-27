@@ -132,25 +132,16 @@ export function CoverageView() {
   const [selectedFunction, setSelectedFunction] = useState<CoverageFunction | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Get binaries from projects
-  const { data: projects } = useQuery({
-    queryKey: ['projects'],
-    queryFn: () => fetch('/api/v1/projects').then(r => r.json()),
+  // Get binaries from project
+  const { data: binariesData } = useQuery({
+    queryKey: ['projectBinaries'],
+    queryFn: () => auditApi.getBinaries(),
   });
 
   const binaries = useMemo(() => {
-    if (!projects) return [];
-    const bins: string[] = [];
-    for (const p of projects) {
-      if (p.binary_name) bins.push(p.binary_name);
-      if (p.binaries) {
-        for (const b of p.binaries) {
-          if (!bins.includes(b)) bins.push(b);
-        }
-      }
-    }
-    return [...new Set(bins)];
-  }, [projects]);
+    if (!binariesData) return [];
+    return binariesData.map(b => b.binary_name).filter(Boolean);
+  }, [binariesData]);
 
   useEffect(() => {
     if (binaries.length > 0 && !selectedBinary) {

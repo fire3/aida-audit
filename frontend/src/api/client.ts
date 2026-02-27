@@ -399,6 +399,11 @@ export const auditApi = {
     return res.data;
   },
 
+  getBinaries: async () => {
+    const res = await apiClient.get<BinarySummary[]>('/project/binaries');
+    return res.data;
+  },
+
   getStatus: async () => {
     const res = await apiClient.get<AuditStatus>('/audit/status');
     return res.data;
