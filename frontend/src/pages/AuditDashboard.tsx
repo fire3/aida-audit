@@ -5,7 +5,6 @@ import { Button } from '../components/ui/button';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   CheckCircle2,
-  Circle,
   Terminal,
   MessageSquare,
   ListTodo,
@@ -22,8 +21,10 @@ import { FinishedPlansView } from '../components/FinishedPlansView';
 import { FindingsView } from '../components/FindingsView';
 import { NotesView } from '../components/NotesView';
 import { CoverageView } from '../components/CoverageView';
+import { useTranslation } from 'react-i18next';
 
 export function AuditDashboard() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'plan' | 'finished' | 'live' | 'logs' | 'chat' | 'findings' | 'notes' | 'coverage'>('plan');
   const [manualSessionId, setManualSessionId] = useState<string | null>(null);
@@ -464,49 +465,49 @@ export function AuditDashboard() {
           onClick={() => setActiveTab('plan')}
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'plan' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
-          <ListTodo className="w-4 h-4" /> Plan
+          <ListTodo className="w-4 h-4" /> {t('dashboard.tabs.plan')}
         </button>
         <button 
           onClick={() => setActiveTab('finished')}
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'finished' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
-          <CheckCircle2 className="w-4 h-4" /> Finished
+          <CheckCircle2 className="w-4 h-4" /> {t('dashboard.tabs.finished')}
         </button>
         <button 
           onClick={() => setActiveTab('findings')}
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'findings' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
-          <AlertTriangle className="w-4 h-4" /> Findings
+          <AlertTriangle className="w-4 h-4" /> {t('dashboard.tabs.findings')}
         </button>
         <button
           onClick={() => setActiveTab('notes')}
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'notes' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
-          <StickyNote className="w-4 h-4" /> Notes
+          <StickyNote className="w-4 h-4" /> {t('dashboard.tabs.notes')}
         </button>
         <button
           onClick={() => setActiveTab('coverage')}
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'coverage' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
-          <Layers className="w-4 h-4" /> Coverage
+          <Layers className="w-4 h-4" /> {t('dashboard.tabs.coverage')}
         </button>
         <button
           onClick={() => setActiveTab('chat')}
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'chat' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
-          <MessageSquare className="w-4 h-4" /> Chat History
+          <MessageSquare className="w-4 h-4" /> {t('dashboard.tabs.chat')}
         </button>
         <button 
           onClick={() => setActiveTab('live')}
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'live' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
-          <Circle className="w-4 h-4" /> Live Stream
+          <Play className="w-4 h-4" /> {t('dashboard.tabs.live')}
         </button>
         <button 
           onClick={() => setActiveTab('logs')}
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'logs' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
-          <Terminal className="w-4 h-4" /> Live Logs
+          <Terminal className="w-4 h-4" /> {t('dashboard.tabs.logs')}
         </button>
       </div>
 

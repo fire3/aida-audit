@@ -12,6 +12,9 @@ import { SymbolsBrowser } from './pages/SymbolsBrowser';
 import { SegmentsBrowser } from './pages/SegmentsBrowser';
 import { AuditDashboard } from './pages/AuditDashboard';
 import { Settings } from './pages/Settings';
+import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import { configApi } from './api/client';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,6 +35,22 @@ function Placeholder({ title }: { title: string }) {
 }
 
 function App() {
+  const { i18n } = useTranslation();
+
+  useEffect(() => {
+    const syncLanguage = async () => {
+      try {
+        const { language } = await configApi.getUiLanguage();
+        if (language && language !== i18n.language) {
+          i18n.changeLanguage(language);
+        }
+      } catch (e) {
+        console.error("Failed to sync UI language", e);
+      }
+    };
+    syncLanguage();
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>

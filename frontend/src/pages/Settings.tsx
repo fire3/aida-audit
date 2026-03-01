@@ -3,8 +3,9 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Select } from "../components/ui/select";
-import { auditApi, configApi, scheduleApi, type ScheduleConfig, type LlmConfig } from '../api/client';
+import { configApi, scheduleApi, type ScheduleConfig, type LlmConfig } from '../api/client';
 import { Bot, Clock, Globe, Settings as SettingsIcon } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 function TimePicker({ 
     label, 
@@ -57,6 +58,7 @@ function TimePicker({
 type TabType = 'llm' | 'schedule' | 'language';
 
 export function Settings() {
+    const { t, i18n } = useTranslation();
     const [activeTab, setActiveTab] = useState<TabType>('llm');
     const [config, setConfig] = useState<LlmConfig>({
         base_url: '',
@@ -68,6 +70,7 @@ export function Settings() {
         periods: [{ start: '09:00', stop: '18:00' }]
     });
     const [reportLanguage, setReportLanguage] = useState("Chinese");
+    const [uiLanguage, setUiLanguage] = useState("en");
     const [isLoading, setIsLoading] = useState(false);
     const [availableModels, setAvailableModels] = useState<string[]>([]);
     const [status, setStatus] = useState<{ type: 'success' | 'error' | null, message: string }>({ type: null, message: '' });
@@ -75,8 +78,23 @@ export function Settings() {
     useEffect(() => {
         fetchConfig();
         fetchSchedule();
-        fetchReportLanguage();
+        fetchLanguages();
     }, []);
+
+    const fetchLanguages = async () => {
+        try {
+            const reportRes = await configApi.getReportLanguage();
+            setReportLanguage(reportRes.language);
+            
+            const uiRes = await configApi.getUiLanguage();
+            setUiLanguage(uiRes.language);
+            if (i18n.language !== uiRes.language) {
+                i18n.changeLanguage(uiRes.language);
+            }
+        } catch (error) {
+            console.error('Failed to fetch languages:', error);
+        }
+    };
 
     const fetchSchedule = async () => {
         try {
@@ -102,27 +120,19 @@ export function Settings() {
         }
     };
 
-    const fetchReportLanguage = async () => {
-        try {
-            const data = await auditApi.getReportLanguage();
-            setReportLanguage(data.language || "Chinese");
-        } catch (error) {
-            console.error('Failed to fetch report language:', error);
-        }
-    };
-
-    const handleSaveReportLanguage = async () => {
+    const handleSaveLanguages = async () => {
         setIsLoading(true);
         try {
-            await auditApi.updateReportLanguage(reportLanguage);
-            setStatus({ type: 'success', message: "Report language updated successfully" });
-        } catch (error) {
-            setStatus({ type: 'error', message: "Failed to update report language" });
+            await configApi.updateReportLanguage(reportLanguage);
+            await configApi.updateUiLanguage(uiLanguage);
+            i18n.changeLanguage(uiLanguage);
+            setStatus({ type: 'success', message: "Languages updated successfully" });
+        } catch (error: any) {
+            setStatus({ type: 'error', message: error.message || "Failed to update languages" });
         } finally {
             setIsLoading(false);
         }
     };
-
 
     const fetchConfig = async () => {
         try {
@@ -423,26 +433,45 @@ export function Settings() {
                     {activeTab === 'language' && (
                         <Card>
                             <CardHeader>
-                                <CardTitle>Report Language</CardTitle>
+                                <CardTitle>{t('settings.title')}</CardTitle>
                                 <CardDescription>
-                                    Configure the language for audit reports and finding descriptions.
+                                    Configure the language for the interface and audit reports.
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">
+                                {status.message && (
+                                    <div className={`p-3 rounded-md text-sm ${status.type === 'error' ? 'bg-red-50 text-red-900 border border-red-200' : 'bg-green-50 text-green-900 border border-green-200'}`}>
+                                        {status.message}
+                                    </div>
+                                )}
+                                
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium leading-none">Language</label>
-                                    <select
-                                        className="w-full px-3 py-2 border rounded-md bg-background"
+                                    <label className="text-sm font-medium leading-none">{t('settings.language')}</label>
+                                    <Select
+                                        value={uiLanguage}
+                                        onChange={(e) => setUiLanguage(e.target.value)}
+                                        className="w-full"
+                                    >
+                                        <option value="en">English (英文)</option>
+                                        <option value="zh">Chinese (中文)</option>
+                                    </Select>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium leading-none">{t('settings.report_language')}</label>
+                                    <Select
                                         value={reportLanguage}
                                         onChange={(e) => setReportLanguage(e.target.value)}
+                                        className="w-full"
                                     >
                                         <option value="Chinese">Chinese (中文)</option>
                                         <option value="English">English (英文)</option>
-                                    </select>
+                                    </Select>
                                 </div>
+
                                 <div className="flex justify-end pt-4">
-                                    <Button onClick={handleSaveReportLanguage} disabled={isLoading}>
-                                        {isLoading ? "Saving..." : "Save Language"}
+                                    <Button onClick={handleSaveLanguages} disabled={isLoading}>
+                                        {isLoading ? "Saving..." : t('settings.save')}
                                     </Button>
                                 </div>
                             </CardContent>

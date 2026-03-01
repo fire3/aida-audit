@@ -688,4 +688,13 @@ export const configApi = {
 
   validate: (config: { base_url: string; api_key: string; model: string }) =>
     apiClient.post<ValidateConfigResult>('/config/validate', config).then(res => res.data),
+
+  getUserPrompt: () => apiClient.get<{ content: string }>('/config/user-prompt').then(res => res.data),
+  updateUserPrompt: (content: string) => apiClient.post('/config/user-prompt', { content }).then(res => res.data),
+
+  getReportLanguage: () => apiClient.get<{ language: string }>('/config/report-language').then(res => res.data),
+  updateReportLanguage: (language: string) => apiClient.post('/config/report-language', { language }).then(res => res.data),
+
+  getUiLanguage: () => apiClient.get<{ language: string }>('/config/ui-language').then(res => res.data),
+  updateUiLanguage: (language: string) => apiClient.post('/config/ui-language', { language }).then(res => res.data),
 };

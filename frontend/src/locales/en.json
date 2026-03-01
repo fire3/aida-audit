@@ -1,0 +1,21 @@
+{
+  "dashboard": {
+    "title": "Audit Dashboard",
+    "tabs": {
+      "plan": "Plan",
+      "finished": "Finished",
+      "live": "Live",
+      "logs": "Logs",
+      "chat": "Chat",
+      "findings": "Findings",
+      "notes": "Notes",
+      "coverage": "Coverage"
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "UI Language",
+    "report_language": "Report Language",
+    "save": "Save"
+  }
+}

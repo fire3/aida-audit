@@ -177,6 +177,9 @@ def update_user_prompt(prompt: UserPrompt):
 class ReportLanguage(BaseModel):
     language: str
 
+class UiLanguage(BaseModel):
+    language: str
+
 @api_router.get("/config/report-language")
 def get_report_language():
     config = Config()
@@ -186,6 +189,17 @@ def get_report_language():
 def update_report_language(lang: ReportLanguage):
     config = Config()
     config.set_report_language(lang.language)
+    return {"status": "ok"}
+
+@api_router.get("/config/ui-language")
+def get_ui_language():
+    config = Config()
+    return {"language": config.get_ui_language()}
+
+@api_router.post("/config/ui-language")
+def update_ui_language(lang: UiLanguage):
+    config = Config()
+    config.set_ui_language(lang.language)
     return {"status": "ok"}
 
 @api_router.get("/config")

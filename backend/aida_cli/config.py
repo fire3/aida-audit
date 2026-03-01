@@ -16,7 +16,8 @@ DEFAULT_CONFIG = {
         "command": [sys.executable, "-m", "aida_cli.mcp_stdio_server", "--project", "."],
         "working_directory": "."
     },
-    "report_language": "Chinese"
+    "report_language": "Chinese",
+    "ui_language": "en"
 }
 
 class Config:
@@ -78,4 +79,11 @@ class Config:
 
     def set_report_language(self, language: str):
         self.data["report_language"] = language
+        self.save()
+
+    def get_ui_language(self) -> str:
+        return os.environ.get("AIDA_UI_LANGUAGE") or self.data.get("ui_language", "en")
+
+    def set_ui_language(self, language: str):
+        self.data["ui_language"] = language
         self.save()

@@ -1,0 +1,21 @@
+{
+  "dashboard": {
+    "title": "审计仪表盘",
+    "tabs": {
+      "plan": "计划",
+      "finished": "已完成",
+      "live": "实时",
+      "logs": "日志",
+      "chat": "对话",
+      "findings": "发现",
+      "notes": "笔记",
+      "coverage": "覆盖率"
+    }
+  },
+  "settings": {
+    "title": "设置",
+    "language": "界面语言",
+    "report_language": "报告语言",
+    "save": "保存"
+  }
+}
