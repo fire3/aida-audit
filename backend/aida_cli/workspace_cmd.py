@@ -71,6 +71,17 @@ def _copy_skills(skills_root, target_root):
     return copied
 
 
+def _build_mcp_json_config(url):
+    return {
+        "mcpServers": {
+            "aida": {
+                "type": "http",
+                "url": url
+            }
+        }
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="Initialize a local MCP workspace")
     parser.add_argument("--init", required=True, default=".", help="Workspace directory to initialize")
@@ -94,6 +105,12 @@ def main():
     path = os.path.join(workspace_root, "opencode.json")
     _write_json(path, payload)
     print(f"opencode: {path}")
+
+    # Generate .mcp.json for Claude
+    if args.transport == "http":
+        mcp_json_path = os.path.join(workspace_root, ".mcp.json")
+        _write_json(mcp_json_path, _build_mcp_json_config(args.url))
+        print(f"mcp: {mcp_json_path}")
 
     skills_source = _resolve_skills_root()
     copied = []
