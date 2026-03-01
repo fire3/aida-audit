@@ -71,13 +71,38 @@ def _copy_skills(skills_root, target_root):
     return copied
 
 
-def _build_mcp_json_config(url):
+def _build_mcp_http_config(url):
     return {
         "mcpServers": {
             "aida": {
                 "type": "http",
                 "url": url
             }
+        }
+    }
+
+
+def _build_mcp_stdio_config(project, python_cmd):
+    command = python_cmd
+    if os.name == "nt" and " " in command:
+        command = "python"
+    return {
+        "mcpServers": {
+            "aida": {
+                "command": command,
+                "args": ["-m", "aida_cli.mcp_stdio_server", "--project", project]
+            }
+        }
+    }
+
+
+def _build_claude_settings():
+    return {
+        "permissions": {
+            "allow": [
+                "mcp__aida",
+                "mcp__aida__*"
+            ]
         }
     }
 
@@ -107,10 +132,19 @@ def main():
     print(f"opencode: {path}")
 
     # Generate .mcp.json for Claude
+    mcp_json_path = os.path.join(workspace_root, ".mcp.json")
     if args.transport == "http":
-        mcp_json_path = os.path.join(workspace_root, ".mcp.json")
-        _write_json(mcp_json_path, _build_mcp_json_config(args.url))
-        print(f"mcp: {mcp_json_path}")
+        _write_json(mcp_json_path, _build_mcp_http_config(args.url))
+    else:
+        _write_json(mcp_json_path, _build_mcp_stdio_config(project_root, args.python_cmd))
+    print(f"mcp: {mcp_json_path}")
+
+    # Generate .claude/settings.json for Claude permissions
+    claude_dir = os.path.join(workspace_root, ".claude")
+    os.makedirs(claude_dir, exist_ok=True)
+    settings_path = os.path.join(claude_dir, "settings.json")
+    _write_json(settings_path, _build_claude_settings())
+    print(f"claude: {settings_path}")
 
     skills_source = _resolve_skills_root()
     copied = []
