@@ -3,14 +3,16 @@ import { useState, useEffect } from 'react';
 import { auditApi } from '../api/client';
 import { Button } from '../components/ui/button';
 import { MessageSquare } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 export function UserPromptConfig() {
+    const { t } = useTranslation();
     const [isEditing, setIsEditing] = useState(false);
     const [prompt, setPrompt] = useState("");
     const [loading, setLoading] = useState(false);
 
-    const { data, refetch } = useQuery({ 
-        queryKey: ['userPrompt'], 
+    const { data, refetch } = useQuery({
+        queryKey: ['userPrompt'],
         queryFn: auditApi.getUserPrompt,
         refetchOnWindowFocus: false
     });
@@ -39,20 +41,20 @@ export function UserPromptConfig() {
             <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold text-sm flex items-center gap-2">
                     <MessageSquare className="w-4 h-4 text-blue-500" />
-                    User Requirements (Macro Goal)
+                    {t('plan_view.user_requirements')}
                 </h3>
                 {!isEditing && (
                     <Button variant="ghost" size="sm" onClick={() => setIsEditing(true)} className="h-6 text-xs">
-                        Edit
+                        {t('plan_view.edit')}
                     </Button>
                 )}
             </div>
-            
+
             {isEditing ? (
                 <div className="space-y-2">
-                    <textarea 
+                    <textarea
                         className="w-full text-xs p-2 border rounded bg-slate-50 dark:bg-slate-800 min-h-[60px] focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        placeholder="Enter your specific requirements or macro goals for the audit..."
+                        placeholder={t('plan_view.requirements_placeholder')}
                         value={prompt}
                         onChange={(e) => setPrompt(e.target.value)}
                     />
@@ -61,10 +63,10 @@ export function UserPromptConfig() {
                             setIsEditing(false);
                             setPrompt(data?.content || "");
                         }} className="h-7 text-xs">
-                            Cancel
+                            {t('plan_view.cancel')}
                         </Button>
                         <Button size="sm" onClick={handleSave} disabled={loading} className="h-7 text-xs">
-                            {loading ? "Saving..." : "Save"}
+                            {loading ? t('plan_view.saving') : t('plan_view.save')}
                         </Button>
                     </div>
                 </div>
@@ -73,7 +75,7 @@ export function UserPromptConfig() {
                     {prompt ? (
                         <p className="whitespace-pre-wrap">{prompt}</p>
                     ) : (
-                        <p className="italic opacity-70">No specific requirements set. Click Edit to add instructions for the agent.</p>
+                        <p className="italic opacity-70">{t('plan_view.no_requirements')}</p>
                     )}
                 </div>
             )}
