@@ -146,7 +146,7 @@ class McpService:
         return self.project_store.get_overview()
 
     @mcp_tool(name="get_project_binaries")
-    def get_project_binaries(self, offset: int = 0, limit: int = 50, filters: dict = None, detail: bool = False) -> List[Dict[str, Any]]:
+    def get_project_binaries(self, offset: int = 0, limit: int = 50, filters: dict = None, detail: bool = False, role: str = None) -> List[Dict[str, Any]]:
         """List all binaries available in the current project with pagination support.
 
         Use this tool to discover available binaries for analysis. It returns basic metadata for each binary, allowing you to select specific targets for deeper inspection.
@@ -156,11 +156,12 @@ class McpService:
             limit: The maximum number of binaries to return (max 50). Use a lower value for quick checks.
             filters: A dictionary of key-value pairs to filter the results (e.g., {'arch': 'x86'}).
             detail: If True, returns extended metadata for each binary (slower). Default is False.
+            role: Filter by role - 'target' for main binary, 'dependency' for libraries.
 
         Returns:
             list: A list of binary metadata objects, each containing 'name', 'size', 'arch', etc.
         """
-        return self.project_store.get_project_binaries(offset, limit, filters, detail)
+        return self.project_store.get_project_binaries(offset, limit, filters, detail, role)
 
     @mcp_tool(name="get_binary_metadata")
     def get_binary_metadata(self, binary_name: str) -> Dict[str, Any]:

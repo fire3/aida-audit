@@ -33,7 +33,7 @@ def _to_int(value, default=None):
         return default
 
 
-def import_ghidra_export(export_dir, output_db, logger=None):
+def import_ghidra_export(export_dir, output_db, logger=None, role=None):
     export_dir = os.path.abspath(export_dir)
     output_db = os.path.abspath(output_db)
 
@@ -43,6 +43,9 @@ def import_ghidra_export(export_dir, output_db, logger=None):
 
     meta = _load_json(os.path.join(export_dir, "metadata.json"))
     if isinstance(meta, dict):
+        # Add role if provided
+        if role:
+            meta["role"] = role
         db.insert_metadata_json(json.dumps(meta))
 
     segments = _load_json_lines(os.path.join(export_dir, "segments.jsonl"))

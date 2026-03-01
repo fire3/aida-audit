@@ -36,11 +36,12 @@ except ImportError:
 from ida_utils import ProgressTracker, calculate_entropy
 
 class IDAExporter:
-    def __init__(self, db, logger, timer, input_file=None):
+    def __init__(self, db, logger, timer, input_file=None, role=None):
         self.db = db
         self.log = logger.log
         self.timer = timer
         self.input_file = input_file
+        self.role = role
 
     def get_binary_info_dict(self):
         """Extract all metadata about the loaded binary in IDA and return as a complete dictionary matching frontend requirements.
@@ -162,9 +163,10 @@ class IDAExporter:
                 "compiler_name": compiler_name,
                 "compiler_abbr": compiler_abbr
             },
-            "libraries": libraries
+            "libraries": libraries,
+            "role": self.role if hasattr(self, 'role') else None
         }
-        
+
         return final_meta
 
     def safe_int(self, val):

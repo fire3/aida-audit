@@ -70,6 +70,7 @@ def main():
     parser.add_argument("--perf-json", help="Write performance stats JSON to this path")
     parser.add_argument("--no-perf-report", action="store_true", help="Do not print the textual performance summary")
     parser.add_argument("--plain-log", action="store_true", help="Use plain logging (no timestamps, just messages)")
+    parser.add_argument("--role", choices=["target", "dependency"], help="Role of the binary: target (main) or dependency")
     
     # In IDA, argv[0] is the executable or the script. 
     # If run via "File > Script file", sys.argv is usually just the script path (or empty in some versions).
@@ -234,7 +235,7 @@ def main():
         db.connect()
         db.create_schema()
         
-        exporter = IDAExporter(db, logger, timer, input_file=root_filename)
+        exporter = IDAExporter(db, logger, timer, input_file=root_filename, role=args.role)
         export_stats = {}
         
         if args.parallel_worker:
