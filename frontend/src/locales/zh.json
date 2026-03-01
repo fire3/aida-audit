@@ -52,12 +52,13 @@
       "string_placeholder": "搜索字符串...",
       "match_contains": "包含",
       "match_exact": "精确",
-    "match_regex": "正则",
-    "search_btn": "搜索",
-    "searching": "搜索中...",
-    "no_functions": "未找到函数。",
-    "no_strings": "未找到字符串。",
-    "library": "(库函数)"
+      "match_regex": "正则",
+      "search_btn": "搜索",
+      "searching": "搜索中...",
+      "no_functions": "未找到函数。",
+      "no_strings": "未找到字符串。",
+      "library": "(库函数)"
+    }
   },
   "binary_overview": {
     "loading": "加载元数据中...",
@@ -182,9 +183,6 @@
     "title_placeholder_task": "例如: 分析登录函数",
     "description_task": "描述",
     "description_placeholder_task": "代理的详细指令...",
-    "create_task_btn": "创建任务",
-    "parent": "父级",
-    "tasks": "任务"
+    "create_task_btn": "创建任务"
   }
-}
 }

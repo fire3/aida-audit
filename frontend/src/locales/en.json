@@ -52,12 +52,13 @@
       "string_placeholder": "Search strings...",
       "match_contains": "Contains",
       "match_exact": "Exact",
-    "match_regex": "Regex",
-    "search_btn": "Search",
-    "searching": "Searching...",
-    "no_functions": "No functions found.",
-    "no_strings": "No strings found.",
-    "library": "(Library)"
+      "match_regex": "Regex",
+      "search_btn": "Search",
+      "searching": "Searching...",
+      "no_functions": "No functions found.",
+      "no_strings": "No strings found.",
+      "library": "(Library)"
+    }
   },
   "binary_overview": {
     "loading": "Loading metadata...",
@@ -182,9 +183,6 @@
     "title_placeholder_task": "e.g., Analyze login function",
     "description_task": "Description",
     "description_placeholder_task": "Detailed instructions for the agent...",
-    "create_task_btn": "Create Task",
-    "parent": "Parent",
-    "tasks": "Tasks"
+    "create_task_btn": "Create Task"
   }
-}
 }
