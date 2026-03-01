@@ -5,22 +5,6 @@ import argparse
 import shutil
 
 
-def _build_opencode_stdio_config(project, python_cmd, server_name):
-    command = python_cmd
-    if os.name == "nt" and " " in command:
-        command = "python"
-    return {
-        "$schema": "https://opencode.ai/config.json",
-        "mcp": {
-            server_name: {
-                "type": "local",
-                "command": [command, "-m", "aida_cli.mcp_stdio_server", "--project", project],
-                "enabled": True,
-            }
-        }
-    }
-
-
 def _build_opencode_http_config(url, server_name):
     return {
         "$schema": "https://opencode.ai/config.json",
@@ -82,67 +66,45 @@ def _build_mcp_http_config(url):
     }
 
 
-def _build_mcp_stdio_config(project, python_cmd):
-    command = python_cmd
-    if os.name == "nt" and " " in command:
-        command = "python"
-    return {
-        "mcpServers": {
-            "aida": {
-                "command": command,
-                "args": ["-m", "aida_cli.mcp_stdio_server", "--project", project]
-            }
-        }
-    }
-
-
 def _build_claude_settings():
     return {
         "permissions": {
             "allow": [
-                "mcp__aida",
                 "mcp__aida__*"
             ]
-        }
+        },
+        "enableAllProjectMcpServers": True,
+        "enabledMcpjsonServers": [
+            "aida"
+        ]
     }
 
 
 def main():
     parser = argparse.ArgumentParser(description="Initialize a local MCP workspace")
     parser.add_argument("--init", required=True, default=".", help="Workspace directory to initialize")
-    parser.add_argument("--transport", choices=["stdio", "http"], default="http")
     parser.add_argument("--python", dest="python_cmd", default=sys.executable)
     parser.add_argument("--url", default="http://127.0.0.1:8765/mcp")
     args = parser.parse_args()
 
     workspace_root = os.path.abspath(args.init)
-    project_root = os.path.join(workspace_root, "project")
     opencode_skills_root = os.path.join(workspace_root, ".opencode", "skills")
-    os.makedirs(project_root, exist_ok=True)
     os.makedirs(opencode_skills_root, exist_ok=True)
 
-    def get_payload():
-        if args.transport == "stdio":
-            return _build_opencode_stdio_config(project_root, args.python_cmd, "aida-cli")
-        return _build_opencode_http_config(args.url, "aida-cli")
-
-    payload = get_payload()
+    # Generate opencode.json for Opencode
     path = os.path.join(workspace_root, "opencode.json")
-    _write_json(path, payload)
+    _write_json(path, _build_opencode_http_config(args.url, "aida-cli"))
     print(f"opencode: {path}")
 
     # Generate .mcp.json for Claude
     mcp_json_path = os.path.join(workspace_root, ".mcp.json")
-    if args.transport == "http":
-        _write_json(mcp_json_path, _build_mcp_http_config(args.url))
-    else:
-        _write_json(mcp_json_path, _build_mcp_stdio_config(project_root, args.python_cmd))
+    _write_json(mcp_json_path, _build_mcp_http_config(args.url))
     print(f"mcp: {mcp_json_path}")
 
     # Generate .claude/settings.json for Claude permissions
     claude_dir = os.path.join(workspace_root, ".claude")
     os.makedirs(claude_dir, exist_ok=True)
-    settings_path = os.path.join(claude_dir, "settings.json")
+    settings_path = os.path.join(claude_dir, "settings.local.json")
     _write_json(settings_path, _build_claude_settings())
     print(f"claude: {settings_path}")
 
