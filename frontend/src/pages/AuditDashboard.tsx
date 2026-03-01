@@ -19,13 +19,13 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { PlanView } from '../components/PlanView';
 import { FinishedPlansView } from '../components/FinishedPlansView';
-import { VulnerabilitiesView } from '../components/VulnerabilitiesView';
+import { FindingsView } from '../components/FindingsView';
 import { NotesView } from '../components/NotesView';
 import { CoverageView } from '../components/CoverageView';
 
 export function AuditDashboard() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'plan' | 'finished' | 'live' | 'logs' | 'chat' | 'vulnerabilities' | 'notes' | 'coverage'>('plan');
+  const [activeTab, setActiveTab] = useState<'plan' | 'finished' | 'live' | 'logs' | 'chat' | 'findings' | 'notes' | 'coverage'>('plan');
   const [manualSessionId, setManualSessionId] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [streamMessages, setStreamMessages] = useState<AuditMessage[]>([]);
@@ -236,7 +236,7 @@ export function AuditDashboard() {
   }, [activeTab, liveMessages.length, liveChunkContent.content, liveChunkContent.reasoning]);
 
   const { data: notes } = useQuery({ queryKey: ['auditNotes'], queryFn: () => auditApi.getNotes(), refetchInterval: autoRefresh ? 5000 : false });
-  const { data: vulnerabilities } = useQuery({ queryKey: ['auditVulnerabilities'], queryFn: () => auditApi.getVulnerabilities(), refetchInterval: autoRefresh ? 5000 : false });
+  const { data: findings } = useQuery({ queryKey: ['auditFindings'], queryFn: () => auditApi.getFindings(), refetchInterval: autoRefresh ? 5000 : false });
 
   const startMutation = useMutation({
     mutationFn: auditApi.start,
@@ -473,10 +473,10 @@ export function AuditDashboard() {
           <CheckCircle2 className="w-4 h-4" /> Finished
         </button>
         <button 
-          onClick={() => setActiveTab('vulnerabilities')}
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'vulnerabilities' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+          onClick={() => setActiveTab('findings')}
+          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${activeTab === 'findings' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
         >
-          <AlertTriangle className="w-4 h-4" /> Vulnerabilities
+          <AlertTriangle className="w-4 h-4" /> Findings
         </button>
         <button
           onClick={() => setActiveTab('notes')}
@@ -582,15 +582,15 @@ export function AuditDashboard() {
           </div>
         )}
         
-        {activeTab === 'vulnerabilities' && (
+        {activeTab === 'findings' && (
           <Card className="h-full flex flex-col border-0 shadow-none bg-transparent">
             <CardContent className="flex-1 overflow-auto p-0">
-               {vulnerabilities && vulnerabilities.length > 0 ? (
-                   <VulnerabilitiesView vulnerabilities={vulnerabilities} />
+               {findings && findings.length > 0 ? (
+                   <FindingsView findings={findings} />
                ) : (
                  <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                    <AlertTriangle className="w-12 h-12 mb-4 opacity-20" />
-                   <p>No security vulnerabilities yet.</p>
+                   <p>No security findings yet.</p>
                  </div>
                )}
             </CardContent>

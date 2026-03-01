@@ -962,7 +962,7 @@ class McpService:
         Args:
             binary_name: The binary file name this note is associated with.
             content: The note content (analysis findings, observations, etc.).
-            note_type: Type of note. Options: vulnerability, behavior, function_summary,
+            note_type: Type of note. Options: finding, behavior, function_summary,
                        data_structure, control_flow, crypto_usage, obfuscation, io_operation, general.
             title: Optional title for the note.
             function_name: Optional function name to associate with this note.
@@ -1040,35 +1040,35 @@ class McpService:
         """
         return audit_mcp_tools.audit_delete_note(note_id=note_id)
 
-    @mcp_tool(name="audit_report_vulnerability")
-    def audit_report_vulnerability(self, binary_name: str, severity: str, category: str, title: str, description: str,
+    @mcp_tool(name="audit_report_finding")
+    def audit_report_finding(self, binary_name: str, severity: str, category: str, title: str, description: str,
                            function_name: str = None, address = None,
                            evidence: str = None, cvss: float = None,
                            exploitability: str = None) -> Dict[str, Any]:
-        """Report a confirmed or suspected security vulnerability.
+        """Report a confirmed or suspected security finding.
 
         Use this tool ONLY for reporting significant security issues (e.g., buffer overflows, logic flaws, hardcoded secrets).
         Do NOT use this for general observations or code quality issues (use `audit_create_note` for those).
 
         Args:
-            binary_name: The binary file name this vulnerability is associated with.
-            severity: Vulnerability severity. Options: critical, high, medium, low, info.
-            category: Vulnerability category. Options: buffer_overflow, format_string, integer_overflow,
+            binary_name: The binary file name this finding is associated with.
+            severity: Finding severity. Options: critical, high, medium, low, info.
+            category: Finding category. Options: buffer_overflow, format_string, integer_overflow,
                       use_after_free, double_free, memory_disclosure, crypto_weak, hardcoded_secret,
                       injection, path_traversal, authentication, authorization, anti_debug, anti_vm,
                       packing, other.
-            title: Short title for the vulnerability.
-            description: Detailed description of the vulnerability.
-            function_name: Optional function name associated with this vulnerability.
-            address: Optional virtual address (hex or int) associated with this vulnerability.
-            evidence: Optional evidence or code snippet supporting the vulnerability.
+            title: Short title for the finding.
+            description: Detailed description of the finding.
+            function_name: Optional function name associated with this finding.
+            address: Optional virtual address (hex or int) associated with this finding.
+            evidence: Optional evidence or code snippet supporting the finding.
             cvss: Optional CVSS score (0.0-10.0).
             exploitability: Optional exploitability assessment.
 
         Returns:
-            dict: Contains vulnerability_id.
+            dict: Contains finding_id.
         """
-        return audit_mcp_tools.audit_report_vulnerability(
+        return audit_mcp_tools.audit_report_finding(
             binary_name=binary_name,
             severity=severity,
             category=category,
@@ -1081,10 +1081,10 @@ class McpService:
             exploitability=exploitability
         )
 
-    @mcp_tool(name="audit_get_vulnerabilities")
-    def audit_get_vulnerabilities(self, binary_name: str = None, severity: str = None,
+    @mcp_tool(name="audit_get_findings")
+    def audit_get_findings(self, binary_name: str = None, severity: str = None,
                            category: str = None, verification_status: str = None) -> List[Dict[str, Any]]:
-        """Query reported security vulnerabilities.
+        """Query reported security findings.
 
         Args:
             binary_name: Optional binary name to filter by.
@@ -1093,10 +1093,10 @@ class McpService:
             verification_status: Optional verification status filter. Options: unverified, confirmed, false_positive, needs_review, inconclusive.
 
         Returns:
-            list: Array of vulnerability objects with vulnerability_id, binary_name, function_name,
+            list: Array of finding objects with finding_id, binary_name, function_name,
                   address, severity, category, description, evidence, cvss, exploitability, created_at, verification_status.
         """
-        return audit_mcp_tools.audit_get_vulnerabilities(
+        return audit_mcp_tools.audit_get_findings(
             binary_name=binary_name,
             severity=severity,
             category=category,
@@ -1212,19 +1212,19 @@ class McpService:
         """
         return audit_mcp_tools.audit_delete_agent_task(task_id)
 
-    @mcp_tool(name="audit_report_vulnerability_verification")
-    def audit_report_vulnerability_verification(self, id: int, status: str, details: str = None) -> Dict[str, Any]:
-        """Update the verification status of a vulnerability.
+    @mcp_tool(name="audit_report_finding_verification")
+    def audit_report_finding_verification(self, id: int, status: str, details: str = None) -> Dict[str, Any]:
+        """Update the verification status of a finding.
 
         Args:
-            id: The ID of the vulnerability to update.
+            id: The ID of the finding to update.
             status: The new verification status. Options: confirmed, rejected, needs_review, inconclusive.
             details: Optional details or explanation for the verification result.
 
         Returns:
             dict: Contains 'success' boolean.
         """
-        return audit_mcp_tools.audit_report_vulnerability_verification(
+        return audit_mcp_tools.audit_report_finding_verification(
             id=id,
             status=status,
             details=details

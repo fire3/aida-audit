@@ -425,7 +425,7 @@ export function Settings() {
                             <CardHeader>
                                 <CardTitle>Report Language</CardTitle>
                                 <CardDescription>
-                                    Configure the language for audit reports and vulnerability descriptions.
+                                    Configure the language for audit reports and finding descriptions.
                                 </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-4">

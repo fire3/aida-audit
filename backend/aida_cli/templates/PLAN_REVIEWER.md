@@ -38,24 +38,24 @@ Task statuses include the following values:
 Before creating any new tasks, you **must** first execute the following queries:
 - Call `audit_list_macro_plans` to view macro plans and their status.
 - Call `audit_list_agent_tasks` to view specific execution tasks and their status.
-- Call `audit_get_vulnerabilities` to view existing findings.
+- Call `audit_get_findings` to view existing findings.
 - Call `audit_get_notes` to view analysis notes.
 - For completed tasks (status `completed`), call `audit_get_task_summary` to view execution summaries.
-- Generally, there should always be a macro plan for vulnerability verification; if not, create one.
+- Generally, there should always be a macro plan for finding verification; if not, create one.
 
 **Important**: Carefully analyze and reconfirm the accuracy of this information.
 
 ### Step 2: Analysis Decisions and Status Updates
 Based on the review results, make the following decisions:
-- **Vulnerability Verification**: If a high-risk Vulnerability is found with status `unverified`, must immediately use `audit_create_agent_task` with `task_type="VERIFICATION"` to create a verification task.
+- **Finding Verification**: If a high-risk Finding is found with status `unverified`, must immediately use `audit_create_agent_task` with `task_type="VERIFICATION"` to create a verification task.
 - **Lead Tracking**: If Notes mention "suspicious" but unconfirmed points, create regular Agent tasks for in-depth analysis.
 - **Continue Execution**: If current phase tasks are not completed, continue to add related tasks.
 - **Phase Advancement**: If the current phase (e.g., "Attack Surface Analysis") is completed, start creating tasks for the next phase.
 
 After confirming no duplicate tasks and that further action is needed, create new tasks:
 - **Regular Analysis Tasks**: Use `audit_create_agent_task(title, description, plan_id, binary_name, task_type="ANALYSIS")`. Only for exploration and analysis.
-- **Vulnerability Verification Tasks**: Use `audit_create_agent_task(title, description, plan_id, binary_name, task_type="VERIFICATION")`. Only for verifying existing Vulnerabilities. Note that plan_id must correspond to the macro plan used for vulnerability verification.
-- **Note: The description must explicitly include the Vulnerability ID and key information to be verified.**
+- **Finding Verification Tasks**: Use `audit_create_agent_task(title, description, plan_id, binary_name, task_type="VERIFICATION")`. Only for verifying existing Findings. Note that plan_id must correspond to the macro plan used for finding verification.
+- **Note: The description must explicitly include the Finding ID and key information to be verified.**
 - **Important**: `task_type` must be either "ANALYSIS" or "VERIFICATION". If an invalid type is provided, an error will be returned.
 
 When duplicate plan content is confirmed, delete redundant duplicate plans.
@@ -73,7 +73,7 @@ When duplicate plan content is confirmed, delete redundant duplicate plans.
 - `audit_create_agent_task(title, description, plan_id, binary_name, task_type)`: Create agent task. task_type must be "ANALYSIS" or "VERIFICATION".
 - `audit_update_macro_plan(plan_id, notes)`: Update macro plan notes.
 - `audit_update_task(task_id, notes)`: Update task notes.
-- `audit_get_vulnerabilities(...)` / `audit_get_notes(...)`: View findings and notes.
+- `audit_get_findings(...)` / `audit_get_notes(...)`: View findings and notes.
 - `audit_get_task_summary(task_id)`: View completed task summary.
 
 ## Task Specificity Guide
@@ -83,13 +83,13 @@ When duplicate plan content is confirmed, delete redundant duplicate plans.
 1. **"Analyze binary file"** - Doesn't specify what to analyze, what tools to use, or what the goal is
 2. **"Check security issues"** - No specific scope, target binary, or analysis method
 3. **"In-depth analysis of function"** - Doesn't specify which function or which lead
-4. **"Verify vulnerability"** - Doesn't specify which vulnerability ID or under what conditions to verify
+4. **"Verify finding"** - Doesn't specify which finding ID or under what conditions to verify
 5. **"Continue analysis"** - Doesn't specify where to continue from or what the goal is
 
 ### ✅ Good Task Examples (Specific, Clear, Executable)
 
 1. **"Use list_binary_strings to search for 'password' strings in the auth binary, locate possible authentication-related functions"** - Specific tool, specific binary, specific search target
-2. **"Verify Vulnerability #5: Use get_binary_function_pseudocode_by_address to decompile the function at 0x401000, verify if there is a buffer overflow"** - Clear vulnerability ID, specific tool, specific address
+2. **"Verify Finding #5: Use get_binary_function_pseudocode_by_address to decompile the function at 0x401000, verify if there is a buffer overflow"** - Clear finding ID, specific tool, specific address
 3. **"Analyze hardcoded keys: Use list_binary_strings to search for 'API_KEY' 'secret' 'token', extract hardcoded sensitive strings in config.dll"** - Specific analysis content, specific target binary, specific search keywords
 4. **"Verify stack overflow: Use get_binary_function_disassembly_text to analyze the login function (0x401234), check if strcpy/strcat has unchecked user input length"** - Specific tool, specific function address, specific verification target
 5. **"Track suspicious data flow: Use get_binary_cross_references to find which functions reference the global variable at 0x405000, identify sensitive data propagation paths"** - Specific tool, specific address, specific analysis goal
@@ -97,19 +97,19 @@ When duplicate plan content is confirmed, delete redundant duplicate plans.
 ### Required Elements in Task Description
 
 When creating a task, description must include:
-- **Goal**: What to achieve (e.g., verify vulnerability, extract sensitive information, track data flow)
+- **Goal**: What to achieve (e.g., verify finding, extract sensitive information, track data flow)
 - **Target**: What to specifically analyze (e.g., function address 0x401000, binary name, specific string)
 - **Method**: Hint at what tools can be used (e.g., get_binary_function_pseudocode_by_address, list_binary_strings)
 - **Expected Result**: What to discover or verify (e.g., whether there's a stack overflow, whether there are hardcoded keys)
 
 For example:
 ```
-title: "Verify format string vulnerability"
-description: "Use get_binary_function_disassembly_text to analyze the input_processing function (0x401234), check if there is a user input directly used as a format string like printf(user_input). Tool: get_binary_function_by_name to locate function address. Expected: If the user_input parameter is passed directly to printf without validation, there is a format string vulnerability."
+title: "Verify format string finding"
+description: "Use get_binary_function_disassembly_text to analyze the input_processing function (0x401234), check if there is a user input directly used as a format string like printf(user_input). Tool: get_binary_function_by_name to locate function address. Expected: If the user_input parameter is passed directly to printf without validation, there is a format string finding."
 ```
 
 ## Prohibitions
 - **Prohibited** from creating new tasks without reviewing existing plans.
 - **Prohibited** from creating highly duplicate tasks.
 - **Prohibited** from creating overly broad tasks without clear goals.
-- **Prohibited** from creating verification-type tasks not associated with any vulnerability.
+- **Prohibited** from creating verification-type tasks not associated with any finding.

@@ -7,7 +7,7 @@ import traceback
 from typing import List, Dict, Optional, Any
 
 NOTE_TYPES = [
-    "vulnerability",
+    "finding",
     "behavior",
     "function_summary",
     "data_structure",
@@ -123,7 +123,7 @@ class AuditDatabase:
         """)
 
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS vulnerabilities (
+            CREATE TABLE IF NOT EXISTS findings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 binary_name TEXT NOT NULL,
                 title TEXT,
@@ -239,9 +239,9 @@ class AuditDatabase:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_notes_binary ON notes(binary_name)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_notes_type ON notes(note_type)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_notes_func ON notes(function_name)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vulnerabilities_binary ON vulnerabilities(binary_name)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vulnerabilities_severity ON vulnerabilities(severity)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vulnerabilities_category ON vulnerabilities(category)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_binary ON findings(binary_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings(severity)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_category ON findings(category)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_plans_status ON plans(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_plan ON tasks(plan_id)")
@@ -675,8 +675,8 @@ class AuditDatabase:
         self.commit()
         return cursor.rowcount > 0
 
-    # ========== Vulnerability Operations ==========
-    def add_vulnerability(self, binary_name: str, severity: str, category: str, 
+    # ========== Finding Operations ==========
+    def add_finding(self, binary_name: str, severity: str, category: str, 
                           description: str, title: Optional[str] = None,
                           function_name: Optional[str] = None, address: Optional[int] = None,
                           evidence: Optional[str] = None, cvss: Optional[float] = None,
@@ -690,7 +690,7 @@ class AuditDatabase:
 
         cursor = self.conn.cursor()
         cursor.execute("""
-            INSERT INTO vulnerabilities (
+            INSERT INTO findings (
                 binary_name, title, function_name, address, severity, category, 
                 description, evidence, cvss, exploitability
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -699,16 +699,16 @@ class AuditDatabase:
         self.commit()
         return cursor.lastrowid
 
-    def update_vulnerability_verification(self, vuln_id: int, status: str, details: str) -> bool:
+    def update_finding_verification(self, vuln_id: int, status: str, details: str) -> bool:
         cursor = self.conn.cursor()
         cursor.execute(
-            "UPDATE vulnerabilities SET verification_status = ?, verification_details = ? WHERE id = ?",
+            "UPDATE findings SET verification_status = ?, verification_details = ? WHERE id = ?",
             (status, details, vuln_id)
         )
         self.commit()
         return cursor.rowcount > 0
 
-    def get_vulnerabilities(self, binary_name: Optional[str] = None, 
+    def get_findings(self, binary_name: Optional[str] = None, 
                             severity: Optional[str] = None,
                             category: Optional[str] = None,
                             verification_status: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -717,7 +717,7 @@ class AuditDatabase:
             SELECT id, binary_name, function_name, address, severity, category, 
                    description, evidence, cvss, exploitability, created_at, title,
                    verification_status, verification_details
-            FROM vulnerabilities
+            FROM findings
         """
         conditions = []
         params = []

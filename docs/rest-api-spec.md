@@ -74,8 +74,8 @@
 ### 漏洞接口
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | /api/v1/vulnerabilities | 获取漏洞列表 |
-| POST | /api/v1/vulnerabilities | 报告漏洞 |
+| GET | /api/v1/findings | 获取漏洞列表 |
+| POST | /api/v1/findings | 报告漏洞 |
 
 ### 审计接口
 | 方法 | 路径 | 说明 |
@@ -90,7 +90,7 @@
 | GET | /api/v1/audit/stream/{session_id} | SSE 流式消息 |
 | GET | /api/v1/audit/sessions | 获取会话列表 |
 | GET | /api/v1/audit/notes | 获取审计笔记 |
-| GET | /api/v1/audit/vulnerabilities | 获取审计漏洞 |
+| GET | /api/v1/audit/findings | 获取审计漏洞 |
 | GET | /api/v1/audit/status | 获取审计状态 |
 | GET | /api/v1/audit/schedule | 获取审计调度配置 |
 | POST | /api/v1/audit/schedule | 更新审计调度配置 |
@@ -368,7 +368,7 @@ GET /api/v1/binary/{binary_name}/xrefs/0x401000
 #### 获取笔记
 
 ```
-GET /api/v1/notes?binary_name=app.exe&note_type=vulnerability&limit=50
+GET /api/v1/notes?binary_name=app.exe&note_type=finding&limit=50
 ```
 
 #### 创建笔记
@@ -383,7 +383,7 @@ POST /api/v1/notes
     "binary_name": "app.exe",
     "title": "Buffer overflow found",
     "content": "详细描述...",
-    "note_type": "vulnerability",
+    "note_type": "finding",
     "function_name": "process_input",
     "address": 4198400,
     "tags": ["critical", "buffer"],
@@ -419,13 +419,13 @@ DELETE /api/v1/notes/{note_id}
 #### 获取漏洞
 
 ```
-GET /api/v1/vulnerabilities?binary_name=app.exe&severity=high
+GET /api/v1/findings?binary_name=app.exe&severity=high
 ```
 
 #### 报告漏洞
 
 ```
-POST /api/v1/vulnerabilities
+POST /api/v1/findings
 ```
 
 请求体：

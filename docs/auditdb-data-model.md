@@ -17,7 +17,7 @@ AuditDB 是 AIDA-CLI 用于存储安全审计工作数据的 SQLite 数据库。
 | [tags](#tags) | 标签定义 | tag_id |
 | [notes](#notes) | 审计笔记 | note_id |
 | [note_tags](#note_tags) | 笔记-标签关联 | (复合主键) |
-| [vulnerabilities](#vulnerabilities) | 漏洞记录 | id |
+| [findings](#findings) | 漏洞记录 | id |
 | [plans](#plans) | 审计计划 | id |
 | [tasks](#tasks) | 审计任务 | id |
 | [audit_logs](#audit_logs) | 审计日志 | id |
@@ -63,7 +63,7 @@ AuditDB 是 AIDA-CLI 用于存储安全审计工作数据的 SQLite 数据库。
 
 | 值 | 说明 |
 |----|------|
-| vulnerability | 漏洞相关 |
+| finding | 漏洞相关 |
 | behavior | 行为分析 |
 | function_summary | 函数总结 |
 | data_structure | 数据结构 |
@@ -95,7 +95,7 @@ AuditDB 是 AIDA-CLI 用于存储安全审计工作数据的 SQLite 数据库。
 
 ---
 
-### vulnerabilities
+### findings
 
 漏洞记录表，记录安全审计中发现的漏洞。
 
@@ -363,7 +363,7 @@ from aida_cli.audit_database import AuditDatabase
 audit_db = AuditDatabase(project_path)
 
 # 添加漏洞记录
-vuln_id = audit_db.add_vulnerability(
+vuln_id = audit_db.add_finding(
     binary_name="app.exe",
     title="Stack Buffer Overflow",
     severity="high",

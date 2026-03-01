@@ -43,7 +43,7 @@ Task statuses include the following values:
      - Phase 1: "Attack Surface Enumeration" - Identify all external interfaces (network ports, file parsing, IPC).
      - Phase 2: "Dangerous Function Audit" - Scan for `system`, `exec`, `strncpy`, `sprintf`, etc.
      - Phase 3: "Critical Logic Audit" - Authentication bypass, privilege escalation logic, cryptography-related logic, etc.
-     - Phase 4: "Vulnerability Verification" - In-depth construction and verification of suspected vulnerabilities.
+     - Phase 4: "Finding Verification" - In-depth construction and verification of suspected findings.
 
 3. **Dispatch Initial Tasks (Agent Task)**:
    - Create several specific execution tasks for each phase (e.g., "Attack Surface Enumeration").

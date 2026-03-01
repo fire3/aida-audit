@@ -186,16 +186,16 @@ def audit_delete_note(note_id: int) -> Dict[str, Any]:
     success = db.delete_note(note_id)
     return {"success": success}
 
-# ========== Vulnerability Tools ==========
+# ========== Finding Tools ==========
 
-def audit_report_vulnerability(binary_name: str, severity: str, category: str, title: str, description: str,
+def audit_report_finding(binary_name: str, severity: str, category: str, title: str, description: str,
                        function_name: str = None, address = None,
                        evidence: str = None, cvss: float = None,
                        exploitability: str = None) -> Dict[str, Any]:
-    """Report a confirmed or suspected security vulnerability."""
+    """Report a confirmed or suspected security finding."""
     db = get_audit_db()
     
-    vuln_id = db.add_vulnerability(
+    vuln_id = db.add_finding(
         binary_name=binary_name,
         severity=severity,
         category=category,
@@ -207,23 +207,23 @@ def audit_report_vulnerability(binary_name: str, severity: str, category: str, t
         cvss=cvss,
         exploitability=exploitability
     )
-    return {"vulnerability_id": vuln_id, "status": "success"}
+    return {"finding_id": vuln_id, "status": "success"}
 
-def audit_get_vulnerabilities(binary_name: str = None, severity: str = None,
+def audit_get_findings(binary_name: str = None, severity: str = None,
                        category: str = None, verification_status: str = None) -> List[Dict[str, Any]]:
-    """Query reported security vulnerabilities."""
+    """Query reported security findings."""
     db = get_audit_db()
-    return db.get_vulnerabilities(
+    return db.get_findings(
         binary_name=binary_name,
         severity=severity,
         category=category,
         verification_status=verification_status
     )
 
-def audit_report_vulnerability_verification(id: int, status: str, details: str = None) -> Dict[str, Any]:
-    """Update the verification status of a vulnerability."""
+def audit_report_finding_verification(id: int, status: str, details: str = None) -> Dict[str, Any]:
+    """Update the verification status of a finding."""
     db = get_audit_db()
-    success = db.update_vulnerability_verification(
+    success = db.update_finding_verification(
         vuln_id=id,
         status=status,
         details=details if details else ""

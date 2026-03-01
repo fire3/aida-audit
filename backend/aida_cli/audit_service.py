@@ -23,7 +23,7 @@ def load_agent_prompt(agent_name: str, audit_db: Optional[AuditDatabase] = None)
         config = Config()
         report_language = config.get_report_language()
         lang_label = "Chinese" if report_language == "Chinese" else "English"
-        language_instruction = f"\n\n## 报告语言要求 / Report Language Requirement\n请使用 **{report_language}** ({lang_label}) 语言撰写所有报告、漏洞描述和总结。\nPlease use **{report_language}** ({lang_label}) for all reports, vulnerability descriptions, and summaries.\n"
+        language_instruction = f"\n\n## 报告语言要求 / Report Language Requirement\n请使用 **{report_language}** ({lang_label}) 语言撰写所有报告、漏洞描述和总结。\nPlease use **{report_language}** ({lang_label}) for all reports, finding descriptions, and summaries.\n"
         base_prompt += language_instruction
         
         return base_prompt
@@ -436,7 +436,7 @@ class PlanAgent(BaseAgent):
     def get_tools(self) -> List[Dict]:
         exclude_tools = {
             'audit_create_note', 'audit_update_note', 'audit_delete_note',
-            'audit_report_vulnerability', 'audit_report_vulnerability_verification'
+            'audit_report_finding', 'audit_report_finding_verification'
         }
         tools = [
             t for t in self.all_tools
@@ -470,7 +470,7 @@ class AuditAgent(BaseAgent):
             'audit_create_macro_plan', 'audit_delete_macro_plan', 'audit_update_macro_plan',
             'audit_create_agent_task',
             'audit_delete_task', 'audit_list_macro_plans',
-            'audit_report_vulnerability_verification'
+            'audit_report_finding_verification'
         }
         tools = [
             t for t in self.all_tools 
@@ -500,7 +500,7 @@ class VerificationAgent(AuditAgent):
             'audit_create_macro_plan', 'audit_delete_macro_plan', 'audit_update_macro_plan',
             'audit_create_agent_task',
             'audit_delete_task', 'audit_list_macro_plans', 'audit_list_agent_tasks',
-            'audit_report_vulnerability'
+            'audit_report_finding'
         }
         tools = [
             t for t in self.all_tools 

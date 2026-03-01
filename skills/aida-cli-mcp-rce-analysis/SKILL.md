@@ -7,7 +7,7 @@ compatibility: opencode
 
 # AIDA MCP RCE Analysis Skill Guide
 
-This document guides agents on how to use the AIDA MCP toolset to audit Remote Code Execution (RCE) vulnerabilities. It focuses on specific CWEs related to arbitrary code execution, including Command Injection, Buffer Overflows, and Unsafe Deserialization.
+This document guides agents on how to use the AIDA MCP toolset to audit Remote Code Execution (RCE) findings. It focuses on specific CWEs related to arbitrary code execution, including Command Injection, Buffer Overflows, and Unsafe Deserialization.
 
 ## 1. Core Concepts
 
@@ -67,7 +67,7 @@ This document guides agents on how to use the AIDA MCP toolset to audit Remote C
 ## 1. Executive Summary
 *   **Target**: `[Binary Name]`
 *   **Risk Level**: `[Critical/High/Medium]`
-*   **Summary**: Found [N] RCE vulnerabilities. [Brief description].
+*   **Summary**: Found [N] RCE findings. [Brief description].
 
 ## 2. Findings Summary
 | ID | CWE | Sink | Confidence |
