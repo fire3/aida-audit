@@ -7,6 +7,7 @@ import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Search, ChevronLeft, ChevronRight, Quote, ArrowRight, Filter, FileCode } from 'lucide-react';
 import { cn, formatAddress } from '../lib/utils';
+import { useTranslation } from 'react-i18next';
 
 interface XrefItemProps {
   binaryName: string;
@@ -15,6 +16,7 @@ interface XrefItemProps {
 }
 
 function XrefItem({ binaryName, xref, onNavigate }: XrefItemProps) {
+  const { t } = useTranslation();
   const { data: disassembly, isLoading } = useQuery({
     queryKey: ['disassembly', binaryName, xref.from_address],
     queryFn: async () => {
@@ -66,7 +68,7 @@ function XrefItem({ binaryName, xref, onNavigate }: XrefItemProps) {
             xref.from_function ? "group-hover:text-primary" : ""
           )}>
             {xref.from_function_name || formatAddress(xref.from_function) || (
-              <span className="text-muted-foreground italic text-xs">No function</span>
+              <span className="text-muted-foreground italic text-xs">{t('strings_browser.no_function')}</span>
             )}
           </div>
         </div>
@@ -97,7 +99,7 @@ function XrefItem({ binaryName, xref, onNavigate }: XrefItemProps) {
         </div>
       ) : (
         <div className="ml-6 text-xs text-muted-foreground italic">
-          {disassembly === null ? "No disassembly available (data reference?)" : "Address not found in disassembly"}
+          {disassembly === null ? t('strings_browser.no_disassembly') : t('strings_browser.addr_not_found')}
         </div>
       )}
       
@@ -168,6 +170,7 @@ function StringDetail({ binaryName, address, stringContent, onNavigate }: String
 }
 
 export function StringsBrowser() {
+  const { t } = useTranslation();
   const { binaryName } = useParams<{ binaryName: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -203,7 +206,7 @@ export function StringsBrowser() {
           <div className="relative">
             <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search strings..."
+              placeholder={t('strings_browser.search_placeholder')}
               value={query}
               onChange={handleSearch}
               className="pl-8"
@@ -223,7 +226,7 @@ export function StringsBrowser() {
         
         <div className="flex-1 overflow-auto">
           {isLoading ? (
-            <div className="p-4 text-center text-muted-foreground">Loading...</div>
+            <div className="p-4 text-center text-muted-foreground">{t('common.loading')}</div>
           ) : (
             <div className="divide-y">
               {strings?.map((str) => (
@@ -246,7 +249,7 @@ export function StringsBrowser() {
                 </div>
               ))}
               {strings?.length === 0 && (
-                <div className="p-4 text-center text-muted-foreground">No strings found.</div>
+                <div className="p-4 text-center text-muted-foreground">{t('common.no_strings')}</div>
               )}
             </div>
           )}

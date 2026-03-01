@@ -7,8 +7,10 @@ import { Button } from '../components/ui/button';
 import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn, formatAddress } from '../lib/utils';
 import { FunctionDetail } from '../components/FunctionDetail';
+import { useTranslation } from 'react-i18next';
 
 export function FunctionsBrowser() {
+  const { t } = useTranslation();
   const { binaryName } = useParams<{ binaryName: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const addressParam = searchParams.get('address');
@@ -62,7 +64,7 @@ export function FunctionsBrowser() {
           <div className="relative">
             <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search functions..."
+              placeholder={t('functions_browser.search_placeholder')}
               value={query}
               onChange={handleSearch}
               className="pl-8"
@@ -72,7 +74,7 @@ export function FunctionsBrowser() {
         
         <div className="flex-1 overflow-auto">
           {isLoading ? (
-            <div className="p-4 text-center text-muted-foreground">Loading...</div>
+            <div className="p-4 text-center text-muted-foreground">{t('common.loading')}</div>
           ) : (
             <div className="divide-y">
               {functions?.map((func) => (
@@ -89,12 +91,12 @@ export function FunctionsBrowser() {
                   </div>
                   <div className="flex justify-between mt-1 text-xs text-muted-foreground">
                     <span className="font-mono">{formatAddress(func.address)}</span>
-                    <span>{func.size} bytes</span>
+                    <span>{func.size} {t('common.bytes')}</span>
                   </div>
                 </div>
               ))}
               {functions?.length === 0 && (
-                <div className="p-4 text-center text-muted-foreground">No functions found.</div>
+                <div className="p-4 text-center text-muted-foreground">{t('functions_browser.no_functions')}</div>
               )}
             </div>
           )}

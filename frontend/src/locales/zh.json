@@ -1,6 +1,24 @@
 {
+  "settings": {
+    "title": "设置",
+    "language": "界面语言",
+    "report_language": "报告语言",
+    "save": "保存"
+  },
+  "nav": {
+    "audit": "审计",
+    "settings": "设置",
+    "binary_analysis": "二进制分析",
+    "overview": "概览",
+    "functions": "函数",
+    "strings": "字符串",
+    "imports": "导入表",
+    "exports": "导出表",
+    "symbols": "符号",
+    "segments": "段"
+  },
   "dashboard": {
-    "title": "审计仪表盘",
+    "title": "仪表盘",
     "tabs": {
       "plan": "计划",
       "finished": "已完成",
@@ -9,13 +27,103 @@
       "chat": "对话",
       "findings": "发现",
       "notes": "笔记",
-      "coverage": "覆盖率"
-    }
+      "coverage": "覆盖率",
+      "binaries": "二进制列表",
+      "search_functions": "搜索函数",
+      "search_strings": "搜索字符串",
+      "mcp_tools": "MCP 工具",
+      "help": "帮助",
+      "about": "关于"
+    },
+    "stats": {
+      "total_binaries": "二进制总数",
+      "analysis_status": "分析状态",
+      "project_id": "项目 ID"
+    },
+    "binary_card": {
+      "unknown_arch": "未知架构",
+      "size": "大小:",
+      "functions": "函数数:",
+      "imported": "导入时间:",
+      "no_binaries": "本项目中未找到二进制文件。"
+    },
+    "search": {
+      "function_placeholder": "搜索函数名...",
+      "string_placeholder": "搜索字符串...",
+      "match_contains": "包含",
+      "match_exact": "精确",
+    "match_regex": "正则",
+    "search_btn": "搜索",
+    "searching": "搜索中...",
+    "no_functions": "未找到函数。",
+    "no_strings": "未找到字符串。",
+    "library": "(库函数)"
   },
-  "settings": {
-    "title": "设置",
-    "language": "界面语言",
-    "report_language": "报告语言",
-    "save": "保存"
+  "binary_overview": {
+    "loading": "加载元数据中...",
+    "basic_info": "基本信息",
+    "binary_name": "二进制名称",
+    "arch": "架构",
+    "format": "文件格式",
+    "size": "文件大小",
+    "image_base": "基址",
+    "endian": "字节序",
+    "analysis_date": "分析日期",
+    "compiler": "编译器",
+    "stats": "分析统计",
+    "total_functions": "函数总数",
+    "user_functions": "用户函数",
+    "library_functions": "库函数",
+    "segments": "段",
+    "imports": "导入表",
+    "exports": "导出表",
+    "strings": "字符串",
+    "symbols": "符号",
+    "unknown": "未知"
+  },
+  "common": {
+    "loading": "加载中...",
+    "search": "搜索",
+    "name": "名称",
+    "address": "地址",
+    "size": "大小",
+    "bytes": "字节",
+    "library": "库",
+    "ordinal": "序号",
+    "cross_references": "交叉引用",
+    "loading_xrefs": "加载引用中...",
+    "no_xrefs": "未找到交叉引用。",
+    "reference": "引用",
+    "details": "详情"
+  },
+  "functions_browser": {
+    "search_placeholder": "搜索函数...",
+    "no_functions": "未找到函数。"
+  },
+  "strings_browser": {
+    "search_placeholder": "搜索字符串...",
+    "no_disassembly": "无反汇编可用 (数据引用?)",
+    "addr_not_found": "反汇编中未找到地址",
+    "no_function": "无函数"
+  },
+  "imports_browser": {
+    "title": "导入详情",
+    "thunk_address": "Thunk 地址"
+  },
+  "exports_browser": {
+    "title": "导出详情",
+    "forwarder": "转发器"
+  },
+  "symbols_browser": {
+    "title": "符号详情",
+    "demangled_name": "还原名称",
+    "kind": "类型"
+  },
+  "segments_browser": {
+    "search_placeholder": "搜索段...",
+    "count_suffix": "个段",
+    "start_addr": "起始地址",
+    "end_addr": "结束地址"
   }
+}
 }

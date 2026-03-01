@@ -6,6 +6,7 @@ import type { BinaryImport, XrefToItem } from '../api/client';
 import { Button } from '../components/ui/button';
 import { ChevronLeft, ChevronRight, ArrowRight, Import } from 'lucide-react';
 import { cn, formatAddress } from '../lib/utils';
+import { useTranslation } from 'react-i18next';
 
 interface ImportDetailProps {
   binaryName: string;
@@ -14,6 +15,7 @@ interface ImportDetailProps {
 }
 
 function ImportDetail({ binaryName, importItem, onNavigate }: ImportDetailProps) {
+  const { t } = useTranslation();
   const { data: xrefs, isLoading } = useQuery({
     queryKey: ['xrefs-to', binaryName, importItem.address],
     queryFn: () => binaryApi.getXrefsTo(binaryName, importItem.address),
@@ -24,27 +26,27 @@ function ImportDetail({ binaryName, importItem, onNavigate }: ImportDetailProps)
       <div className="p-4 border-b border-border bg-muted/20">
         <h2 className="text-lg font-semibold flex items-center">
           <Import className="mr-2 h-5 w-5 text-muted-foreground" />
-          Import Details
+          {t('imports_browser.title')}
         </h2>
         <div className="mt-2 grid grid-cols-2 gap-4">
           <div>
-            <div className="text-xs font-mono text-muted-foreground">Library</div>
+            <div className="text-xs font-mono text-muted-foreground">{t('common.library')}</div>
             <div className="font-medium">{importItem.library}</div>
           </div>
           <div>
-            <div className="text-xs font-mono text-muted-foreground">Name</div>
+            <div className="text-xs font-mono text-muted-foreground">{t('common.name')}</div>
             <div className="font-medium">{importItem.name}</div>
           </div>
           <div>
-            <div className="text-xs font-mono text-muted-foreground">Address</div>
+            <div className="text-xs font-mono text-muted-foreground">{t('common.address')}</div>
             <div className="font-mono text-sm">{formatAddress(importItem.address)}</div>
           </div>
           <div>
-            <div className="text-xs font-mono text-muted-foreground">Ordinal</div>
+            <div className="text-xs font-mono text-muted-foreground">{t('common.ordinal')}</div>
             <div className="font-mono text-sm">{importItem.ordinal}</div>
           </div>
           <div>
-            <div className="text-xs font-mono text-muted-foreground">Thunk Address</div>
+            <div className="text-xs font-mono text-muted-foreground">{t('imports_browser.thunk_address')}</div>
             <div className="font-mono text-sm">{formatAddress(importItem.thunk_address)}</div>
           </div>
         </div>
@@ -53,11 +55,11 @@ function ImportDetail({ binaryName, importItem, onNavigate }: ImportDetailProps)
       <div className="flex-1 flex flex-col min-h-0">
         <div className="p-3 border-b border-border font-semibold flex items-center bg-muted/30 text-sm">
           <ArrowRight className="mr-2 h-4 w-4 text-green-600 dark:text-green-400" />
-          Cross References ({xrefs?.length || 0})
+          {t('common.cross_references')} ({xrefs?.length || 0})
         </div>
         <div className="flex-1 overflow-auto p-0">
           {isLoading ? (
-            <div className="p-4 text-muted-foreground text-sm">Loading xrefs...</div>
+            <div className="p-4 text-muted-foreground text-sm">{t('common.loading_xrefs')}</div>
           ) : (
             <div className="divide-y divide-border">
               {xrefs?.map((ref: XrefToItem, idx) => (
@@ -75,13 +77,13 @@ function ImportDetail({ binaryName, importItem, onNavigate }: ImportDetailProps)
                     </div>
                   </div>
                   <div className="text-xs text-muted-foreground mt-1 font-mono">
-                    {ref.xref_type} reference
+                    {ref.xref_type} {t('common.reference')}
                   </div>
                 </div>
               ))}
               {xrefs?.length === 0 && (
                 <div className="p-4 text-center text-muted-foreground text-xs">
-                  No cross references found.
+                  {t('common.no_xrefs')}
                 </div>
               )}
             </div>
@@ -93,6 +95,7 @@ function ImportDetail({ binaryName, importItem, onNavigate }: ImportDetailProps)
 }
 
 export function ImportsBrowser() {
+  const { t } = useTranslation();
   const { binaryName } = useParams<{ binaryName: string }>();
   const navigate = useNavigate();
   const [selectedImport, setSelectedImport] = useState<BinaryImport | null>(null);
@@ -110,12 +113,12 @@ export function ImportsBrowser() {
       {/* Imports List */}
       <div className="w-[350px] border-r flex flex-col bg-background">
         <div className="p-4 border-b space-y-2">
-          <h2 className="text-lg font-semibold">Imports</h2>
+          <h2 className="text-lg font-semibold">{t('nav.imports')}</h2>
         </div>
         
         <div className="flex-1 overflow-auto">
           {isLoading ? (
-            <div className="p-4 text-center text-muted-foreground">Loading...</div>
+            <div className="p-4 text-center text-muted-foreground">{t('common.loading')}</div>
           ) : (
             <div className="divide-y">
               {imports?.map((imp) => (

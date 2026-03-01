@@ -1,7 +1,9 @@
 import { Link, Outlet } from 'react-router-dom';
 import { Layers, Settings } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 export function MainLayout() {
+  const { t } = useTranslation();
   return (
     <div className="min-h-screen bg-background font-sans antialiased flex flex-col">
       <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -18,12 +20,12 @@ export function MainLayout() {
                 to="/audit"
                 className="transition-colors hover:text-foreground/80 text-foreground/60"
               >
-                Audit
+                {t('nav.audit')}
               </Link>
             </nav>
           </div>
           <div className="flex flex-1 items-center justify-between space-x-2 md:justify-end">
-             <Link to="/settings" className="text-foreground/60 hover:text-foreground/80">
+             <Link to="/settings" className="text-foreground/60 hover:text-foreground/80" title={t('nav.settings')}>
                 <Settings className="h-5 w-5" />
              </Link>
           </div>

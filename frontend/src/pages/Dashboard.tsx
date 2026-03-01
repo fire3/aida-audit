@@ -10,8 +10,10 @@ import { cn, formatAddress } from '../lib/utils';
 import { McpToolsTab } from '../components/McpToolsTab';
 import { HelpTab } from '../components/HelpTab';
 import { AboutTab } from '../components/AboutTab';
+import { useTranslation } from 'react-i18next';
 
 export function Dashboard() {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'binaries' | 'functions' | 'strings' | 'mcp_tools' | 'help' | 'about'>('binaries');
 
   // Overview
@@ -69,7 +71,7 @@ export function Dashboard() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Binaries</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('dashboard.stats.total_binaries')}</CardTitle>
             <Database className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -78,7 +80,7 @@ export function Dashboard() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Analysis Status</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('dashboard.stats.analysis_status')}</CardTitle>
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -87,7 +89,7 @@ export function Dashboard() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Project ID</CardTitle>
+            <CardTitle className="text-sm font-medium">{t('dashboard.stats.project_id')}</CardTitle>
             <FileCode className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -106,42 +108,42 @@ export function Dashboard() {
             onClick={() => setActiveTab('binaries')}
             className={cn("rounded-b-none", activeTab === 'binaries' ? "bg-muted text-primary hover:bg-muted" : "hover:bg-muted/50")}
           >
-            <ListIcon className="mr-2 h-4 w-4"/> Binaries
+            <ListIcon className="mr-2 h-4 w-4"/> {t('dashboard.tabs.binaries')}
           </Button>
           <Button 
             variant={activeTab === 'functions' ? 'default' : 'ghost'} 
             onClick={() => setActiveTab('functions')}
             className={cn("rounded-b-none", activeTab === 'functions' ? "bg-muted text-primary hover:bg-muted" : "hover:bg-muted/50")}
           >
-            <Code className="mr-2 h-4 w-4"/> Search Functions
+            <Code className="mr-2 h-4 w-4"/> {t('dashboard.tabs.search_functions')}
           </Button>
           <Button 
             variant={activeTab === 'strings' ? 'default' : 'ghost'} 
             onClick={() => setActiveTab('strings')}
             className={cn("rounded-b-none", activeTab === 'strings' ? "bg-muted text-primary hover:bg-muted" : "hover:bg-muted/50")}
           >
-            <Search className="mr-2 h-4 w-4"/> Search Strings
+            <Search className="mr-2 h-4 w-4"/> {t('dashboard.tabs.search_strings')}
           </Button>
           <Button 
             variant={activeTab === 'mcp_tools' ? 'default' : 'ghost'} 
             onClick={() => setActiveTab('mcp_tools')}
             className={cn("rounded-b-none", activeTab === 'mcp_tools' ? "bg-muted text-primary hover:bg-muted" : "hover:bg-muted/50")}
           >
-            <Hammer className="mr-2 h-4 w-4"/> MCP Tools
+            <Hammer className="mr-2 h-4 w-4"/> {t('dashboard.tabs.mcp_tools')}
           </Button>
           <Button 
             variant={activeTab === 'help' ? 'default' : 'ghost'} 
             onClick={() => setActiveTab('help')}
             className={cn("rounded-b-none", activeTab === 'help' ? "bg-muted text-primary hover:bg-muted" : "hover:bg-muted/50")}
           >
-            <HelpCircle className="mr-2 h-4 w-4"/> Help
+            <HelpCircle className="mr-2 h-4 w-4"/> {t('dashboard.tabs.help')}
           </Button>
           <Button 
             variant={activeTab === 'about' ? 'default' : 'ghost'} 
             onClick={() => setActiveTab('about')}
             className={cn("rounded-b-none", activeTab === 'about' ? "bg-muted text-primary hover:bg-muted" : "hover:bg-muted/50")}
           >
-            <Info className="mr-2 h-4 w-4"/> About
+            <Info className="mr-2 h-4 w-4"/> {t('dashboard.tabs.about')}
           </Button>
         </div>
 
@@ -154,20 +156,20 @@ export function Dashboard() {
                   <Card className="hover:bg-muted/50 transition-colors cursor-pointer h-full">
                     <CardHeader>
                       <CardTitle className="truncate" title={binary.binary_name}>{binary.binary_name}</CardTitle>
-                      <CardDescription>{binary.arch || "Unknown Arch"}</CardDescription>
+                      <CardDescription>{binary.arch || t('dashboard.binary_card.unknown_arch')}</CardDescription>
                     </CardHeader>
                     <CardContent>
                       <div className="text-sm text-muted-foreground space-y-1">
                         <div className="flex justify-between">
-                          <span>Size:</span>
+                          <span>{t('dashboard.binary_card.size')}</span>
                           <span>{binary.size ? (binary.size / 1024).toFixed(2) + ' KB' : 'N/A'}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span>Functions:</span>
+                          <span>{t('dashboard.binary_card.functions')}</span>
                           <span>{binary.function_count !== undefined ? binary.function_count : 'N/A'}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span>Imported:</span>
+                          <span>{t('dashboard.binary_card.imported')}</span>
                           <span>{binary.created_at ? new Date(binary.created_at).toLocaleDateString() : 'N/A'}</span>
                         </div>
                       </div>
@@ -177,7 +179,7 @@ export function Dashboard() {
               ))}
               {binaries && binaries.length === 0 && (
                 <div className="text-muted-foreground col-span-full text-center py-10">
-                   No binaries found in this project.
+                   {t('dashboard.binary_card.no_binaries')}
                 </div>
               )}
             </div>
@@ -189,7 +191,7 @@ export function Dashboard() {
           <div className="space-y-4">
              <form onSubmit={handleFuncSearch} className="flex gap-2">
                <Input 
-                 placeholder="Search function name..." 
+                 placeholder={t('dashboard.search.function_placeholder')}
                  value={funcQuery}
                  onChange={(e) => setFuncQuery(e.target.value)}
                  className="max-w-md"
@@ -199,16 +201,16 @@ export function Dashboard() {
                  value={funcMatch}
                  onChange={(e) => setFuncMatch(e.target.value)}
                >
-                 <option value="contains">Contains</option>
-                 <option value="exact">Exact</option>
-                 <option value="regex">Regex</option>
+                 <option value="contains">{t('dashboard.search.match_contains')}</option>
+                 <option value="exact">{t('dashboard.search.match_exact')}</option>
+                 <option value="regex">{t('dashboard.search.match_regex')}</option>
                </select>
                <Button type="submit" disabled={isFuncLoading}>
-                 {isFuncLoading ? 'Searching...' : 'Search'}
+                 {isFuncLoading ? t('dashboard.search.searching') : t('dashboard.search.search_btn')}
                </Button>
              </form>
 
-             {isFuncLoading && <div className="py-4 text-muted-foreground">Searching...</div>}
+             {isFuncLoading && <div className="py-4 text-muted-foreground">{t('dashboard.search.searching')}</div>}
 
              <div className="space-y-2">
                {funcResults?.map((hit, idx) => (
@@ -219,13 +221,13 @@ export function Dashboard() {
                        <div className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">{hit.binary}</div>
                      </div>
                      <div className="text-xs text-muted-foreground font-mono mt-1">
-                       {formatAddress(hit.function.address)} {hit.function.is_library ? '(Library)' : ''}
+                       {formatAddress(hit.function.address)} {hit.function.is_library ? t('dashboard.search.library') : ''}
                      </div>
                    </div>
                  </Link>
                ))}
                {funcResults && funcResults.length === 0 && (
-                 <div className="text-muted-foreground py-4">No functions found.</div>
+                 <div className="text-muted-foreground py-4">{t('dashboard.search.no_functions')}</div>
                )}
              </div>
           </div>
@@ -236,7 +238,7 @@ export function Dashboard() {
           <div className="space-y-4">
              <form onSubmit={handleStrSearch} className="flex gap-2">
                <Input 
-                 placeholder="Search strings..." 
+                 placeholder={t('dashboard.search.string_placeholder')}
                  value={strQuery}
                  onChange={(e) => setStrQuery(e.target.value)}
                  className="max-w-md"
@@ -246,16 +248,16 @@ export function Dashboard() {
                  value={strMatch}
                  onChange={(e) => setStrMatch(e.target.value)}
                >
-                 <option value="contains">Contains</option>
-                 <option value="exact">Exact</option>
-                 <option value="regex">Regex</option>
+                 <option value="contains">{t('dashboard.search.match_contains')}</option>
+                 <option value="exact">{t('dashboard.search.match_exact')}</option>
+                 <option value="regex">{t('dashboard.search.match_regex')}</option>
                </select>
                <Button type="submit" disabled={isStrLoading}>
-                 {isStrLoading ? 'Searching...' : 'Search'}
+                 {isStrLoading ? t('dashboard.search.searching') : t('dashboard.search.search_btn')}
                </Button>
              </form>
 
-             {isStrLoading && <div className="py-4 text-muted-foreground">Searching...</div>}
+             {isStrLoading && <div className="py-4 text-muted-foreground">{t('dashboard.search.searching')}</div>}
 
              <div className="space-y-2">
                {strResults?.map((hit, idx) => (
@@ -272,7 +274,7 @@ export function Dashboard() {
                  </Link>
                ))}
                {strResults && strResults.length === 0 && (
-                 <div className="text-muted-foreground py-4">No strings found.</div>
+                 <div className="text-muted-foreground py-4">{t('dashboard.search.no_strings')}</div>
                )}
              </div>
           </div>

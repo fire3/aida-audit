@@ -1,6 +1,24 @@
 {
+  "settings": {
+    "title": "Settings",
+    "language": "UI Language",
+    "report_language": "Report Language",
+    "save": "Save"
+  },
+  "nav": {
+    "audit": "Audit",
+    "settings": "Settings",
+    "binary_analysis": "Binary Analysis",
+    "overview": "Overview",
+    "functions": "Functions",
+    "strings": "Strings",
+    "imports": "Imports",
+    "exports": "Exports",
+    "symbols": "Symbols",
+    "segments": "Segments"
+  },
   "dashboard": {
-    "title": "Audit Dashboard",
+    "title": "Dashboard",
     "tabs": {
       "plan": "Plan",
       "finished": "Finished",
@@ -9,13 +27,103 @@
       "chat": "Chat",
       "findings": "Findings",
       "notes": "Notes",
-      "coverage": "Coverage"
-    }
+      "coverage": "Coverage",
+      "binaries": "Binaries",
+      "search_functions": "Search Functions",
+      "search_strings": "Search Strings",
+      "mcp_tools": "MCP Tools",
+      "help": "Help",
+      "about": "About"
+    },
+    "stats": {
+      "total_binaries": "Total Binaries",
+      "analysis_status": "Analysis Status",
+      "project_id": "Project ID"
+    },
+    "binary_card": {
+      "unknown_arch": "Unknown Arch",
+      "size": "Size:",
+      "functions": "Functions:",
+      "imported": "Imported:",
+      "no_binaries": "No binaries found in this project."
+    },
+    "search": {
+      "function_placeholder": "Search function name...",
+      "string_placeholder": "Search strings...",
+      "match_contains": "Contains",
+      "match_exact": "Exact",
+    "match_regex": "Regex",
+    "search_btn": "Search",
+    "searching": "Searching...",
+    "no_functions": "No functions found.",
+    "no_strings": "No strings found.",
+    "library": "(Library)"
   },
-  "settings": {
-    "title": "Settings",
-    "language": "UI Language",
-    "report_language": "Report Language",
-    "save": "Save"
+  "binary_overview": {
+    "loading": "Loading metadata...",
+    "basic_info": "Basic Information",
+    "binary_name": "Binary Name",
+    "arch": "Architecture",
+    "format": "File Format",
+    "size": "File Size",
+    "image_base": "Image Base",
+    "endian": "Endianness",
+    "analysis_date": "Analysis Date",
+    "compiler": "Compiler",
+    "stats": "Analysis Statistics",
+    "total_functions": "Total Functions",
+    "user_functions": "User Functions",
+    "library_functions": "Library Functions",
+    "segments": "Segments",
+    "imports": "Imports",
+    "exports": "Exports",
+    "strings": "Strings",
+    "symbols": "Symbols",
+    "unknown": "Unknown"
+  },
+  "common": {
+    "loading": "Loading...",
+    "search": "Search",
+    "name": "Name",
+    "address": "Address",
+    "size": "Size",
+    "bytes": "bytes",
+    "library": "Library",
+    "ordinal": "Ordinal",
+    "cross_references": "Cross References",
+    "loading_xrefs": "Loading xrefs...",
+    "no_xrefs": "No cross references found.",
+    "reference": "reference",
+    "details": "Details"
+  },
+  "functions_browser": {
+    "search_placeholder": "Search functions...",
+    "no_functions": "No functions found."
+  },
+  "strings_browser": {
+    "search_placeholder": "Search strings...",
+    "no_disassembly": "No disassembly available (data reference?)",
+    "addr_not_found": "Address not found in disassembly",
+    "no_function": "No function"
+  },
+  "imports_browser": {
+    "title": "Import Details",
+    "thunk_address": "Thunk Address"
+  },
+  "exports_browser": {
+    "title": "Export Details",
+    "forwarder": "Forwarder"
+  },
+  "symbols_browser": {
+    "title": "Symbol Details",
+    "demangled_name": "Demangled Name",
+    "kind": "Kind"
+  },
+  "segments_browser": {
+    "search_placeholder": "Search segments...",
+    "count_suffix": "segments",
+    "start_addr": "Start Address",
+    "end_addr": "End Address"
   }
+}
 }

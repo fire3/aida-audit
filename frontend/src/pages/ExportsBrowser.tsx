@@ -8,6 +8,7 @@ import { Button } from '../components/ui/button';
 import { Search, ChevronLeft, ChevronRight, ArrowRight, Share2 } from 'lucide-react';
 import { cn, formatAddress } from '../lib/utils';
 import { useDebounce } from '../hooks/useDebounce';
+import { useTranslation } from 'react-i18next';
 
 interface ExportDetailProps {
   binaryName: string;
