@@ -45,7 +45,9 @@
       "size": "Size:",
       "functions": "Functions:",
       "imported": "Imported:",
-      "no_binaries": "No binaries found in this project."
+      "no_binaries": "No binaries found in this project.",
+      "target": "Target",
+      "dependency": "Dependency"
     },
     "search": {
       "function_placeholder": "Search function name...",

@@ -123,7 +123,13 @@ export function CoverageView() {
 
   const binaries = useMemo(() => {
     if (!binariesData) return [];
-    return binariesData.map(b => b.binary_name).filter(Boolean);
+    // Sort: target first, then by name
+    const sorted = [...binariesData].sort((a, b) => {
+      if (a.role === 'target' && b.role !== 'target') return -1;
+      if (a.role !== 'target' && b.role === 'target') return 1;
+      return (a.binary_name || '').localeCompare(b.binary_name || '');
+    });
+    return sorted.map(b => b.binary_name).filter(Boolean);
   }, [binariesData]);
 
   useEffect(() => {

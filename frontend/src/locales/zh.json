@@ -45,7 +45,9 @@
       "size": "大小:",
       "functions": "函数数:",
       "imported": "导入时间:",
-      "no_binaries": "本项目中未找到二进制文件。"
+      "no_binaries": "本项目中未找到二进制文件。",
+      "target": "目标",
+      "dependency": "依赖"
     },
     "search": {
       "function_placeholder": "搜索函数名...",

@@ -304,8 +304,14 @@ export function PlanView({ plans }: { plans: AuditPlan[] }) {
                             onChange={(e) => setNewTaskBinary(e.target.value)}
                         >
                             <option value="" disabled>{t('plan_view.select_binary')}</option>
-                            {binaries?.map((b: { binary_name: string }) => (
-                                <option key={b.binary_name} value={b.binary_name}>{b.binary_name}</option>
+                            {binaries?.sort((a: { binary_name: string; role?: string }, b: { binary_name: string; role?: string }) => {
+                                if (a.role === 'target' && b.role !== 'target') return -1;
+                                if (a.role !== 'target' && b.role === 'target') return 1;
+                                return a.binary_name.localeCompare(b.binary_name);
+                            }).map((b: { binary_name: string; role?: string }) => (
+                                <option key={b.binary_name} value={b.binary_name}>
+                                    {b.binary_name} {b.role === 'target' ? '(Target)' : b.role === 'dependency' ? '(Dependency)' : ''}
+                                </option>
                             ))}
                         </Select>
                     </div>
