@@ -10,7 +10,6 @@ import { ImportsBrowser } from './pages/ImportsBrowser';
 import { ExportsBrowser } from './pages/ExportsBrowser';
 import { SymbolsBrowser } from './pages/SymbolsBrowser';
 import { SegmentsBrowser } from './pages/SegmentsBrowser';
-import { SimulationBrowser } from './pages/SimulationBrowser';
 import { AuditDashboard } from './pages/AuditDashboard';
 import { Settings } from './pages/Settings';
 
@@ -51,7 +50,6 @@ function App() {
               <Route path="exports" element={<ExportsBrowser />} />
               <Route path="symbols" element={<SymbolsBrowser />} />
               <Route path="segments" element={<SegmentsBrowser />} />
-              <Route path="simulation" element={<SimulationBrowser />} />
             </Route>
             
             <Route path="*" element={<Placeholder title="404 Not Found" />} />
