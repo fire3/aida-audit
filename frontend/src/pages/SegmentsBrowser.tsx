@@ -5,8 +5,10 @@ import { binaryApi } from '../api/client';
 import { Search, Layers, FileDigit } from 'lucide-react';
 import { Input } from '../components/ui/input';
 import { cn, formatAddress } from '../lib/utils';
+import { useTranslation } from 'react-i18next';
 
 export function SegmentsBrowser() {
+  const { t } = useTranslation();
   const { binaryName } = useParams<{ binaryName: string }>();
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -29,14 +31,14 @@ export function SegmentsBrowser() {
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search segments..."
+              placeholder={t('segments_browser.search_placeholder')}
               className="pl-9 bg-background/80"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
           <div className="text-sm text-muted-foreground font-mono">
-            {segments?.length || 0} segments
+            {segments?.length || 0} {t('segments_browser.count_suffix')}
           </div>
         </div>
       </div>
@@ -75,11 +77,11 @@ export function SegmentsBrowser() {
                           </span>
                         </h3>
                         <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground font-mono">
-                          <span title="Start Address">{formatAddress(seg.start_address)}</span>
+                          <span title={t('segments_browser.start_addr')}>{formatAddress(seg.start_address)}</span>
                           <span>-</span>
-                          <span title="End Address">{formatAddress(seg.end_address)}</span>
+                          <span title={t('segments_browser.end_addr')}>{formatAddress(seg.end_address)}</span>
                           <span className="text-xs px-1.5 py-0.5 rounded bg-muted/50 text-foreground/70">
-                            {seg.size.toLocaleString()} bytes
+                            {seg.size.toLocaleString()} {t('common.bytes')}
                           </span>
                         </div>
                       </div>

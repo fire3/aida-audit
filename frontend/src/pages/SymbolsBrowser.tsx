@@ -8,6 +8,7 @@ import { Button } from '../components/ui/button';
 import { Search, ChevronLeft, ChevronRight, ArrowRight, Database } from 'lucide-react';
 import { cn, formatAddress } from '../lib/utils';
 import { useDebounce } from '../hooks/useDebounce';
+import { useTranslation } from 'react-i18next';
 
 interface SymbolDetailProps {
   binaryName: string;
@@ -16,6 +17,7 @@ interface SymbolDetailProps {
 }
 
 function SymbolDetail({ binaryName, symbolItem, onNavigate }: SymbolDetailProps) {
+  const { t } = useTranslation();
   const { data: xrefs, isLoading } = useQuery({
     queryKey: ['xrefs-to', binaryName, symbolItem.address],
     queryFn: () => binaryApi.getXrefsTo(binaryName, symbolItem.address),
@@ -26,29 +28,29 @@ function SymbolDetail({ binaryName, symbolItem, onNavigate }: SymbolDetailProps)
       <div className="p-4 border-b border-border bg-muted/20">
         <h2 className="text-lg font-semibold flex items-center">
           <Database className="mr-2 h-5 w-5 text-muted-foreground" />
-          Symbol Details
+          {t('symbols_browser.title')}
         </h2>
         <div className="mt-2 grid grid-cols-2 gap-4">
           <div className="col-span-2">
-            <div className="text-xs font-mono text-muted-foreground">Name</div>
+            <div className="text-xs font-mono text-muted-foreground">{t('common.name')}</div>
             <div className="font-medium break-all">{symbolItem.name}</div>
           </div>
           {symbolItem.demangled_name && symbolItem.demangled_name !== symbolItem.name && (
             <div className="col-span-2">
-              <div className="text-xs font-mono text-muted-foreground">Demangled Name</div>
+              <div className="text-xs font-mono text-muted-foreground">{t('symbols_browser.demangled_name')}</div>
               <div className="font-medium break-all">{symbolItem.demangled_name}</div>
             </div>
           )}
           <div>
-            <div className="text-xs font-mono text-muted-foreground">Address</div>
+            <div className="text-xs font-mono text-muted-foreground">{t('common.address')}</div>
             <div className="font-mono text-sm">{formatAddress(symbolItem.address)}</div>
           </div>
           <div>
-            <div className="text-xs font-mono text-muted-foreground">Kind</div>
+            <div className="text-xs font-mono text-muted-foreground">{t('symbols_browser.kind')}</div>
             <div className="font-mono text-sm">{symbolItem.kind}</div>
           </div>
           <div>
-            <div className="text-xs font-mono text-muted-foreground">Size</div>
+            <div className="text-xs font-mono text-muted-foreground">{t('common.size')}</div>
             <div className="font-mono text-sm">{symbolItem.size}</div>
           </div>
         </div>
@@ -57,11 +59,11 @@ function SymbolDetail({ binaryName, symbolItem, onNavigate }: SymbolDetailProps)
       <div className="flex-1 flex flex-col min-h-0">
         <div className="p-3 border-b border-border font-semibold flex items-center bg-muted/30 text-sm">
           <ArrowRight className="mr-2 h-4 w-4 text-green-600 dark:text-green-400" />
-          Cross References ({xrefs?.length || 0})
+          {t('common.cross_references')} ({xrefs?.length || 0})
         </div>
         <div className="flex-1 overflow-auto p-0">
           {isLoading ? (
-            <div className="p-4 text-muted-foreground text-sm">Loading xrefs...</div>
+            <div className="p-4 text-muted-foreground text-sm">{t('common.loading_xrefs')}</div>
           ) : (
             <div className="divide-y divide-border">
               {xrefs?.map((ref: XrefToItem, idx) => (
@@ -79,13 +81,13 @@ function SymbolDetail({ binaryName, symbolItem, onNavigate }: SymbolDetailProps)
                     </div>
                   </div>
                   <div className="text-xs text-muted-foreground mt-1 font-mono">
-                    {ref.xref_type} reference
+                    {ref.xref_type} {t('common.reference')}
                   </div>
                 </div>
               ))}
               {xrefs?.length === 0 && (
                 <div className="p-4 text-center text-muted-foreground text-xs">
-                  No cross references found.
+                  {t('common.no_xrefs')}
                 </div>
               )}
             </div>
@@ -97,6 +99,7 @@ function SymbolDetail({ binaryName, symbolItem, onNavigate }: SymbolDetailProps)
 }
 
 export function SymbolsBrowser() {
+  const { t } = useTranslation();
   const { binaryName } = useParams<{ binaryName: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -138,7 +141,7 @@ export function SymbolsBrowser() {
             <div className="relative flex-1">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search symbols..."
+                placeholder={t('common.search')}
                 value={searchTerm}
                 onChange={(e) => {
                   setSearchTerm(e.target.value);
@@ -152,7 +155,7 @@ export function SymbolsBrowser() {
 
         <div className="flex-1 overflow-auto">
           {isLoading ? (
-            <div className="p-4 text-muted-foreground">Loading symbols...</div>
+            <div className="p-4 text-muted-foreground">{t('common.loading')}</div>
           ) : (
             <div className="divide-y divide-border">
               {symbols?.map((sym) => (

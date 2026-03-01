@@ -17,6 +17,7 @@ interface ExportDetailProps {
 }
 
 function ExportDetail({ binaryName, exportItem, onNavigate }: ExportDetailProps) {
+  const { t } = useTranslation();
   const { data: xrefs, isLoading } = useQuery({
     queryKey: ['xrefs-to', binaryName, exportItem.address],
     queryFn: () => binaryApi.getXrefsTo(binaryName, exportItem.address),
@@ -27,24 +28,24 @@ function ExportDetail({ binaryName, exportItem, onNavigate }: ExportDetailProps)
       <div className="p-4 border-b border-border bg-muted/20">
         <h2 className="text-lg font-semibold flex items-center">
           <Share2 className="mr-2 h-5 w-5 text-muted-foreground" />
-          Export Details
+          {t('exports_browser.title')}
         </h2>
         <div className="mt-2 grid grid-cols-2 gap-4">
           <div>
-            <div className="text-xs font-mono text-muted-foreground">Name</div>
+            <div className="text-xs font-mono text-muted-foreground">{t('common.name')}</div>
             <div className="font-medium">{exportItem.name}</div>
           </div>
           <div>
-            <div className="text-xs font-mono text-muted-foreground">Address</div>
+            <div className="text-xs font-mono text-muted-foreground">{t('common.address')}</div>
             <div className="font-mono text-sm">{formatAddress(exportItem.address)}</div>
           </div>
           <div>
-            <div className="text-xs font-mono text-muted-foreground">Ordinal</div>
+            <div className="text-xs font-mono text-muted-foreground">{t('common.ordinal')}</div>
             <div className="font-mono text-sm">{exportItem.ordinal}</div>
           </div>
           {exportItem.forwarder && (
             <div>
-              <div className="text-xs font-mono text-muted-foreground">Forwarder</div>
+              <div className="text-xs font-mono text-muted-foreground">{t('exports_browser.forwarder')}</div>
               <div className="font-mono text-sm">{exportItem.forwarder}</div>
             </div>
           )}
@@ -54,11 +55,11 @@ function ExportDetail({ binaryName, exportItem, onNavigate }: ExportDetailProps)
       <div className="flex-1 flex flex-col min-h-0">
         <div className="p-3 border-b border-border font-semibold flex items-center bg-muted/30 text-sm">
           <ArrowRight className="mr-2 h-4 w-4 text-green-600 dark:text-green-400" />
-          Cross References ({xrefs?.length || 0})
+          {t('common.cross_references')} ({xrefs?.length || 0})
         </div>
         <div className="flex-1 overflow-auto p-0">
           {isLoading ? (
-            <div className="p-4 text-muted-foreground text-sm">Loading xrefs...</div>
+            <div className="p-4 text-muted-foreground text-sm">{t('common.loading_xrefs')}</div>
           ) : (
             <div className="divide-y divide-border">
               {xrefs?.map((ref: XrefToItem, idx) => (
@@ -76,13 +77,13 @@ function ExportDetail({ binaryName, exportItem, onNavigate }: ExportDetailProps)
                     </div>
                   </div>
                   <div className="text-xs text-muted-foreground mt-1 font-mono">
-                    {ref.xref_type} reference
+                    {ref.xref_type} {t('common.reference')}
                   </div>
                 </div>
               ))}
               {xrefs?.length === 0 && (
                 <div className="p-4 text-center text-muted-foreground text-xs">
-                  No cross references found.
+                  {t('common.no_xrefs')}
                 </div>
               )}
             </div>
@@ -94,6 +95,7 @@ function ExportDetail({ binaryName, exportItem, onNavigate }: ExportDetailProps)
 }
 
 export function ExportsBrowser() {
+  const { t } = useTranslation();
   const { binaryName } = useParams<{ binaryName: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -139,7 +141,7 @@ export function ExportsBrowser() {
           <div className="relative">
             <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search exports (name, ordinal, address)..."
+              placeholder={t('common.search')}
               value={searchTerm}
               onChange={handleSearch}
               className="pl-8"
@@ -149,7 +151,7 @@ export function ExportsBrowser() {
         
         <div className="flex-1 overflow-auto">
           {isLoading ? (
-            <div className="p-4 text-center text-muted-foreground">Loading...</div>
+            <div className="p-4 text-center text-muted-foreground">{t('common.loading')}</div>
           ) : (
             <div className="divide-y">
               {exports?.map((exp) => (
