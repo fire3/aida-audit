@@ -223,9 +223,9 @@ export function AuditDashboard() {
     : null;
   const liveHeaderMeta = (
     <div className="ml-auto flex items-center gap-3 text-[10px] text-slate-500">
-      {sessionTypeLabel && <span>类型: {sessionTypeLabel}</span>}
-      {currentSessionId && <span>会话: {currentSessionId}</span>}
-      {activePlanLabel && <span className="text-slate-400">任务: {activePlanLabel}</span>}
+      {sessionTypeLabel && <span>{t('audit_dashboard.type')}: {sessionTypeLabel}</span>}
+      {currentSessionId && <span>{t('audit_dashboard.session')}: {currentSessionId}</span>}
+      {activePlanLabel && <span className="text-slate-400">{t('audit_dashboard.task')}: {activePlanLabel}</span>}
     </div>
   );
 
@@ -350,7 +350,7 @@ export function AuditDashboard() {
               return (
                 <details key={msg.id} className="mb-3 ml-4 pl-3 border-l border-slate-700">
                   <summary className="cursor-pointer text-[10px] text-green-500/70 mb-1 select-none hover:text-green-500">
-                    ← Result (click to expand)
+                    {t('audit_dashboard.result_expand')}
                   </summary>
                   <div className="text-slate-400 text-xs max-h-32 overflow-auto mt-1">
                     <pre className="whitespace-pre-wrap">{msg.content}</pre>
@@ -364,7 +364,7 @@ export function AuditDashboard() {
                 {thinkContent && (
                   <details className="mb-2 rounded border border-slate-800/70 bg-slate-900/40 px-2 py-1" open>
                     <summary className="cursor-pointer text-slate-400 text-xs hover:text-slate-300 mb-1 select-none">
-                      ⟪ thinking
+                      {t('audit_dashboard.thinking')}
                     </summary>
                     <div className="pl-2 pb-1 text-slate-400 text-xs whitespace-pre-wrap">
                       {thinkContent}
@@ -388,7 +388,7 @@ export function AuditDashboard() {
               {(liveChunk.reasoning || liveChunk.inThinking) && (
                 <details className="mb-2 rounded border border-slate-800/70 bg-slate-900/40 px-2 py-1" open={true}>
                   <summary className="cursor-pointer text-slate-400 text-xs hover:text-slate-300 mb-1 select-none">
-                    ⟪ thinking {liveChunk.inThinking ? '(streaming...)' : ''}
+                    {t('audit_dashboard.thinking_streaming')}
                   </summary>
                   <div className="pl-2 pb-1 text-slate-400 text-xs whitespace-pre-wrap">
                     {liveChunk.reasoning}
@@ -409,7 +409,7 @@ export function AuditDashboard() {
           {visibleMessages.length === 0 && !hasLiveChunk && (
             <div className="flex flex-col items-center justify-center h-full text-slate-600">
               <Terminal className="w-12 h-12 mb-4 opacity-20" />
-              <p>No model output yet.</p>
+              <p>{t('audit_dashboard.no_model_output')}</p>
             </div>
           )}
         </div>
@@ -421,13 +421,13 @@ export function AuditDashboard() {
     <div className="container mx-auto p-4 md:p-6 h-[calc(100vh-60px)] flex flex-col">
       <div className="flex items-center justify-between mb-6 shrink-0">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">AIDA Audit Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Monitor and control the autonomous auditing agent.</p>
+          <h1 className="text-2xl font-bold tracking-tight">{t('audit_dashboard.title')}</h1>
+          <p className="text-sm text-muted-foreground">{t('audit_dashboard.description')}</p>
         </div>
         
         <div className="flex items-center gap-2">
             <div className="flex items-center gap-2">
-                <label className="text-xs text-muted-foreground font-medium">Auto-Refresh</label>
+                <label className="text-xs text-muted-foreground font-medium">{t('audit_dashboard.auto_refresh')}</label>
                 <button 
                     onClick={() => setAutoRefresh(!autoRefresh)}
                     className={`w-8 h-4 rounded-full transition-colors relative ${autoRefresh ? 'bg-green-500' : 'bg-slate-300'}`}
@@ -436,13 +436,13 @@ export function AuditDashboard() {
                 </button>
             </div>
             <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-900 rounded-md border">
-                <span className="text-xs text-muted-foreground uppercase font-bold tracking-wider">Status</span>
+                <span className="text-xs text-muted-foreground uppercase font-bold tracking-wider">{t('audit_dashboard.status')}</span>
                 <div className={`w-2 h-2 rounded-full ${status?.status === 'running' ? 'bg-green-500 animate-pulse' : status?.status === 'failed' ? 'bg-red-500' : 'bg-slate-300'}`} />
                 <span className="text-sm font-medium">{status?.status?.toUpperCase() || 'UNKNOWN'}</span>
                 {status?.current_agent && (
                     <>
                         <div className="w-px h-3 bg-border mx-1" />
-                        <span className="text-xs text-muted-foreground">Agent:</span>
+                        <span className="text-xs text-muted-foreground">{t('audit_dashboard.agent')}:</span>
                         <span className="text-sm font-medium text-blue-600 dark:text-blue-400">{status.current_agent}</span>
                     </>
                 )}
@@ -450,11 +450,11 @@ export function AuditDashboard() {
             
             {status?.status === 'running' ? (
                 <Button variant="destructive" size="sm" onClick={() => stopMutation.mutate()} disabled={stopMutation.isPending} className="gap-2">
-                    <Square className="w-4 h-4" fill="currentColor" /> Stop Audit
+                    <Square className="w-4 h-4" fill="currentColor" /> {t('audit_dashboard.stop_audit')}
                 </Button>
             ) : (
                 <Button size="sm" onClick={() => startMutation.mutate()} disabled={startMutation.isPending} className="gap-2">
-                    <Play className="w-4 h-4" fill="currentColor" /> Start Audit
+                    <Play className="w-4 h-4" fill="currentColor" /> {t('audit_dashboard.start_audit')}
                 </Button>
             )}
         </div>
@@ -528,8 +528,8 @@ export function AuditDashboard() {
                ) : (
                  <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                    <CheckCircle2 className="w-12 h-12 mb-4 opacity-20" />
-                   <p>No completed tasks yet.</p>
-                   <p className="text-xs mt-2">Complete an audit task to see results here.</p>
+                   <p>{t('audit_dashboard.no_completed_tasks')}</p>
+                   <p className="text-xs mt-2">{t('audit_dashboard.complete_task_hint')}</p>
                  </div>
                )}
             </CardContent>
@@ -544,7 +544,7 @@ export function AuditDashboard() {
               <div className="h-full flex items-center justify-center text-muted-foreground">
                 <div className="text-center">
                   <Terminal className="w-12 h-12 mb-4 opacity-20 mx-auto" />
-                  <p>No live session running.</p>
+                  <p>{t('audit_dashboard.no_live_session')}</p>
                 </div>
               </div>
             )}
@@ -554,7 +554,7 @@ export function AuditDashboard() {
         {activeTab === 'chat' && (
           <div className="h-full flex gap-4">
               <div className="w-64 border-r pr-2 overflow-auto hidden md:block">
-                  <div className="text-xs font-semibold text-muted-foreground uppercase mb-2 px-2">History</div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase mb-2 px-2">{t('audit_dashboard.history')}</div>
                   <div className="space-y-1">
                       {historySessions.map((session) => (
                           <button
@@ -571,14 +571,14 @@ export function AuditDashboard() {
                       ))}
                       {(!sessions?.length || historySessions.length === 0) && (
                           <div className="text-xs text-muted-foreground px-2 italic">
-                              {status?.status === 'running' ? 'Live session in progress' : 'No completed sessions'}
+                              {status?.status === 'running' ? t('audit_dashboard.live_session_in_progress') : t('audit_dashboard.no_completed_sessions')}
                           </div>
                       )}
                   </div>
               </div>
 
               <div className="flex-1 min-h-0">
-                {renderOutput(historyMessages, 'Chat History')}
+                {renderOutput(historyMessages, t('audit_dashboard.chat_history'))}
               </div>
           </div>
         )}
@@ -591,7 +591,7 @@ export function AuditDashboard() {
                ) : (
                  <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                    <AlertTriangle className="w-12 h-12 mb-4 opacity-20" />
-                   <p>No security findings yet.</p>
+                   <p>{t('audit_dashboard.no_security_findings')}</p>
                  </div>
                )}
             </CardContent>
@@ -606,7 +606,7 @@ export function AuditDashboard() {
                 ) : (
                     <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                         <StickyNote className="w-12 h-12 mb-4 opacity-20" />
-                        <p>No analysis notes yet.</p>
+                        <p>{t('audit_dashboard.no_notes')}</p>
                     </div>
                 )}
             </CardContent>
@@ -634,7 +634,7 @@ export function AuditDashboard() {
                 {!logs?.length && (
                     <div className="flex flex-col items-center justify-center h-full text-slate-600">
                         <Terminal className="w-12 h-12 mb-4 opacity-20" />
-                        <p>Waiting for logs...</p>
+                        <p>{t('audit_dashboard.waiting_for_logs')}</p>
                     </div>
                 )}
                </div>

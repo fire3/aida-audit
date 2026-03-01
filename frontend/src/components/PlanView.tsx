@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { auditApi, projectApi, type AuditPlan } from '../api/client';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -11,6 +12,7 @@ import { UserPromptConfig } from './UserPromptConfig';
 import { ListTodo, Plus, Terminal, Code, Clock, ShieldCheck } from 'lucide-react';
 
 export function PlanView({ plans }: { plans: AuditPlan[] }) {
+    const { t } = useTranslation();
     const queryClient = useQueryClient();
     const macroPlans = useMemo(() => plans.filter(p => p.plan_type === 'audit_plan'), [plans]);
     const agentTasks = useMemo(() => 
@@ -93,15 +95,15 @@ export function PlanView({ plans }: { plans: AuditPlan[] }) {
                 <div className="flex items-center justify-between mb-4">
                     <h3 className="font-semibold flex items-center gap-2">
                         <ListTodo className="w-4 h-4 text-purple-500" />
-                        Audit Strategy
+                        {t('plan_view.audit_strategy')}
                     </h3>
                     <div className="flex gap-1">
-                        <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-6 w-6" 
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
                             onClick={() => setIsMacroModalOpen(true)}
-                            title="Add Audit Strategy (Macro Plan)"
+                            title={t('plan_view.add_strategy')}
                         >
                             <Plus className="w-4 h-4" />
                         </Button>
@@ -110,7 +112,7 @@ export function PlanView({ plans }: { plans: AuditPlan[] }) {
                             size="icon" 
                             className="h-6 w-6" 
                             onClick={() => setIsTaskModalOpen(true)}
-                            title="Add Task"
+                            title={t('plan_view.add_task')}
                             disabled={macroPlans.length === 0}
                         >
                             <ListTodo className="w-4 h-4" />
@@ -128,7 +130,7 @@ export function PlanView({ plans }: { plans: AuditPlan[] }) {
                             <p className="text-xs text-muted-foreground mb-2">{plan.description}</p>
                             
                             <div className="space-y-1 mt-3 pl-2 border-l-2 border-slate-200 dark:border-slate-800">
-                                <div className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Tasks</div>
+                                <div className="text-[10px] uppercase font-bold text-muted-foreground mb-1">{t('plan_view.tasks')}</div>
                                 
                                 {agentTasks.filter(t => t.plan_id === plan.id).map(task => (
                                     <div key={task.id} className="flex items-center gap-2 text-xs py-1">
@@ -150,14 +152,14 @@ export function PlanView({ plans }: { plans: AuditPlan[] }) {
                                 ))}
 
                                 {agentTasks.filter(t => t.plan_id === plan.id).length === 0 && verificationTasks.filter(t => t.plan_id === plan.id).length === 0 && (
-                                    <div className="text-[10px] text-muted-foreground italic">No tasks assigned yet</div>
+                                    <div className="text-[10px] text-muted-foreground italic">{t('plan_view.no_tasks_assigned')}</div>
                                 )}
                             </div>
                         </div>
                     ))}
                     {macroPlans.length === 0 && (
                         <div className="text-center text-muted-foreground py-8">
-                            No audit plans defined.
+                            {t('plan_view.no_audit_plans')}
                         </div>
                     )}
                 </div>
@@ -166,7 +168,7 @@ export function PlanView({ plans }: { plans: AuditPlan[] }) {
             <div className="flex-1 overflow-auto">
                  <h3 className="font-semibold mb-4 flex items-center gap-2">
                     <Terminal className="w-4 h-4 text-orange-500" />
-                    Task Execution Stream
+                    {t('plan_view.task_execution')}
                 </h3>
                 <div className="space-y-3">
                     {allExecutionTasks.length > 0 ? (
@@ -194,7 +196,7 @@ export function PlanView({ plans }: { plans: AuditPlan[] }) {
 
                                 <div className="bg-slate-50 dark:bg-slate-950/50 rounded-md p-2.5 mb-2 border border-slate-100 dark:border-slate-800 h-24 overflow-y-auto custom-scrollbar">
                                     <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed font-mono">
-                                        {task.description || "No description provided."}
+                                        {task.description || t('plan_view.no_description')}
                                     </p>
                                 </div>
 
@@ -204,7 +206,7 @@ export function PlanView({ plans }: { plans: AuditPlan[] }) {
                                             <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border border-purple-100 dark:border-purple-800/30 shrink-0 max-w-[200px]">
                                                 <ListTodo className="w-3 h-3 shrink-0" />
                                                 <span className="font-medium truncate" title={parentPlan.title}>
-                                                    Parent: {parentPlan.title}
+                                                    {t('plan_view.parent')}: {parentPlan.title}
                                                 </span>
                                             </div>
                                         )}
@@ -228,8 +230,8 @@ export function PlanView({ plans }: { plans: AuditPlan[] }) {
                     ) : (
                         <div className="flex flex-col items-center justify-center h-64 text-muted-foreground border rounded-lg bg-slate-50/50 dark:bg-slate-900/20 border-dashed">
                             <ListTodo className="w-12 h-12 mb-4 opacity-20" />
-                            <p>No tasks generated yet.</p>
-                            <p className="text-xs mt-2">Set your requirements on the left and start the audit.</p>
+                            <p>{t('plan_view.no_tasks_generated')}</p>
+                            <p className="text-xs mt-2">{t('plan_view.set_requirements_hint')}</p>
                         </div>
                     )}
                 </div>
@@ -238,30 +240,30 @@ export function PlanView({ plans }: { plans: AuditPlan[] }) {
             <Modal
                 isOpen={isMacroModalOpen}
                 onClose={() => setIsMacroModalOpen(false)}
-                title="Create Audit Strategy (Macro Plan)"
+                title={t('plan_view.create_strategy')}
             >
                 <div className="space-y-4">
                     <div className="space-y-2">
-                        <label className="text-sm font-medium">Title</label>
-                        <Input 
-                            value={newMacroTitle} 
-                            onChange={(e) => setNewMacroTitle(e.target.value)} 
-                            placeholder="e.g., Attack Surface Enumeration"
+                        <label className="text-sm font-medium">{t('plan_view.title')}</label>
+                        <Input
+                            value={newMacroTitle}
+                            onChange={(e) => setNewMacroTitle(e.target.value)}
+                            placeholder={t('plan_view.title_placeholder')}
                         />
                     </div>
                     <div className="space-y-2">
-                        <label className="text-sm font-medium">Description</label>
-                        <Textarea 
-                            value={newMacroDesc} 
-                            onChange={(e) => setNewMacroDesc(e.target.value)} 
-                            placeholder="Describe the high-level goal of this phase..."
+                        <label className="text-sm font-medium">{t('plan_view.description_label')}</label>
+                        <Textarea
+                            value={newMacroDesc}
+                            onChange={(e) => setNewMacroDesc(e.target.value)}
+                            placeholder={t('plan_view.description_placeholder')}
                             className="h-24"
                         />
                     </div>
                     <div className="flex justify-end gap-2 pt-2">
-                        <Button variant="ghost" onClick={() => setIsMacroModalOpen(false)}>Cancel</Button>
+                        <Button variant="ghost" onClick={() => setIsMacroModalOpen(false)}>{t('plan_view.cancel')}</Button>
                         <Button onClick={handleCreateMacroPlan} disabled={createMacroPlanMutation.isPending || !newMacroTitle || !newMacroDesc}>
-                            {createMacroPlanMutation.isPending ? "Creating..." : "Create Strategy"}
+                            {createMacroPlanMutation.isPending ? t('plan_view.creating') : t('plan_view.create_strategy_btn')}
                         </Button>
                     </div>
                 </div>
@@ -270,64 +272,64 @@ export function PlanView({ plans }: { plans: AuditPlan[] }) {
             <Modal
                 isOpen={isTaskModalOpen}
                 onClose={() => setIsTaskModalOpen(false)}
-                title="Create Task"
+                title={t('plan_view.create_task')}
             >
                 <div className="space-y-4">
                     <div className="space-y-2">
-                        <label className="text-sm font-medium">Task Type</label>
-                        <Select 
+                        <label className="text-sm font-medium">{t('plan_view.task_type')}</label>
+                        <Select
                             value={newTaskType}
                             onChange={(e) => setNewTaskType(e.target.value as 'ANALYSIS' | 'VERIFICATION')}
                         >
-                            <option value="ANALYSIS">Analysis Task (Agent)</option>
-                            <option value="VERIFICATION">Verification Task</option>
+                            <option value="ANALYSIS">{t('plan_view.analysis_task')}</option>
+                            <option value="VERIFICATION">{t('plan_view.verification_task')}</option>
                         </Select>
                     </div>
                     <div className="space-y-2">
-                        <label className="text-sm font-medium">Parent Strategy</label>
-                        <Select 
+                        <label className="text-sm font-medium">{t('plan_view.parent_strategy')}</label>
+                        <Select
                             value={selectedPlanId}
                             onChange={(e) => setSelectedPlanId(e.target.value)}
                         >
-                            <option value="" disabled>Select a strategy...</option>
+                            <option value="" disabled>{t('plan_view.select_strategy')}</option>
                             {macroPlans.map(p => (
                                 <option key={p.id} value={p.id}>{p.title}</option>
                             ))}
                         </Select>
                     </div>
                     <div className="space-y-2">
-                        <label className="text-sm font-medium">Target Binary</label>
-                        <Select 
+                        <label className="text-sm font-medium">{t('plan_view.target_binary')}</label>
+                        <Select
                             value={newTaskBinary}
                             onChange={(e) => setNewTaskBinary(e.target.value)}
                         >
-                            <option value="" disabled>Select a binary...</option>
+                            <option value="" disabled>{t('plan_view.select_binary')}</option>
                             {binaries?.map((b: { binary_name: string }) => (
                                 <option key={b.binary_name} value={b.binary_name}>{b.binary_name}</option>
                             ))}
                         </Select>
                     </div>
                     <div className="space-y-2">
-                        <label className="text-sm font-medium">Title</label>
-                        <Input 
-                            value={newTaskTitle} 
-                            onChange={(e) => setNewTaskTitle(e.target.value)} 
-                            placeholder="e.g., Analyze login function"
+                        <label className="text-sm font-medium">{t('plan_view.title')}</label>
+                        <Input
+                            value={newTaskTitle}
+                            onChange={(e) => setNewTaskTitle(e.target.value)}
+                            placeholder={t('plan_view.title_placeholder_task')}
                         />
                     </div>
                     <div className="space-y-2">
-                        <label className="text-sm font-medium">Description</label>
-                        <Textarea 
-                            value={newTaskDesc} 
-                            onChange={(e) => setNewTaskDesc(e.target.value)} 
-                            placeholder="Detailed instructions for the agent..."
+                        <label className="text-sm font-medium">{t('plan_view.description_task')}</label>
+                        <Textarea
+                            value={newTaskDesc}
+                            onChange={(e) => setNewTaskDesc(e.target.value)}
+                            placeholder={t('plan_view.description_placeholder_task')}
                             className="h-24"
                         />
                     </div>
                     <div className="flex justify-end gap-2 pt-2">
-                        <Button variant="ghost" onClick={() => setIsTaskModalOpen(false)}>Cancel</Button>
+                        <Button variant="ghost" onClick={() => setIsTaskModalOpen(false)}>{t('plan_view.cancel')}</Button>
                         <Button onClick={handleCreateTask} disabled={createTaskMutation.isPending || !newTaskTitle || !newTaskDesc || !selectedPlanId || !newTaskBinary}>
-                            {createTaskMutation.isPending ? "Creating..." : "Create Task"}
+                            {createTaskMutation.isPending ? t('plan_view.creating') : t('plan_view.create_task_btn')}
                         </Button>
                     </div>
                 </div>
