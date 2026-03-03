@@ -35,6 +35,7 @@ export interface BinarySummary {
   size?: number;
   function_count?: number;
   created_at?: string;
+  role?: 'target' | 'dependency';
   [key: string]: unknown;
 }
 

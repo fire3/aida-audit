@@ -271,6 +271,7 @@ class BinaryDbQuery:
             "size": meta.get("size") if isinstance(meta, dict) else None,
             "created_at": meta.get("created_at") if isinstance(meta, dict) else None,
             "function_count": counts.get("functions"),
+            "role": meta.get("role") if isinstance(meta, dict) else None,
         }
 
     def get_extended_metadata(self):

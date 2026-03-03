@@ -311,10 +311,11 @@ def get_project_overview():
 def list_binaries(
     offset: int = 0,
     limit: int = 50,
-    detail: bool = False
+    detail: bool = False,
+    role: str = None
 ):
     svc = get_service()
-    return svc.get_project_binaries(offset=offset, limit=limit, detail=detail)
+    return svc.get_project_binaries(offset=offset, limit=limit, detail=detail, role=role)
 
 @api_router.get("/project/search/exports")
 def search_project_exports(

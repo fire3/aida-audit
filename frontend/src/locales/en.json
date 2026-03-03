@@ -45,7 +45,9 @@
       "size": "Size:",
       "functions": "Functions:",
       "imported": "Imported:",
-      "no_binaries": "No binaries found in this project."
+      "no_binaries": "No binaries found in this project.",
+      "target": "Target",
+      "dependency": "Dependency"
     },
     "search": {
       "function_placeholder": "Search function name...",
@@ -183,6 +185,12 @@
     "title_placeholder_task": "e.g., Analyze login function",
     "description_task": "Description",
     "description_placeholder_task": "Detailed instructions for the agent...",
-    "create_task_btn": "Create Task"
+    "create_task_btn": "Create Task",
+    "user_requirements": "User Requirements (Macro Goal)",
+    "edit": "Edit",
+    "requirements_placeholder": "Enter your specific requirements or macro goals for the audit...",
+    "save": "Save",
+    "saving": "Saving...",
+    "no_requirements": "No specific requirements set. Click Edit to add instructions for the agent."
   }
 }

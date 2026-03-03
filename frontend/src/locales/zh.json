@@ -45,7 +45,9 @@
       "size": "大小:",
       "functions": "函数数:",
       "imported": "导入时间:",
-      "no_binaries": "本项目中未找到二进制文件。"
+      "no_binaries": "本项目中未找到二进制文件。",
+      "target": "目标",
+      "dependency": "依赖"
     },
     "search": {
       "function_placeholder": "搜索函数名...",
@@ -183,6 +185,12 @@
     "title_placeholder_task": "例如: 分析登录函数",
     "description_task": "描述",
     "description_placeholder_task": "代理的详细指令...",
-    "create_task_btn": "创建任务"
+    "create_task_btn": "创建任务",
+    "user_requirements": "用户需求 (宏观目标)",
+    "edit": "编辑",
+    "requirements_placeholder": "输入您的具体需求或审计的宏观目标...",
+    "save": "保存",
+    "saving": "保存中...",
+    "no_requirements": "未设置具体需求。点击编辑添加代理指令。"
   }
 }

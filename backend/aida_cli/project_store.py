@@ -132,11 +132,16 @@ class ProjectStore:
             "capabilities": caps,
         }
 
-    def get_project_binaries(self, offset=None, limit=None, filters=None, detail=False):
+    def get_project_binaries(self, offset=None, limit=None, filters=None, detail=False, role=None):
         offset = 0 if offset is None else max(0, int(offset))
         limit = 50 if limit is None else min(500, max(1, int(limit)))
         filters = filters or {}
         out = []
         for b in self.list_binaries():
-            out.append(b.get_summary())
+            summary = b.get_summary()
+            # Filter by role if specified
+            if role is not None:
+                if summary.get("role") != role:
+                    continue
+            out.append(summary)
         return out[offset : offset + limit]

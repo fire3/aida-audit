@@ -151,11 +151,31 @@ export function Dashboard() {
         {activeTab === 'binaries' && (
           <div>
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {binaries?.map((binary) => (
+              {binaries?.sort((a, b) => {
+                // target first, then by name
+                if (a.role === 'target' && b.role !== 'target') return -1;
+                if (a.role !== 'target' && b.role === 'target') return 1;
+                return a.binary_name.localeCompare(b.binary_name);
+              }).map((binary) => (
                 <Link key={binary.binary_name} to={`/binary/${encodeURIComponent(binary.binary_name)}/overview`}>
-                  <Card className="hover:bg-muted/50 transition-colors cursor-pointer h-full">
+                  <Card className={cn(
+                    "hover:bg-muted/50 transition-colors cursor-pointer h-full",
+                    binary.role === 'target' && "border-primary border-2"
+                  )}>
                     <CardHeader>
-                      <CardTitle className="truncate" title={binary.binary_name}>{binary.binary_name}</CardTitle>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="truncate" title={binary.binary_name}>{binary.binary_name}</CardTitle>
+                        {binary.role === 'target' && (
+                          <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded">
+                            {t('dashboard.binary_card.target')}
+                          </span>
+                        )}
+                        {binary.role === 'dependency' && (
+                          <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded">
+                            {t('dashboard.binary_card.dependency')}
+                          </span>
+                        )}
+                      </div>
                       <CardDescription>{binary.arch || t('dashboard.binary_card.unknown_arch')}</CardDescription>
                     </CardHeader>
                     <CardContent>

@@ -402,13 +402,13 @@ class ExportOrchestrator:
         self.logger.plain("=" * 72)
         self.logger.plain("")
 
-    def _run_master_analysis(self, master_input, output_db, temp_dir, save_idb=None, export_c_path=None):
+    def _run_master_analysis(self, master_input, output_db, temp_dir, save_idb=None, export_c_path=None, role=None):
         """
         Step 1: Run Master (Export Metadata + Dump Functions)
         """
         self.logger.log("Running Master (Analysis & Metadata)", context="ORCHESTRATOR")
         master_start = time.time()
-        
+
         funcs_json = os.path.join(temp_dir, "funcs.json")
         analysis_base = os.path.join(temp_dir, "analysis")
         if save_idb:
@@ -416,14 +416,16 @@ class ExportOrchestrator:
             low = analysis_base.lower()
             if low.endswith(".i64") or low.endswith(".idb"):
                 analysis_base = os.path.splitext(analysis_base)[0]
-        
+
         master_perf_json = os.path.join(temp_dir, "perf_master.json")
-        
+
         # NOTE: We assume ida-export-worker.py is in the same directory as this script
         current_script_dir = os.path.dirname(os.path.abspath(__file__))
         ida_export_script = os.path.join(current_script_dir, "ida_export_worker.py")
-        
+
         master_cmd = f"\"{sys.executable}\" \"{ida_export_script}\" \"{master_input}\" --output \"{output_db}\" --parallel-master --dump-funcs \"{funcs_json}\" --save-idb \"{analysis_base}\" --perf-json \"{master_perf_json}\" --no-perf-report --fast --plain-log"
+        if role:
+            master_cmd += f" --role {role}"
         if export_c_path:
             master_cmd += f" --export-c \"{export_c_path}\""
             
@@ -548,7 +550,7 @@ class ExportOrchestrator:
             "worker_perf_paths": worker_perf_paths
         }
 
-    def process_single_file_ghidra(self, input_path, output_db, ghidra_home=None, export_c=False):
+    def process_single_file_ghidra(self, input_path, output_db, ghidra_home=None, export_c=False, role=None):
         input_path = os.path.abspath(input_path)
         if not os.path.exists(input_path):
             self.logger.log(f"Error: Input file '{input_path}' not found.", context="ERROR")
@@ -627,7 +629,7 @@ class ExportOrchestrator:
             )
             if not json_dir:
                 return False
-            ok = import_ghidra_export(json_dir, output_db, self.logger)
+            ok = import_ghidra_export(json_dir, output_db, self.logger, role=role)
             if not ok:
                 return False
             return True
@@ -677,13 +679,16 @@ class ExportOrchestrator:
 
                 db_name = _make_db_name(path)
                 db_path = os.path.join(out_dir, db_name)
-                self.logger.log(f"Exporting {os.path.basename(path)} -> {db_path}", context="BUNDLE")
+                # Determine role: target is main, dependencies are dependency
+                role = "target" if path == src_path else "dependency"
+                self.logger.log(f"Exporting {os.path.basename(path)} -> {db_path} (role={role})", context="BUNDLE")
 
                 success = self.process_single_file_ghidra(
                     input_path=out_bin,
                     output_db=db_path,
                     ghidra_home=ghidra_home,
                     export_c=export_c,
+                    role=role,
                 )
                 if export_c and success:
                     # C export is handled by process_single_file_ghidra
@@ -696,7 +701,7 @@ class ExportOrchestrator:
             self.logger.log(f"Failed to process {name}: {e}", context="ERROR")
             return None
 
-    def process_single_file(self, input_path, output_db, save_idb=None, export_c=False):
+    def process_single_file(self, input_path, output_db, save_idb=None, export_c=False, role=None):
         input_path = os.path.abspath(input_path)
         if not os.path.exists(input_path):
             self.logger.log(f"Error: Input file '{input_path}' not found.", context="ERROR")
@@ -765,7 +770,7 @@ class ExportOrchestrator:
 
         try:
             # Step 1: Run Master
-            master_res = self._run_master_analysis(existing_idb or input_path, output_db, temp_dir, save_idb, export_c_path)
+            master_res = self._run_master_analysis(existing_idb or input_path, output_db, temp_dir, save_idb, export_c_path, role)
             if not master_res:
                 return False
             stats['master_time'] = master_res['duration']
@@ -829,7 +834,7 @@ class ExportOrchestrator:
     def process_directory(self, scan_dir, out_dir, target_binary, export_c=False):
         scan_dir = os.path.abspath(scan_dir)
         out_dir = os.path.abspath(out_dir)
-        
+
         _safe_makedirs(out_dir)
 
         if not target_binary:
@@ -842,7 +847,7 @@ class ExportOrchestrator:
             raise FileNotFoundError(target_path)
         if not _is_within_dir(target_path, scan_dir):
             raise ValueError("target_binary must be within scan_dir")
-            
+
         name = os.path.basename(target_path)
         try:
             deps = ElfService.resolve_recursive_dependencies(scan_dir, target_path)
@@ -864,13 +869,16 @@ class ExportOrchestrator:
 
                 db_name = _make_db_name(path)
                 db_path = os.path.join(out_dir, db_name)
-                self.logger.log(f"Exporting {os.path.basename(path)} -> {db_path}", context="BUNDLE")
+                # Determine role: target is main, dependencies are dependency
+                role = "target" if path == target_path else "dependency"
+                self.logger.log(f"Exporting {os.path.basename(path)} -> {db_path} (role={role})", context="BUNDLE")
 
                 success = self.process_single_file(
                     input_path=out_bin,
                     output_db=db_path,
                     save_idb=None,
                     export_c=export_c,
+                    role=role,
                 )
                 if path == target_path:
                     out_db = db_path if success else None
