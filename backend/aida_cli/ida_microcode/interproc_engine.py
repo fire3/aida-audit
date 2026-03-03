@@ -25,7 +25,7 @@ from .interproc_datatypes import (
     CrossFuncRule,
 )
 from .constants import ida_funcs
-from ..pathfinder import PathFinder, PathFinderConfig
+from ..ida_pathfinder import PathFinder, PathFinderConfig
 
 
 class InterProcTaintEngine:

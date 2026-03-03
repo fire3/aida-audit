@@ -2,7 +2,7 @@ import sys
 import argparse
 from . import export_cmd
 from . import server_cmd
-from . import scan_cmd
+from . import ida_scan_cmd
 from . import workspace_cmd
 
 def _print_main_help():
@@ -39,7 +39,7 @@ def main():
     elif command == "workspace":
         workspace_cmd.main()
     elif command == "scan":
-        scan_cmd.main()
+        ida_scan_cmd.main()
     else:
         print(f"Unknown command: {command}")
         print("Available commands: export, serve, workspace, scan")

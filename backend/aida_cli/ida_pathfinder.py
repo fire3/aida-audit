@@ -7,7 +7,7 @@ import ida_funcs
 import idc
 import ida_idaapi
 
-from .rule_matcher import RuleMatcher
+from .ida_rule_matcher import RuleMatcher
 
 import sys
 

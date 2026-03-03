@@ -25,8 +25,8 @@ from .constants import (
     BADADDR,
     ida_hexrays,
 )
-from ..pathfinder import PathFinder, PathFinderConfig
-from ..rule_matcher import RuleMatcher
+from ..ida_pathfinder import PathFinder, PathFinderConfig
+from ..ida_rule_matcher import RuleMatcher
 from .interproc_datatypes import (
     WorkItem,
     Block,

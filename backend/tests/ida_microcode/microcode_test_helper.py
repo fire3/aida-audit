@@ -19,7 +19,7 @@ if _backend_path not in sys.path:
     sys.path.insert(0, _backend_path)
 
 from aida_cli import ida_utils
-from aida_cli.microcode import analyze_function
+from aida_cli.ida_microcode import analyze_function
 
 try:
     import idapro

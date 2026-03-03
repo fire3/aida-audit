@@ -1,7 +1,7 @@
 import re
 from typing import Dict, List, Optional, Any
 
-from .microcode import CrossFuncRule
+from .ida_microcode import CrossFuncRule
 
 
 class RuleSet:
