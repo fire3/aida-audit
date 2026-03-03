@@ -1,5 +1,6 @@
 from typing import Dict, Any, List, Optional, Union
 from .audit_database import AuditDatabase
+from .constants import VALID_PLAN_STATUSES, VALID_TASK_TYPES
 import json
 
 _audit_db: Optional[AuditDatabase] = None
@@ -13,8 +14,6 @@ def get_audit_db() -> AuditDatabase:
         raise RuntimeError("Audit database not initialized")
     return _audit_db
 
-VALID_PLAN_STATUSES = ["pending", "in_progress", "completed", "failed"]
-VALID_TASK_TYPES = ["ANALYSIS", "VERIFICATION"]
 
 def _validate_option(name: str, value: Optional[str], options: List[str]):
     if value and value not in options:
