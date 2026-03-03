@@ -101,6 +101,15 @@ class PathFinder:
         self.stats.source_funcs_found = len(self.source_eas)
         self.stats.sink_funcs_found = len(self.sink_eas)
 
+    def _resolve_function_ea(self, function_ref):
+        ea = self.matcher.resolve_function_ref(function_ref)
+        if ea == self.matcher.badaddr:
+            return None
+        func = ida_funcs.get_func(ea)
+        if not func:
+            return None
+        return func.start_ea
+
     def _get_callers(self, target_eas):
         """Find functions that call any of the target EAs."""
         callers = set()
@@ -177,7 +186,12 @@ class PathFinder:
                 continue
 
             callees = neighbor_fn(curr_ea)
-            for callee, is_indirect in callees:
+            for item in callees:
+                if isinstance(item, tuple):
+                    callee, is_indirect = item
+                else:
+                    callee = item
+                    is_indirect = False
                 if callee not in visited:
                     visited.add(callee)
                     queue.append((callee, path + [callee], has_indirect or is_indirect))
@@ -291,6 +305,138 @@ class PathFinder:
                     merged.append(result)
         merged.sort(key=lambda r: len(r.get("nodes", [])))
         return merged
+
+    def _format_generic_nodes(self, path_nodes, strategy, func_a_ea, func_b_ea, ancestor_ea=None):
+        if not path_nodes:
+            return []
+        ordered_nodes = path_nodes
+        if strategy == "common_ancestor" and ancestor_ea in path_nodes:
+            ancestor_index = path_nodes.index(ancestor_ea)
+            a_part = path_nodes[:ancestor_index]
+            b_part = path_nodes[ancestor_index + 1 :]
+            ordered_nodes = [ancestor_ea] + a_part + b_part
+        unique_nodes = []
+        seen = set()
+        for ea in ordered_nodes:
+            if ea in seen:
+                continue
+            seen.add(ea)
+            unique_nodes.append(ea)
+        nodes = []
+        for ea in unique_nodes:
+            roles = []
+            if ea == func_a_ea:
+                roles.append("func_a")
+            if ea == func_b_ea:
+                roles.append("func_b")
+            if strategy == "common_ancestor" and ancestor_ea is not None and ea == ancestor_ea:
+                roles.append("common_ancestor")
+            if not roles:
+                roles.append("intermediate")
+            nodes.append({"name": ida_funcs.get_func_name(ea), "ea": hex(ea), "roles": roles})
+        return nodes
+
+    def find_path_between(self, func_a, func_b):
+        start_time = time.time()
+        self.nodes_visited = 0
+        func_a_ea = self._resolve_function_ea(func_a)
+        func_b_ea = self._resolve_function_ea(func_b)
+        if func_a_ea is None:
+            raise ValueError(f"function_a_not_found: {func_a}")
+        if func_b_ea is None:
+            raise ValueError(f"function_b_not_found: {func_b}")
+
+        if func_a_ea == func_b_ea:
+            nodes = self._format_generic_nodes([func_a_ea], "same_function", func_a_ea, func_b_ea)
+            result = {
+                "path_id": self._hash_path([func_a_ea]),
+                "nodes": nodes,
+                "strategy": "same_function",
+                "depth": 1,
+                "has_indirect": False,
+            }
+            return {
+                "found": True,
+                "paths": [result],
+                "query": {
+                    "func_a": {"name": ida_funcs.get_func_name(func_a_ea), "ea": hex(func_a_ea)},
+                    "func_b": {"name": ida_funcs.get_func_name(func_b_ea), "ea": hex(func_b_ea)},
+                },
+                "stats": {
+                    "nodes_visited": 1,
+                    "search_time_ms": int((time.time() - start_time) * 1000),
+                    "paths_total": 1,
+                },
+            }
+
+        strategies = set(self.config.strategies or [])
+        fwd_results = []
+        rev_results = []
+        ancestor_results = []
+
+        if "forward" in strategies:
+            fwd_paths = self._bfs_search({func_a_ea}, {func_b_ea}, neighbor_fn=self._get_callees)
+            for path_nodes, has_indirect in fwd_paths:
+                fwd_results.append(
+                    {
+                        "path_id": self._hash_path(path_nodes),
+                        "nodes": self._format_generic_nodes(path_nodes, "forward", func_a_ea, func_b_ea),
+                        "strategy": "forward",
+                        "depth": len(path_nodes),
+                        "has_indirect": has_indirect,
+                    }
+                )
+
+        if "reverse" in strategies:
+            rev_paths = self._bfs_search({func_b_ea}, {func_a_ea}, neighbor_fn=self._get_callees)
+            for path_nodes, has_indirect in rev_paths:
+                forward_nodes = path_nodes[::-1]
+                rev_results.append(
+                    {
+                        "path_id": self._hash_path(forward_nodes),
+                        "nodes": self._format_generic_nodes(forward_nodes, "reverse", func_a_ea, func_b_ea),
+                        "strategy": "reverse",
+                        "depth": len(forward_nodes),
+                        "has_indirect": has_indirect,
+                    }
+                )
+
+        if "common_ancestor" in strategies:
+            common_paths = self.find_common_ancestors({func_a_ea}, {func_b_ea})
+            for path_nodes, ancestor_ea in common_paths:
+                ancestor_results.append(
+                    {
+                        "path_id": self._hash_path(path_nodes),
+                        "nodes": self._format_generic_nodes(
+                            path_nodes,
+                            "common_ancestor",
+                            func_a_ea,
+                            func_b_ea,
+                            ancestor_ea=ancestor_ea,
+                        ),
+                        "strategy": "common_ancestor",
+                        "depth": len(path_nodes),
+                        "has_indirect": False,
+                    }
+                )
+
+        merged = self._aggregate_results(fwd_results, rev_results, ancestor_results)
+        return {
+            "found": len(merged) > 0,
+            "paths": merged,
+            "query": {
+                "func_a": {"name": ida_funcs.get_func_name(func_a_ea), "ea": hex(func_a_ea)},
+                "func_b": {"name": ida_funcs.get_func_name(func_b_ea), "ea": hex(func_b_ea)},
+            },
+            "stats": {
+                "nodes_visited": self.nodes_visited,
+                "search_time_ms": int((time.time() - start_time) * 1000),
+                "paths_total": len(merged),
+                "paths_forward": len(fwd_results),
+                "paths_reverse": len(rev_results),
+                "paths_ancestor": len(ancestor_results),
+            },
+        }
 
     def find_paths(self):
         """

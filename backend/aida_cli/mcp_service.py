@@ -596,6 +596,46 @@ class McpService:
         except Exception as e:
             raise McpError("INTERNAL_ERROR", str(e))
 
+    @mcp_tool(name="find_binary_function_call_path")
+    def find_binary_function_call_path(
+        self,
+        binary_name: str,
+        func_a: Union[str, int],
+        func_b: Union[str, int],
+    ) -> Dict[str, Any]:
+        """Search call paths between two functions.
+
+        Use this tool to determine whether two functions are connected by call relationships.
+        This tool is fully database-driven and does not require IDA runtime.
+
+        Args:
+            binary_name: The unique name of the binary.
+            func_a: Function A identifier. Supported forms:
+                - Function name string, such as "main"
+                - Integer address, such as 4198400
+                - Hex address string, such as "0x401000"
+            func_b: Function B identifier. Supported forms:
+                - Function name string, such as "strcpy"
+                - Integer address, such as 4199008
+                - Hex address string, such as "0x401260"
+
+        Returns:
+            dict: Contains query info, whether path exists, matched paths, and search stats.
+        """
+        try:
+            result = self._get_binary(binary_name).find_function_paths_between(
+                func_a=func_a,
+                func_b=func_b,
+            )
+            self._record_browse(binary_name, "function", "path", f"{func_a}->{func_b}", "call_path")
+            return result
+        except LookupError as e:
+            raise McpError("NOT_FOUND", str(e))
+        except ValueError as e:
+            raise McpError("INVALID_ARGUMENT", str(e))
+        except Exception as e:
+            raise McpError("INTERNAL_ERROR", str(e))
+
     def get_binary_cross_references_to_address(self, binary_name: str, address: Union[str, int], offset: int = 0, limit: int = 50, summary: bool = False) -> List[Dict[str, Any]]:
         """Get cross references to an address.
 

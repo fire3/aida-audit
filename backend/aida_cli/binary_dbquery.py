@@ -1011,6 +1011,268 @@ class BinaryDbQuery:
         next_offset = offset + len(results) if has_more else None
         return {"results": results, "has_more": has_more, "next_offset": next_offset}
 
+    def _resolve_function_for_path(self, function_ref):
+        if function_ref is None:
+            raise ValueError("function_required")
+        va = None
+        if isinstance(function_ref, int):
+            va = function_ref
+        elif isinstance(function_ref, str):
+            s = function_ref.strip()
+            if not s:
+                raise ValueError("function_required")
+            try:
+                va = _parse_address(s)
+            except Exception:
+                va = None
+            if va is None:
+                row = self._fetchone(
+                    "SELECT function_va FROM functions WHERE name=? OR demangled_name=? LIMIT 1",
+                    (s, s),
+                )
+                if not row:
+                    raise LookupError(f"function_not_found: {function_ref}")
+                va = row["function_va"]
+        else:
+            raise ValueError("function_invalid")
+        row = self._fetchone("SELECT function_va FROM functions WHERE function_va=? LIMIT 1", (va,))
+        if not row:
+            raise LookupError(f"function_not_found: {function_ref}")
+        return int(row["function_va"])
+
+    def _get_function_name(self, function_va):
+        if not self._table_exists("functions"):
+            return None
+        row = self._fetchone("SELECT name FROM functions WHERE function_va=? LIMIT 1", (function_va,))
+        if not row:
+            return None
+        return row["name"]
+
+    def _fetch_path_callees(self, function_va, cache):
+        if function_va in cache:
+            return cache[function_va]
+        rows = self._fetchall(
+            "SELECT DISTINCT callee_function_va FROM call_edges WHERE caller_function_va=? ORDER BY callee_function_va ASC",
+            (function_va,),
+        )
+        out = [int(r["callee_function_va"]) for r in rows if r["callee_function_va"] is not None]
+        cache[function_va] = out
+        return out
+
+    def _fetch_path_callers(self, function_va, cache):
+        if function_va in cache:
+            return cache[function_va]
+        rows = self._fetchall(
+            "SELECT DISTINCT caller_function_va FROM call_edges WHERE callee_function_va=? ORDER BY caller_function_va ASC",
+            (function_va,),
+        )
+        out = [int(r["caller_function_va"]) for r in rows if r["caller_function_va"] is not None]
+        cache[function_va] = out
+        return out
+
+    def _bfs_paths_between(self, start_nodes, end_nodes, neighbor_fetcher, max_depth, max_paths):
+        if not start_nodes:
+            return [], 0
+        collect_all = not end_nodes
+        q = [(n, [n]) for n in start_nodes]
+        visited = set(start_nodes)
+        found = []
+        nodes_visited = 0
+        while q:
+            curr, path = q.pop(0)
+            nodes_visited += 1
+            if len(path) > max_depth:
+                continue
+            if collect_all or curr in end_nodes:
+                found.append(path)
+                if len(found) >= max_paths:
+                    break
+                if not collect_all:
+                    continue
+            for nxt in neighbor_fetcher(curr):
+                if nxt in visited:
+                    continue
+                visited.add(nxt)
+                q.append((nxt, path + [nxt]))
+        return found, nodes_visited
+
+    def _format_path_nodes(self, path_nodes, func_a_va, func_b_va, strategy, ancestor_va=None):
+        ordered_nodes = path_nodes
+        if strategy == "common_ancestor" and ancestor_va in path_nodes:
+            i = path_nodes.index(ancestor_va)
+            ordered_nodes = [ancestor_va] + path_nodes[:i] + path_nodes[i + 1 :]
+        unique_nodes = []
+        seen = set()
+        for ea in ordered_nodes:
+            if ea in seen:
+                continue
+            seen.add(ea)
+            roles = []
+            if ea == func_a_va:
+                roles.append("func_a")
+            if ea == func_b_va:
+                roles.append("func_b")
+            if ancestor_va is not None and ea == ancestor_va:
+                roles.append("common_ancestor")
+            if not roles:
+                roles.append("intermediate")
+            unique_nodes.append(
+                {
+                    "name": self._get_function_name(ea),
+                    "ea": _format_address(ea),
+                    "roles": roles,
+                }
+            )
+        return unique_nodes
+
+    def find_function_paths_between(self, func_a, func_b, max_depth=20, max_paths=20, strategies=None):
+        if not self._table_exists("functions"):
+            raise LookupError("functions_table_not_found")
+        if not self._table_exists("call_edges"):
+            return {
+                "found": False,
+                "paths": [],
+                "query": {"func_a": None, "func_b": None},
+                "stats": {"nodes_visited": 0, "paths_total": 0},
+            }
+        max_depth = max(1, int(max_depth))
+        max_paths = max(1, int(max_paths))
+        if strategies is None:
+            strategies = ["forward", "reverse", "common_ancestor"]
+        strategies = set(strategies or [])
+        func_a_va = self._resolve_function_for_path(func_a)
+        func_b_va = self._resolve_function_for_path(func_b)
+        if func_a_va == func_b_va:
+            single = [func_a_va]
+            return {
+                "found": True,
+                "paths": [
+                    {
+                        "path_id": ",".join([_format_address(e) for e in single]),
+                        "nodes": self._format_path_nodes(single, func_a_va, func_b_va, "same_function"),
+                        "strategy": "same_function",
+                        "depth": 1,
+                    }
+                ],
+                "query": {
+                    "func_a": {"name": self._get_function_name(func_a_va), "ea": _format_address(func_a_va)},
+                    "func_b": {"name": self._get_function_name(func_b_va), "ea": _format_address(func_b_va)},
+                },
+                "stats": {"nodes_visited": 1, "paths_total": 1, "paths_forward": 1, "paths_reverse": 0, "paths_ancestor": 0},
+            }
+
+        callee_cache = {}
+        caller_cache = {}
+        total_visited = 0
+        fwd_results = []
+        rev_results = []
+        anc_results = []
+
+        if "forward" in strategies:
+            fwd_paths, visited = self._bfs_paths_between(
+                {func_a_va},
+                {func_b_va},
+                lambda ea: self._fetch_path_callees(ea, callee_cache),
+                max_depth=max_depth,
+                max_paths=max_paths,
+            )
+            total_visited += visited
+            for path in fwd_paths:
+                fwd_results.append(
+                    {
+                        "path_id": ",".join([_format_address(e) for e in path]),
+                        "nodes": self._format_path_nodes(path, func_a_va, func_b_va, "forward"),
+                        "strategy": "forward",
+                        "depth": len(path),
+                    }
+                )
+
+        if "reverse" in strategies:
+            rev_paths, visited = self._bfs_paths_between(
+                {func_b_va},
+                {func_a_va},
+                lambda ea: self._fetch_path_callees(ea, callee_cache),
+                max_depth=max_depth,
+                max_paths=max_paths,
+            )
+            total_visited += visited
+            for path in rev_paths:
+                forward_path = path[::-1]
+                rev_results.append(
+                    {
+                        "path_id": ",".join([_format_address(e) for e in forward_path]),
+                        "nodes": self._format_path_nodes(forward_path, func_a_va, func_b_va, "reverse"),
+                        "strategy": "reverse",
+                        "depth": len(forward_path),
+                    }
+                )
+
+        if "common_ancestor" in strategies:
+            a_anc_paths, visited_a = self._bfs_paths_between(
+                {func_a_va},
+                set(),
+                lambda ea: self._fetch_path_callers(ea, caller_cache),
+                max_depth=max_depth,
+                max_paths=max_paths * max_depth,
+            )
+            b_anc_paths, visited_b = self._bfs_paths_between(
+                {func_b_va},
+                set(),
+                lambda ea: self._fetch_path_callers(ea, caller_cache),
+                max_depth=max_depth,
+                max_paths=max_paths * max_depth,
+            )
+            total_visited += visited_a + visited_b
+            a_map = {p[-1]: p for p in a_anc_paths if p}
+            for p in b_anc_paths:
+                if not p:
+                    continue
+                ancestor = p[-1]
+                if ancestor not in a_map:
+                    continue
+                merged_path = a_map[ancestor] + p[-2::-1]
+                anc_results.append(
+                    {
+                        "path_id": ",".join([_format_address(e) for e in merged_path]),
+                        "nodes": self._format_path_nodes(
+                            merged_path,
+                            func_a_va,
+                            func_b_va,
+                            "common_ancestor",
+                            ancestor_va=ancestor,
+                        ),
+                        "strategy": "common_ancestor",
+                        "depth": len(merged_path),
+                    }
+                )
+                if len(anc_results) >= max_paths:
+                    break
+
+        merged = []
+        seen = set()
+        for item in fwd_results + rev_results + anc_results:
+            pid = item["path_id"]
+            if pid in seen:
+                continue
+            seen.add(pid)
+            merged.append(item)
+        merged.sort(key=lambda item: item.get("depth", 0))
+        return {
+            "found": len(merged) > 0,
+            "paths": merged,
+            "query": {
+                "func_a": {"name": self._get_function_name(func_a_va), "ea": _format_address(func_a_va)},
+                "func_b": {"name": self._get_function_name(func_b_va), "ea": _format_address(func_b_va)},
+            },
+            "stats": {
+                "nodes_visited": total_visited,
+                "paths_total": len(merged),
+                "paths_forward": len(fwd_results),
+                "paths_reverse": len(rev_results),
+                "paths_ancestor": len(anc_results),
+            },
+        }
+
     def get_callers(self, function_address, depth=1, limit=None):
         if not self._table_exists("call_edges"):
             return []
@@ -1518,4 +1780,3 @@ class BinaryDbQuery:
             finally:
                 mm.close()
         return hits
-

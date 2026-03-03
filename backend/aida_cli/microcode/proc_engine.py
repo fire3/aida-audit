@@ -357,6 +357,9 @@ class ProcTaintEngine:
     def scan_function(self, func_info):
         return self.analyze_function(func_info)
 
+    def find_path_between(self, func_a, func_b):
+        return self.pathfinder.find_path_between(func_a, func_b)
+
     def scan_global(self, maturity):
         for rule in self.ruleset.sources:
             if "name" in rule:

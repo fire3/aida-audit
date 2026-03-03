@@ -59,6 +59,31 @@ class RuleMatcher:
                 pass
         return self.badaddr
 
+    def resolve_function_ref(self, function_ref):
+        if function_ref is None:
+            return self.badaddr
+        if isinstance(function_ref, int):
+            return function_ref
+        if not isinstance(function_ref, str):
+            return self.badaddr
+        value = function_ref.strip()
+        if not value:
+            return self.badaddr
+        try:
+            if value.lower().startswith("0x"):
+                return int(value, 16)
+            if value.isdigit():
+                return int(value, 10)
+        except Exception:
+            return self.badaddr
+        resolved = self.resolve_name(value)
+        if resolved != self.badaddr:
+            return resolved
+        normalized = self.normalize_name(value)
+        if normalized and normalized != value:
+            return self.resolve_name(normalized)
+        return self.badaddr
+
     def collect_names(self):
         """Collect all names from the binary for matching."""
         name_map = {}

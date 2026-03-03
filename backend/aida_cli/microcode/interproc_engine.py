@@ -366,6 +366,9 @@ class InterProcTaintEngine:
                 args.append(attr)
         return args
 
+    def find_path_between(self, func_a, func_b):
+        return self.pathfinder.find_path_between(func_a, func_b)
+
     def scan_global(self, maturity):
         self._resolve_rule_eas()
         self.pathfinder.ruleset = self.ruleset
