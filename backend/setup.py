@@ -1,9 +1,9 @@
-from setuptools import setup, find_packages
+from setuptools import setup, find_namespace_packages
 
 setup(
     name="aida-cli",
     version="0.1.0",
-    packages=find_packages(),
+    packages=find_namespace_packages(include=["aida_cli*"]),
     install_requires=[
         "fastapi>=0.95,<1.0",
         "uvicorn>=0.22,<0.41",
