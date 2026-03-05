@@ -8,6 +8,8 @@ from .constants import AUDIT_DB_FILENAME
 class ProjectStore:
     def __init__(self, project_path):
         self.project_path = os.path.abspath(project_path) if project_path else os.getcwd()
+        self.databases_dir = os.path.join(self.project_path, "databases")
+        self.binaries_dir = os.path.join(self.project_path, "binaries")
         self.project_id = os.path.basename(self.project_path.rstrip("\\/")) or "default"
         self._binaries = {}
         self._binary_order = []
@@ -27,9 +29,20 @@ class ProjectStore:
             return
 
         if os.path.isdir(self.project_path):
-            for fn in sorted(os.listdir(self.project_path)):
-                if fn.lower().endswith(".db") and fn != AUDIT_DB_FILENAME:
-                    db_path = os.path.join(self.project_path, fn)
+            scan_dirs = []
+            if os.path.isdir(self.databases_dir):
+                scan_dirs.append(self.databases_dir)
+            scan_dirs.append(self.project_path)
+            visited = set()
+            for scan_dir in scan_dirs:
+                for fn in sorted(os.listdir(scan_dir)):
+                    if not fn.lower().endswith(".db") or fn == AUDIT_DB_FILENAME:
+                        continue
+                    db_path = os.path.join(scan_dir, fn)
+                    db_abs = os.path.abspath(db_path)
+                    if db_abs in visited:
+                        continue
+                    visited.add(db_abs)
                     self._add_binary({"db": db_path, "display_name": fn, "role": None})
 
     def _add_binary(self, rec):
@@ -52,6 +65,20 @@ class ProjectStore:
                                  binary_path = cand
         except Exception:
             pass
+
+        if binary_path is None and os.path.isdir(self.binaries_dir):
+            base_name = os.path.basename(db_path)
+            if base_name.lower().endswith(".db"):
+                base_name = base_name[:-3]
+            fallback_names = [base_name]
+            m = re.match(r"^(?P<name>.+)\.[0-9a-fA-F]{8}$", base_name)
+            if m:
+                fallback_names.append(m.group("name"))
+            for name in fallback_names:
+                cand = os.path.join(self.binaries_dir, name)
+                if os.path.isfile(cand):
+                    binary_path = cand
+                    break
 
         display_name = rec.get("display_name")
         if binary_path:

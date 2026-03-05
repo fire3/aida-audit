@@ -28,6 +28,7 @@ from .ghidra_importer import import_ghidra_export
 from .elf_service import ElfService
 from .audit_database import AuditDatabase
 from .constants import AUDIT_DB_FILENAME
+from .workspace_cmd import init_workspace
 
 # =============================================================================
 # Shared Utilities & Logging
@@ -251,6 +252,25 @@ def _make_db_name(src_path):
     name = os.path.basename(src_path)
     return f"{name}.db"
 
+
+def _build_export_layout(output_root):
+    output_root = os.path.abspath(output_root)
+    return {
+        "root": output_root,
+        "binaries_dir": os.path.join(output_root, "binaries"),
+        "databases_dir": os.path.join(output_root, "databases"),
+        "idbs_dir": os.path.join(output_root, "idbs"),
+    }
+
+
+def _ensure_export_layout(output_root):
+    layout = _build_export_layout(output_root)
+    _safe_makedirs(layout["root"])
+    _safe_makedirs(layout["binaries_dir"])
+    _safe_makedirs(layout["databases_dir"])
+    _safe_makedirs(layout["idbs_dir"])
+    return layout
+
 def _expand_targets(target_value):
     if not target_value:
         return []
@@ -290,6 +310,15 @@ class ExportOrchestrator:
         self.logger = ConsoleLogger(log_file=log_file)
         self.progress = ExportProgressPanel()
         self.log_file = os.path.abspath(log_file) if log_file else None
+        self.layout = None
+
+    def set_layout(self, layout):
+        self.layout = layout
+
+    def _resolve_layout(self, out_dir):
+        if self.layout and self.layout.get("root"):
+            return self.layout
+        return _ensure_export_layout(out_dir)
 
     def run_command(self, cmd, stream_output=False, context="HOST"):
         if context != "HOST":
@@ -691,6 +720,7 @@ class ExportOrchestrator:
             output_db = os.path.splitext(input_path)[0] + ".db"
 
         output_db = os.path.abspath(output_db)
+        layout = self._resolve_layout(os.path.dirname(os.path.dirname(output_db)))
         self.logger.set_binary(os.path.basename(input_path))
 
         output_is_dir = (
@@ -710,9 +740,9 @@ class ExportOrchestrator:
                 return False
             out_dir = output_db
             _safe_makedirs(out_dir)
-            copied_bin = _copy_to_out_dir(input_path, out_dir)
+            copied_bin = _copy_to_out_dir(input_path, layout["binaries_dir"])
             input_path = copied_bin
-            output_db = os.path.join(out_dir, f"{os.path.basename(input_path)}.db")
+            output_db = os.path.join(layout["databases_dir"], f"{os.path.basename(input_path)}.db")
             export_root = os.path.join(out_dir, "ghidra_export")
             _safe_makedirs(export_root)
         else:
@@ -720,8 +750,7 @@ class ExportOrchestrator:
             export_root = os.path.join(os.path.dirname(output_db), f"{export_base}.ghidra_export")
             _safe_makedirs(export_root)
             try:
-                out_dir = os.path.dirname(output_db)
-                copied_bin = _copy_to_out_dir(input_path, out_dir)
+                copied_bin = _copy_to_out_dir(input_path, layout["binaries_dir"])
                 input_path = copied_bin
                 self.logger.log(f"Copied {os.path.basename(input_path)} -> {copied_bin}", context="ORCHESTRATOR")
             except Exception as e:
@@ -742,7 +771,7 @@ class ExportOrchestrator:
         self.logger.log(f"Input  : {input_path}", context="ORCHESTRATOR")
         self.logger.log(f"Output : {output_db}", context="ORCHESTRATOR")
 
-        _ensure_audit_db(os.path.dirname(output_db), self.logger)
+        _ensure_audit_db(layout["databases_dir"], self.logger)
 
         export_c_path = None
         want_c = export_c
@@ -789,7 +818,7 @@ class ExportOrchestrator:
         scan_dir = os.path.abspath(scan_dir)
         out_dir = os.path.abspath(out_dir)
 
-        _safe_makedirs(out_dir)
+        layout = self._resolve_layout(out_dir)
 
         if not target_binary:
             self.logger.log("Error: target_binary is required for directory processing.", context="ERROR")
@@ -819,11 +848,11 @@ class ExportOrchestrator:
                 if path in seen:
                     continue
                 seen.add(path)
-                out_bin = _copy_to_out_dir(path, out_dir)
+                out_bin = _copy_to_out_dir(path, layout["binaries_dir"])
                 self.logger.log(f"Copied {os.path.basename(path)} -> {out_bin}", context="BUNDLE")
 
                 db_name = _make_db_name(path)
-                db_path = os.path.join(out_dir, db_name)
+                db_path = os.path.join(layout["databases_dir"], db_name)
                 # Determine role: target is main, dependencies are dependency
                 role = "target" if path == src_path else "dependency"
                 self.logger.log(f"Exporting {os.path.basename(path)} -> {db_path} (role={role})", context="BUNDLE")
@@ -856,14 +885,14 @@ class ExportOrchestrator:
             output_db = os.path.splitext(input_path)[0] + ".db"
         
         output_db = os.path.abspath(output_db)
+        layout = self._resolve_layout(os.path.dirname(os.path.dirname(output_db)))
         self.logger.set_binary(os.path.basename(input_path))
         self.progress.start(os.path.basename(input_path), output_db, self.backend, self.workers)
         self.progress.update_stage("准备", "初始化导出上下文")
             
         # Ensure original binary is present in the output directory
         try:
-            out_dir = os.path.dirname(output_db)
-            copied_bin = _copy_to_out_dir(input_path, out_dir)
+            copied_bin = _copy_to_out_dir(input_path, layout["binaries_dir"])
             input_path = copied_bin
             self.logger.log(f"Copied {os.path.basename(input_path)} -> {copied_bin}", context="ORCHESTRATOR")
         except Exception as e:
@@ -879,7 +908,7 @@ class ExportOrchestrator:
         self.logger.log(f"Output : {output_db}", context="ORCHESTRATOR")
         self.logger.log(f"Workers: {self.workers}", context="ORCHESTRATOR")
 
-        _ensure_audit_db(os.path.dirname(output_db), self.logger)
+        _ensure_audit_db(layout["databases_dir"], self.logger)
 
         # Setup temporary directory
         temp_dir = os.path.join(os.path.dirname(output_db), f"ida_parallel_temp_{os.getpid()}_{int(time.time())}")
@@ -913,7 +942,7 @@ class ExportOrchestrator:
             self.logger.log(f"Reuse C: {c_path}", context="ORCHESTRATOR")
 
         if save_idb is None:
-            save_idb = os.path.splitext(input_path)[0]
+            save_idb = os.path.join(layout["idbs_dir"], os.path.basename(input_path))
 
         try:
             self.progress.update_stage("主分析", "导出元数据并提取函数")
@@ -990,8 +1019,7 @@ class ExportOrchestrator:
     def process_directory(self, scan_dir, out_dir, target_binary, export_c=False):
         scan_dir = os.path.abspath(scan_dir)
         out_dir = os.path.abspath(out_dir)
-
-        _safe_makedirs(out_dir)
+        layout = self._resolve_layout(out_dir)
 
         if not target_binary:
             self.logger.log("Error: target_binary is required for directory processing.", context="ERROR")
@@ -1020,11 +1048,11 @@ class ExportOrchestrator:
                 if path in seen:
                     continue
                 seen.add(path)
-                out_bin = _copy_to_out_dir(path, out_dir)
+                out_bin = _copy_to_out_dir(path, layout["binaries_dir"])
                 self.logger.log(f"Copied {os.path.basename(path)} -> {out_bin}", context="BUNDLE")
 
                 db_name = _make_db_name(path)
-                db_path = os.path.join(out_dir, db_name)
+                db_path = os.path.join(layout["databases_dir"], db_name)
                 # Determine role: target is main, dependencies are dependency
                 role = "target" if path == target_path else "dependency"
                 self.logger.log(f"Exporting {os.path.basename(path)} -> {db_path} (role={role})", context="BUNDLE")
@@ -1092,7 +1120,14 @@ def main():
     if output_dir.lower().endswith(".db"):
         print("Error: Output path must be a directory.")
         sys.exit(1)
-    _safe_makedirs(output_dir)
+    layout = _ensure_export_layout(output_dir)
+    orchestrator.set_layout(layout)
+    _ensure_audit_db(layout["databases_dir"], orchestrator.logger)
+    init_workspace(output_dir)
+    print(f"Workspace initialized: {output_dir}")
+    print(f"Binaries  : {layout['binaries_dir']}")
+    print(f"Databases : {layout['databases_dir']}")
+    print(f"IDBs      : {layout['idbs_dir']}")
 
     # Determine mode based on arguments
     if args.scan_dir:
@@ -1138,7 +1173,7 @@ def main():
                 print(f"Error: Target '{target_path}' is a directory. For directory scanning, use --scan-dir.")
                 sys.exit(1)
 
-            output_db = os.path.join(output_dir, _make_db_name(target_path))
+            output_db = os.path.join(layout["databases_dir"], _make_db_name(target_path))
 
             if args.backend == "ghidra":
                 success = orchestrator.process_single_file_ghidra(

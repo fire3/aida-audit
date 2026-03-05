@@ -77,6 +77,8 @@ async def lifespan(app: FastAPI):
         print(f"Loaded project from: {project_path}")
 
         audit_db_path = os.path.join(project_path, AUDIT_DB_FILENAME)
+        if not os.path.exists(audit_db_path):
+            audit_db_path = os.path.join(project_path, "databases", AUDIT_DB_FILENAME)
         if os.path.exists(os.path.dirname(audit_db_path)):
             audit_db = AuditDatabase(audit_db_path)
             audit_db.connect()
@@ -1137,7 +1139,7 @@ else:
 
 def main():
     parser = argparse.ArgumentParser(description="AIDA MCP server (FastAPI + Uvicorn)")
-    parser.add_argument("project", nargs="?", default=".", help="Directory containing .db files")
+    parser.add_argument("project", nargs="?", default=".", help="Export project directory")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--reload", action="store_true", help="Enable auto-reload (debug mode)")

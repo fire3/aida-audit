@@ -80,6 +80,36 @@ def _build_claude_settings():
     }
 
 
+def init_workspace(workspace_root, url="http://127.0.0.1:8765/mcp"):
+    workspace_root = os.path.abspath(workspace_root)
+    opencode_skills_root = os.path.join(workspace_root, ".opencode", "skills")
+    os.makedirs(opencode_skills_root, exist_ok=True)
+
+    path = os.path.join(workspace_root, "opencode.json")
+    _write_json(path, _build_opencode_http_config(url, "aida-cli"))
+
+    mcp_json_path = os.path.join(workspace_root, ".mcp.json")
+    _write_json(mcp_json_path, _build_mcp_http_config(url))
+
+    claude_dir = os.path.join(workspace_root, ".claude")
+    os.makedirs(claude_dir, exist_ok=True)
+    settings_path = os.path.join(claude_dir, "settings.local.json")
+    _write_json(settings_path, _build_claude_settings())
+
+    skills_source = _resolve_skills_root()
+    copied = []
+    if skills_source:
+        copied.extend(_copy_skills(skills_source, opencode_skills_root))
+
+    return {
+        "opencode": path,
+        "mcp": mcp_json_path,
+        "claude": settings_path,
+        "skills_dir": opencode_skills_root if skills_source else None,
+        "copied_skills": copied,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="Initialize a local MCP workspace")
     parser.add_argument("--init", required=True, default=".", help="Workspace directory to initialize")
@@ -87,32 +117,12 @@ def main():
     parser.add_argument("--url", default="http://127.0.0.1:8765/mcp")
     args = parser.parse_args()
 
-    workspace_root = os.path.abspath(args.init)
-    opencode_skills_root = os.path.join(workspace_root, ".opencode", "skills")
-    os.makedirs(opencode_skills_root, exist_ok=True)
-
-    # Generate opencode.json for Opencode
-    path = os.path.join(workspace_root, "opencode.json")
-    _write_json(path, _build_opencode_http_config(args.url, "aida-cli"))
-    print(f"opencode: {path}")
-
-    # Generate .mcp.json for Claude
-    mcp_json_path = os.path.join(workspace_root, ".mcp.json")
-    _write_json(mcp_json_path, _build_mcp_http_config(args.url))
-    print(f"mcp: {mcp_json_path}")
-
-    # Generate .claude/settings.json for Claude permissions
-    claude_dir = os.path.join(workspace_root, ".claude")
-    os.makedirs(claude_dir, exist_ok=True)
-    settings_path = os.path.join(claude_dir, "settings.local.json")
-    _write_json(settings_path, _build_claude_settings())
-    print(f"claude: {settings_path}")
-
-    skills_source = _resolve_skills_root()
-    copied = []
-    if skills_source:
-        copied.extend(_copy_skills(skills_source, opencode_skills_root))
-        print(f"skills: {opencode_skills_root}")
+    result = init_workspace(args.init, url=args.url)
+    print(f"opencode: {result['opencode']}")
+    print(f"mcp: {result['mcp']}")
+    print(f"claude: {result['claude']}")
+    if result["skills_dir"]:
+        print(f"skills: {result['skills_dir']}")
     else:
         print("skills: not found")
 

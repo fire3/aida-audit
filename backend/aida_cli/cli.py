@@ -3,14 +3,12 @@ import argparse
 from . import export_cmd
 from . import server_cmd
 from . import ida_scan_cmd
-from . import workspace_cmd
 
 def _print_main_help():
     print("Usage: aida_cli <command> [args]")
     print("Commands:")
     print("  export  - Export MCP database")
     print("  serve   - Start MCP server")
-    print("  workspace - Initialize a local workspace")
     print("  scan    - Run IDA Microcode taint scan")
 
 def main():
@@ -34,15 +32,13 @@ def main():
     elif command == "serve":
         server_cmd.main()
     elif command == "install":
-        print("Error: 'install' command is deprecated. Use 'workspace' instead.")
+        print("Error: 'install' command is deprecated.")
         sys.exit(1)
-    elif command == "workspace":
-        workspace_cmd.main()
     elif command == "scan":
         ida_scan_cmd.main()
     else:
         print(f"Unknown command: {command}")
-        print("Available commands: export, serve, workspace, scan")
+        print("Available commands: export, serve, scan")
         sys.exit(1)
 
 if __name__ == "__main__":
