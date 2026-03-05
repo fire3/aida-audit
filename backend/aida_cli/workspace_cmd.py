@@ -89,7 +89,13 @@ def init_workspace(workspace_root, url="http://127.0.0.1:8765/mcp"):
     _write_json(path, _build_opencode_http_config(url, "aida-cli"))
 
     mcp_json_path = os.path.join(workspace_root, ".mcp.json")
-    _write_json(mcp_json_path, _build_mcp_http_config(url))
+    mcp_payload = _build_mcp_http_config(url)
+    _write_json(mcp_json_path, mcp_payload)
+
+    trae_dir = os.path.join(workspace_root, ".trae")
+    os.makedirs(trae_dir, exist_ok=True)
+    trae_mcp_path = os.path.join(trae_dir, "mcp.json")
+    _write_json(trae_mcp_path, mcp_payload)
 
     claude_dir = os.path.join(workspace_root, ".claude")
     os.makedirs(claude_dir, exist_ok=True)
@@ -104,6 +110,7 @@ def init_workspace(workspace_root, url="http://127.0.0.1:8765/mcp"):
     return {
         "opencode": path,
         "mcp": mcp_json_path,
+        "trae_mcp": trae_mcp_path,
         "claude": settings_path,
         "skills_dir": opencode_skills_root if skills_source else None,
         "copied_skills": copied,
@@ -120,6 +127,7 @@ def main():
     result = init_workspace(args.init, url=args.url)
     print(f"opencode: {result['opencode']}")
     print(f"mcp: {result['mcp']}")
+    print(f"trae mcp: {result['trae_mcp']}")
     print(f"claude: {result['claude']}")
     if result["skills_dir"]:
         print(f"skills: {result['skills_dir']}")
