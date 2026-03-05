@@ -173,9 +173,10 @@ class ExportProgressPanel:
         table.add_row("目标", self.binary_name)
         table.add_row("后端", self.backend)
         table.add_row("输出", self.output_db)
-        table.add_row("并行", str(self.workers))
+        parallel_text = str(self.workers)
         if self.worker_total > 0:
-            table.add_row("Worker", f"{self.worker_done}/{self.worker_total} (失败 {self.worker_failed})")
+            parallel_text = f"{self.workers} (worker {self.worker_done}/{self.worker_total}, 失败 {self.worker_failed})"
+        table.add_row("并行", parallel_text)
         table.add_row("耗时", f"{elapsed:.1f}s")
         if self.detail:
             table.add_row("说明", self.detail)
