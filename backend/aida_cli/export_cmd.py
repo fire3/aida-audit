@@ -5,7 +5,6 @@ import time
 import hashlib
 import argparse
 import glob
-import re
 import subprocess
 import shutil
 import sqlite3
@@ -100,7 +99,10 @@ class ExportProgressPanel:
         self.worker_total = 0
         self.worker_done = 0
         self.worker_failed = 0
+        self.worker_running = 0
         self.status = "运行中"
+        self.last_event = ""
+        self.last_event_at = 0.0
 
     def start(self, binary_name, output_db, backend, workers):
         with self._lock:
@@ -115,8 +117,11 @@ class ExportProgressPanel:
             self.worker_total = 0
             self.worker_done = 0
             self.worker_failed = 0
+            self.worker_running = 0
             self.status = "运行中"
-            self._live = Live(self._render(), console=self.console, refresh_per_second=8, transient=False)
+            self.last_event = "任务已创建"
+            self.last_event_at = time.time()
+            self._live = Live(self._render(), console=self.console, refresh_per_second=16, transient=False)
             self._live.start()
 
     def update_stage(self, stage, detail=""):
@@ -134,6 +139,9 @@ class ExportProgressPanel:
             self.worker_total = total
             self.worker_done = 0
             self.worker_failed = 0
+            self.worker_running = total
+            self.last_event = f"并行任务启动: {total} 个 worker"
+            self.last_event_at = time.time()
             self._refresh()
 
     def worker_finished(self, ok):
@@ -143,6 +151,21 @@ class ExportProgressPanel:
             self.worker_done += 1
             if not ok:
                 self.worker_failed += 1
+            if self.worker_running > 0:
+                self.worker_running -= 1
+            self.last_event = (
+                f"worker 完成 {self.worker_done}/{self.worker_total}"
+                + (f"，失败 {self.worker_failed}" if self.worker_failed else "")
+            )
+            self.last_event_at = time.time()
+            self._refresh()
+
+    def notify(self, detail):
+        with self._lock:
+            if not self._started:
+                return
+            self.last_event = detail
+            self.last_event_at = time.time()
             self._refresh()
 
     def finish(self, success, message):
@@ -152,6 +175,8 @@ class ExportProgressPanel:
             self.status = "完成" if success else "失败"
             self.stage = "结束"
             self.detail = message
+            self.last_event = message
+            self.last_event_at = time.time()
             self._refresh()
             if self._live:
                 self._live.stop()
@@ -176,13 +201,19 @@ class ExportProgressPanel:
         table.add_row("输出", self.output_db)
         parallel_text = str(self.workers)
         if self.worker_total > 0:
-            parallel_text = f"{self.workers} (worker {self.worker_done}/{self.worker_total}, 失败 {self.worker_failed})"
+            parallel_text = (
+                f"{self.workers} (运行中 {self.worker_running}, 完成 {self.worker_done}/{self.worker_total}, "
+                f"失败 {self.worker_failed})"
+            )
         table.add_row("并行", parallel_text)
         table.add_row("耗时", f"{elapsed:.1f}s")
         if self.detail:
             table.add_row("说明", self.detail)
+        if self.last_event:
+            event_age = max(0.0, time.time() - self.last_event_at) if self.last_event_at else 0.0
+            table.add_row("最近事件", f"{self.last_event} ({event_age:.1f}s 前)")
         border_style = "green" if self.status == "完成" else "red" if self.status == "失败" else "blue"
-        title = Text("AIDA Export Progress", style="bold")
+        title = Text("AIDA Export", style="bold")
         return Panel(table, title=title, border_style=border_style)
 
 def _sha256_prefix(path, n=8):
@@ -325,6 +356,7 @@ class ExportOrchestrator:
             self.logger.log("Starting...", context=context)
         else:
             self.logger.log("Starting command...", context="HOST")
+        self.progress.notify(f"{context} 启动")
             
         start_time = time.time()
         
@@ -339,6 +371,8 @@ class ExportOrchestrator:
                     stripped = line.rstrip()
                     self.logger.log(stripped, context=context)
                     stdout_lines.append(line)
+                    if stripped:
+                        self.progress.notify(f"{context}: {stripped[:80]}")
             
             returncode = process.poll()
             result_stdout = "".join(stdout_lines)
@@ -357,14 +391,14 @@ class ExportOrchestrator:
             if not stream_output:
                 self.logger.plain(result_stdout.rstrip())
             self.logger.plain(result_stderr.rstrip())
+            self.progress.notify(f"{context} 失败 (exit={returncode})")
             return {"ok": False, "duration": duration, "returncode": returncode, "stdout": result_stdout, "stderr": result_stderr}
             
         self.logger.log(f"Done ({duration:.2f}s).", context=context)
+        self.progress.notify(f"{context} 完成 ({duration:.2f}s)")
         return {"ok": True, "duration": duration, "returncode": returncode, "stdout": result_stdout, "stderr": result_stderr}
 
-    def _resolve_ghidra_home(self, ghidra_home):
-        if ghidra_home:
-            return os.path.abspath(ghidra_home)
+    def _resolve_ghidra_home(self):
         env_home = os.environ.get("GHIDRA_HOME")
         if env_home:
             return os.path.abspath(env_home)
@@ -385,11 +419,11 @@ class ExportOrchestrator:
                 return cand
         return None
 
-    def _run_ghidra_headless(self, input_path, export_dir, ghidra_home, threads=None, chunk_size=None, export_c_path=None):
-        ghidra_home = self._resolve_ghidra_home(ghidra_home)
+    def _run_ghidra_headless(self, input_path, export_dir, threads=None, chunk_size=None):
+        ghidra_home = self._resolve_ghidra_home()
         headless = self._get_ghidra_headless(ghidra_home)
         if not headless:
-            raise FileNotFoundError("Ghidra headless analyzer not found")
+            raise FileNotFoundError("Ghidra headless analyzer not found. Please set GHIDRA_HOME to your Ghidra installation directory.")
         script_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "ghidra_export"))
         if not os.path.isdir(script_dir):
             raise FileNotFoundError("Ghidra script directory not found")
@@ -401,8 +435,6 @@ class ExportOrchestrator:
         thread_count = max(1, int(threads) if threads else 1)
         chunk_value = int(chunk_size) if chunk_size is not None else 0
         script_args = f"\"{json_dir}\" --threads {thread_count} --chunk {chunk_value}"
-        if export_c_path:
-            script_args += f" --export-c \"{export_c_path}\""
         cmd = (
             f"\"{headless}\" \"{project_dir}\" \"{project_name}\" "
             f"-import \"{input_path}\" -scriptPath \"{script_dir}\" -overwrite "
@@ -552,7 +584,7 @@ class ExportOrchestrator:
         self.logger.plain("=" * 72)
         self.logger.plain("")
 
-    def _run_master_analysis(self, master_input, output_db, temp_dir, save_idb=None, export_c_path=None, role=None):
+    def _run_master_analysis(self, master_input, output_db, temp_dir, save_idb=None, role=None):
         """
         Step 1: Run Master (Export Metadata + Dump Functions)
         """
@@ -577,8 +609,6 @@ class ExportOrchestrator:
         master_cmd = f"\"{sys.executable}\" \"{ida_export_script}\" \"{master_input}\" --output \"{output_db}\" --parallel-master --dump-funcs \"{funcs_json}\" --save-idb \"{analysis_base}\" --perf-json \"{master_perf_json}\" --no-perf-report --fast --plain-log"
         if role:
             master_cmd += f" --role {role}"
-        if export_c_path:
-            master_cmd += f" --export-c \"{export_c_path}\""
             
         result = self.run_command(master_cmd, stream_output=True, context="MASTER")
         
@@ -710,7 +740,7 @@ class ExportOrchestrator:
             "worker_perf_paths": worker_perf_paths
         }
 
-    def process_single_file_ghidra(self, input_path, output_db, ghidra_home=None, export_c=False, role=None):
+    def process_single_file_ghidra(self, input_path, output_db, role=None):
         input_path = os.path.abspath(input_path)
         if not os.path.exists(input_path):
             self.logger.log(f"Error: Input file '{input_path}' not found.", context="ERROR")
@@ -759,9 +789,6 @@ class ExportOrchestrator:
         self.progress.start(os.path.basename(input_path), output_db, self.backend, self.workers)
         self.progress.update_stage("准备", "初始化导出上下文")
 
-        c_path = os.path.splitext(output_db)[0] + ".c"
-        c_exists = os.path.exists(c_path)
-
         if os.path.exists(output_db):
             self.logger.log(f"Target database already exists: {output_db}", context="ORCHESTRATOR")
             self.logger.log("Skipping export.", context="ORCHESTRATOR")
@@ -773,14 +800,6 @@ class ExportOrchestrator:
 
         _ensure_audit_db(layout["databases_dir"], self.logger)
 
-        export_c_path = None
-        want_c = export_c
-        if want_c and not c_exists:
-            export_c_path = c_path
-            self.logger.log(f"Export C: {export_c_path}", context="ORCHESTRATOR")
-        elif want_c and c_exists:
-            self.logger.log(f"Reuse C: {c_path}", context="ORCHESTRATOR")
-
         temp_dir = export_root or tempfile.mkdtemp(prefix="ghidra_export_")
         json_dir = None
         try:
@@ -788,10 +807,8 @@ class ExportOrchestrator:
             json_dir = self._run_ghidra_headless(
                 input_path,
                 temp_dir,
-                ghidra_home,
                 threads=self.workers,
-                chunk_size=0,
-                export_c_path=export_c_path
+                chunk_size=0
             )
             if not json_dir:
                 self.progress.finish(False, "Ghidra 导出失败")
@@ -814,7 +831,7 @@ class ExportOrchestrator:
                 except Exception:
                     pass
 
-    def process_directory_ghidra(self, scan_dir, out_dir, target_binary, ghidra_home=None, export_c=False):
+    def process_directory_ghidra(self, scan_dir, out_dir, target_binary):
         scan_dir = os.path.abspath(scan_dir)
         out_dir = os.path.abspath(out_dir)
 
@@ -860,13 +877,8 @@ class ExportOrchestrator:
                 success = self.process_single_file_ghidra(
                     input_path=out_bin,
                     output_db=db_path,
-                    ghidra_home=ghidra_home,
-                    export_c=export_c,
                     role=role,
                 )
-                if export_c and success:
-                    # C export is handled by process_single_file_ghidra
-                    pass
                 if path == src_path:
                     out_db = db_path if success else None
 
@@ -875,7 +887,7 @@ class ExportOrchestrator:
             self.logger.log(f"Failed to process {name}: {e}", context="ERROR")
             return None
 
-    def process_single_file(self, input_path, output_db, save_idb=None, export_c=False, role=None):
+    def process_single_file(self, input_path, output_db, save_idb=None, role=None):
         input_path = os.path.abspath(input_path)
         if not os.path.exists(input_path):
             self.logger.log(f"Error: Input file '{input_path}' not found.", context="ERROR")
@@ -897,9 +909,6 @@ class ExportOrchestrator:
             self.logger.log(f"Copied {os.path.basename(input_path)} -> {copied_bin}", context="ORCHESTRATOR")
         except Exception as e:
             self.logger.log(f"Warning: failed to copy input binary to output directory: {e}", context="ORCHESTRATOR")
-
-        c_path = os.path.splitext(output_db)[0] + ".c"
-        c_exists = os.path.exists(c_path)
 
         if os.path.exists(output_db):
             self.logger.log(f"Target database already exists: {output_db}", context="ORCHESTRATOR")
@@ -934,20 +943,13 @@ class ExportOrchestrator:
                 existing_idb = candidate
                 break
         
-        export_c_path = None
-        want_c = export_c
-        if want_c and not c_exists:
-            export_c_path = c_path
-        elif want_c and c_exists:
-            self.logger.log(f"Reuse C: {c_path}", context="ORCHESTRATOR")
-
         if save_idb is None:
             save_idb = os.path.join(layout["idbs_dir"], os.path.basename(input_path))
 
         try:
             self.progress.update_stage("主分析", "导出元数据并提取函数")
             # Step 1: Run Master
-            master_res = self._run_master_analysis(existing_idb or input_path, output_db, temp_dir, save_idb, export_c_path, role)
+            master_res = self._run_master_analysis(existing_idb or input_path, output_db, temp_dir, save_idb, role)
             if not master_res:
                 self.progress.finish(False, "主分析失败")
                 return False
@@ -1016,7 +1018,7 @@ class ExportOrchestrator:
             except:
                  pass
 
-    def process_directory(self, scan_dir, out_dir, target_binary, export_c=False):
+    def process_directory(self, scan_dir, out_dir, target_binary):
         scan_dir = os.path.abspath(scan_dir)
         out_dir = os.path.abspath(out_dir)
         layout = self._resolve_layout(out_dir)
@@ -1061,7 +1063,6 @@ class ExportOrchestrator:
                     input_path=out_bin,
                     output_db=db_path,
                     save_idb=None,
-                    export_c=export_c,
                     role=role,
                 )
                 if path == target_path:
@@ -1087,13 +1088,15 @@ def main():
     parser.add_argument("-l", "--log-file", help="Write detailed export logs to file")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument("--backend", choices=["ida", "ghidra"], default="ida", help="Export backend (ida or ghidra)")
-    parser.add_argument("--ghidra-home", help="Ghidra installation directory (optional, defaults to GHIDRA_HOME)")
-    parser.add_argument("--export-c", action="store_true", help="Export decompiled C file")
-    # parser.add_argument("--joern-home", help="Joern installation directory (optional, defaults to JOERN_HOME)")
-    # parser.add_argument("--export-cpg", action="store_true", help="Export Joern CPG database file")
-    parser.add_argument("--cpg-json", action="store_true", help="Export CPG JSON files (IDA only)")
 
     args = parser.parse_args()
+
+    if args.backend == "ghidra":
+        ghidra_home = os.environ.get("GHIDRA_HOME")
+        if not ghidra_home:
+            print("Error: 使用 ghidra 后端前，请先设置 GHIDRA_HOME 环境变量。")
+            print("例如: export GHIDRA_HOME=/path/to/ghidra")
+            sys.exit(1)
     
     target_values = []
     for raw_target in args.target:
@@ -1150,15 +1153,12 @@ def main():
                         scan_dir=scan_dir,
                         out_dir=output_dir,
                         target_binary=target_path,
-                        ghidra_home=args.ghidra_home,
-                        export_c=args.export_c,
                     )
                 else:
                     out_db = orchestrator.process_directory(
                         scan_dir=scan_dir,
                         out_dir=output_dir,
                         target_binary=target_path,
-                        export_c=args.export_c,
                     )
         except Exception as e:
             print(f"Error: {e}")
@@ -1179,19 +1179,13 @@ def main():
                 success = orchestrator.process_single_file_ghidra(
                     input_path=target_path,
                     output_db=output_db,
-                    ghidra_home=args.ghidra_home,
-                    export_c=args.export_c,
                 )
             else:
                 success = orchestrator.process_single_file(
                     input_path=target_path,
                     output_db=output_db,
                     save_idb=None,
-                    export_c=args.export_c,
                 )
-            if args.export_c and success and args.backend == "ghidra":
-                # C export is handled by process_single_file_ghidra
-                pass
             all_ok = all_ok and bool(success)
         sys.exit(0 if all_ok else 1)
 

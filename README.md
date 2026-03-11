@@ -109,8 +109,7 @@ aida-cli export <target_binary> -o <output_directory>
 *   `-j <n>`: Number of parallel workers (default: 4).
 *   `--verbose`: Enable detailed logging.
 *   `--backend <ida|ghidra>`: Choose the export backend (default: `ida`).
-*   `--ghidra-home <dir>`: Ghidra install directory (optional, overrides `GHIDRA_HOME`).
-*   `--export-c`: Export the decompiled C file alongside the database.
+*   When `--backend ghidra` is used, set `GHIDRA_HOME` in your environment before running.
 
 **Example:**
 ```bash
@@ -122,12 +121,6 @@ aida-cli export ./squashfs-root/usr/sbin/httpd -o ./output --scan-dir ./squashfs
 
 # Export with the Ghidra backend (using GHIDRA_HOME)
 aida-cli export ./bin/httpd -o ./output --backend ghidra
-
-# Export with the Ghidra backend (explicit path)
-aida-cli export ./bin/httpd -o ./output --backend ghidra --ghidra-home <path_to_ghidra>
-
-# Export decompiled C output
-aida-cli export ./bin/httpd -o ./output --export-c
 
 # Export multiple targets via wildcard
 aida-cli export ./lib/uams/uams_* -o ./output

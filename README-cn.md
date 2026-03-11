@@ -108,8 +108,7 @@ aida-cli export <target_binary> -o <output_directory>
 *   `-j <n>`: 并行工作线程数（默认：4）。
 *   `--verbose`: 启用详细日志输出。
 *   `--backend <ida|ghidra>`: 选择导出后端（默认：`ida`）。
-*   `--ghidra-home <dir>`: Ghidra 安装目录（可选，优先级高于 `GHIDRA_HOME`）。
-*   `--export-c`: 同时导出反编译的 C 文件。
+*   使用 `--backend ghidra` 时，请先在环境中设置 `GHIDRA_HOME`。
 
 **示例：**
 ```bash
@@ -121,12 +120,6 @@ aida-cli export ./squashfs-root/usr/sbin/httpd -o ./output --scan-dir ./squashfs
 
 # 使用 Ghidra 后端导出（使用环境变量）
 aida-cli export ./bin/httpd -o ./output --backend ghidra
-
-# 使用 Ghidra 后端导出（显式指定 Ghidra 目录）
-aida-cli export ./bin/httpd -o ./output --backend ghidra --ghidra-home <path_to_ghidra>
-
-# 导出反编译 C 文件
-aida-cli export ./bin/httpd -o ./output --export-c
 
 # 使用通配符导出多个目标
 aida-cli export ./lib/uams/uams_* -o ./output

@@ -129,7 +129,7 @@ install_backend() {
   echo "Installation complete."
   echo "You can now use the 'aida-cli' command."
   echo "  Example: aida-cli export mybinary.exe -o ./output"
-  echo "  Example: aida-cli export mybinary.exe -o ./output --export-c"
+  echo "  Example: GHIDRA_HOME=/path/to/ghidra aida-cli export mybinary.exe -o ./output --backend ghidra"
   echo "  Example: aida-cli serve ."
 }
 

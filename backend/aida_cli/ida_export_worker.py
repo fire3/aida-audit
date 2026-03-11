@@ -27,27 +27,6 @@ except ImportError:
     print("Error: This script must be run within IDA Pro.")
     sys.exit(1)
 
-def export_c_file(out_path, logger):
-    import ida_hexrays
-    if not ida_hexrays.init_hexrays_plugin():
-        logger.log("Hex-Rays decompiler not available. Skipping C export.", level="ERROR")
-        return False
-    
-    logger.log(f"Exporting C file to {out_path}...")
-    try:
-        flags = ida_hexrays.VDRUN_NEWFILE | ida_hexrays.VDRUN_SILENT | ida_hexrays.VDRUN_MAYSTOP
-        rc = ida_hexrays.decompile_many(out_path, None, flags)
-        # rc might be 1/0 or True/False
-        if rc:
-            logger.log("C export successful.")
-            return True
-        else:
-            logger.log("C export failed (decompile_many returned False).", level="ERROR")
-            return False
-    except Exception as e:
-        logger.log(f"C export failed with exception: {e}", level="ERROR")
-        return False
-
 def main():
     # Parse arguments
     # Note: When running in IDA, sys.argv might contain IDA's arguments.
@@ -65,8 +44,6 @@ def main():
     parser.add_argument("--parallel-worker", help="Path to function list JSON for worker mode (runs ONLY pseudocode)")
     parser.add_argument("--dump-funcs", help="Path to dump function list JSON (used with --parallel-master)")
     parser.add_argument("--save-idb", help="Save analyzed IDB/I64 to this path (optional; extension auto-chosen if omitted)")
-    parser.add_argument("--export-c", help="Path to export C file (uses ida_hexrays.decompile_many)")
-    parser.add_argument("--cpg-json", help="Path to export CPG JSON directory")
     parser.add_argument("--perf-json", help="Write performance stats JSON to this path")
     parser.add_argument("--no-perf-report", action="store_true", help="Do not print the textual performance summary")
     parser.add_argument("--plain-log", action="store_true", help="Use plain logging (no timestamps, just messages)")
@@ -211,25 +188,6 @@ def main():
         except Exception as e:
             logger.log(f"Failed to save IDA database: {e}", level="WARN")
 
-    # Export Process
-    if args.cpg_json:
-        try:
-            cpg_out_dir = os.path.abspath(args.cpg_json)
-            logger.log(f"Starting CPG JSON export to {cpg_out_dir}...")
-            cpg_exporter = IDACPGExporter(cpg_out_dir, logger)
-            cpg_exporter.export()
-            logger.log("CPG JSON export completed.")
-        except Exception as e:
-            logger.log(f"CPG JSON export failed: {e}")
-            import traceback
-            traceback.print_exc()
-        finally:
-            if ida_pro.qexit:
-                 if opened_db or idc.batch(0) == 1:
-                     logger.log("Exiting IDA...")
-                     ida_pro.qexit(0)
-            sys.exit(0)
-
     try:
         db = BinaryDatabase(db_path, logger)
         db.connect()
@@ -255,15 +213,9 @@ def main():
             # Dump functions if requested
             if args.dump_funcs:
                 exporter.dump_function_list(args.dump_funcs)
-            
-            if args.export_c:
-                export_c_file(args.export_c, logger)
-            
             exporter.export_all_but_pseudocode()
         else:
             # Standard Mode: Export all
-            if args.export_c:
-                export_c_file(args.export_c, logger)
             exporter.export_all()
         
         db.close()

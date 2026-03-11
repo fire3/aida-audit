@@ -88,7 +88,7 @@ if ($whl) {
     Write-Host "Installation complete."
     Write-Host "You can now use the 'aida-cli' command."
     Write-Host "  Example: aida-cli export mybinary.exe -o ./output"
-    Write-Host "  Example: aida-cli export mybinary.exe -o ./output --export-c"
+    Write-Host "  Example: `$env:GHIDRA_HOME='C:\ghidra'; aida-cli export mybinary.exe -o ./output --backend ghidra"
     Write-Host "  Example: aida-cli serve ."
 } else {
     Write-Host "Error: No wheel file found."

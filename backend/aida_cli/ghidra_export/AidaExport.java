@@ -28,14 +28,7 @@ import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSetView;
-import ghidra.program.model.data.Array;
 import ghidra.program.model.data.DataType;
-import ghidra.program.model.data.DataTypeComponent;
-import ghidra.program.model.data.Enum;
-import ghidra.program.model.data.FunctionDefinition;
-import ghidra.program.model.data.Pointer;
-import ghidra.program.model.data.Structure;
-import ghidra.program.model.data.Union;
 import ghidra.program.model.listing.CodeUnit;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.Function;
@@ -68,14 +61,10 @@ public class AidaExport extends GhidraScript {
         String mode = positional.size() > 1 ? positional.get(1) : "full";
         int threads = parseIntArg(args, "--threads", 1);
         int chunkSize = parseIntArg(args, "--chunk", 0);
-        String exportCPath = parseStringArg(args, "--export-c", null);
         println("AidaExport start");
         println("Output: " + outDir.getAbsolutePath());
         println("Mode: " + mode);
         println("Threads: " + threads + " Chunk: " + chunkSize);
-        if (exportCPath != null) {
-            println("Export C: " + exportCPath);
-        }
         if ("pseudocode".equalsIgnoreCase(mode)) {
             String listPath = positional.size() > 2 ? positional.get(2) : null;
             String outPath = positional.size() > 3 ? positional.get(3) : null;
@@ -116,308 +105,7 @@ public class AidaExport extends GhidraScript {
         writeXrefs(outDir);
         println("Export call edges");
         writeCallEdges(outDir);
-        if (exportCPath != null) {
-            println("Exporting C file...");
-            writeCFile(new File(exportCPath));
-        }
         println("AidaExport done");
-    }
-
-    private void writeCFile(File outFile) throws Exception {
-        DecompInterface ifc = new DecompInterface();
-        ifc.setSimplificationStyle("decompile");
-        if (!ifc.openProgram(currentProgram)) {
-            println("Decompiler failed to open program");
-            return;
-        }
-        
-        try (BufferedWriter w = writer(outFile)) {
-             writeCTypeDefinitions(w);
-             writeCGlobals(w);
-             writeCPrototypes(w);
-             FunctionIterator it = currentProgram.getFunctionManager().getFunctions(true);
-             int count = 0;
-             while (it.hasNext()) {
-                 Function f = it.next();
-                 DecompileResults res = ifc.decompileFunction(f, 30, monitor);
-                 if (res != null && res.decompileCompleted() && res.getDecompiledFunction() != null) {
-                     String c = res.getDecompiledFunction().getC();
-                     if (c != null && !c.isEmpty()) {
-                         w.write("// Function: " + f.getName() + " @ " + f.getEntryPoint() + "\n");
-                         w.write(c);
-                         w.write("\n\n");
-                         count++;
-                     }
-                 }
-                 if (count % 100 == 0) {
-                     // monitor.setMessage("Exporting C: " + count);
-                 }
-             }
-             println("Exported " + count + " functions to C file");
-        } finally {
-            ifc.dispose();
-        }
-    }
-
-    private void writeCTypeDefinitions(BufferedWriter w) throws Exception {
-        List<DataType> types = new ArrayList<>();
-        Iterator<DataType> it = currentProgram.getDataTypeManager().getAllDataTypes();
-        while (it.hasNext()) {
-            DataType dt = it.next();
-            if (dt == null) {
-                continue;
-            }
-            String name = dt.getName();
-            if (name == null || name.isEmpty()) {
-                continue;
-            }
-            String path = dt.getCategoryPath() != null ? dt.getCategoryPath().toString() : "";
-            if (path.startsWith("/builtin") || path.startsWith("/undefined")) {
-                continue;
-            }
-            if (dt instanceof Structure || dt instanceof Union || dt instanceof Enum || isTypedef(dt)) {
-                types.add(dt);
-            }
-        }
-        for (DataType dt : types) {
-            String def = formatTypeDefinition(dt);
-            if (def == null || def.isEmpty()) {
-                continue;
-            }
-            w.write(def);
-            w.newLine();
-            w.newLine();
-        }
-    }
-
-    private void writeCGlobals(BufferedWriter w) throws Exception {
-        SymbolTable table = currentProgram.getSymbolTable();
-        SymbolIterator it = table.getAllSymbols(true);
-        Set<String> emitted = new LinkedHashSet<>();
-        while (it.hasNext()) {
-            Symbol s = it.next();
-            if (s == null || isExternalSymbol(s)) {
-                continue;
-            }
-            SymbolType st = s.getSymbolType();
-            if (st != null && (st == SymbolType.FUNCTION || st == SymbolType.LABEL)) {
-                continue;
-            }
-            Address addr = s.getAddress();
-            if (addr == null) {
-                continue;
-            }
-            Data data = currentProgram.getListing().getDataAt(addr);
-            if (data == null) {
-                continue;
-            }
-            DataType dt = data.getDataType();
-            String name = s.getName();
-            if (dt == null || name == null || name.isEmpty()) {
-                continue;
-            }
-            String decl = formatDeclaration(dt, name);
-            if (decl == null || decl.isEmpty()) {
-                continue;
-            }
-            if (emitted.add(decl)) {
-                w.write(decl);
-                w.write(";");
-                w.newLine();
-            }
-        }
-        if (!emitted.isEmpty()) {
-            w.newLine();
-        }
-    }
-
-    private void writeCPrototypes(BufferedWriter w) throws Exception {
-        FunctionIterator it = currentProgram.getFunctionManager().getFunctions(true);
-        while (it.hasNext()) {
-            Function f = it.next();
-            String proto = functionPrototype(f);
-            if (proto == null || proto.isEmpty()) {
-                continue;
-            }
-            w.write(proto);
-            if (!proto.trim().endsWith(";")) {
-                w.write(";");
-            }
-            w.newLine();
-        }
-        w.newLine();
-    }
-
-    private String functionPrototype(Function f) {
-        try {
-            Method m = f.getClass().getMethod("getPrototypeString", boolean.class, boolean.class);
-            Object v = m.invoke(f, true, true);
-            if (v != null) {
-                return String.valueOf(v);
-            }
-        } catch (Exception e) {
-        }
-        try {
-            Object sig = f.getSignature();
-            if (sig != null) {
-                Method m = sig.getClass().getMethod("getPrototypeString");
-                Object v = m.invoke(sig);
-                if (v != null) {
-                    return String.valueOf(v);
-                }
-            }
-        } catch (Exception e) {
-        }
-        String name = f.getName();
-        if (name == null || name.isEmpty()) {
-            return null;
-        }
-        return "void " + name + "()";
-    }
-
-    private String formatTypeDefinition(DataType dt) {
-        if (isTypedef(dt)) {
-            DataType base = getTypedefBaseType(dt);
-            String baseType = toCType(base);
-            String name = dt.getName();
-            if (baseType == null || baseType.isEmpty() || name == null || name.isEmpty()) {
-                return null;
-            }
-            return "typedef " + baseType + " " + name + ";";
-        }
-        if (dt instanceof Enum) {
-            Enum en = (Enum) dt;
-            String name = en.getName();
-            if (name == null || name.isEmpty()) {
-                return null;
-            }
-            StringBuilder sb = new StringBuilder();
-            sb.append("typedef enum ").append(name).append(" {").append("\n");
-            String[] names = en.getNames();
-            for (int i = 0; i < names.length; i++) {
-                String n = names[i];
-                if (n == null || n.isEmpty()) {
-                    continue;
-                }
-                sb.append("    ").append(n).append(" = ").append(en.getValue(n));
-                if (i < names.length - 1) {
-                    sb.append(",");
-                }
-                sb.append("\n");
-            }
-            sb.append("} ").append(name).append(";");
-            return sb.toString();
-        }
-        if (dt instanceof Structure) {
-            Structure st = (Structure) dt;
-            return formatCompositeDefinition("struct", st.getName(), st.getComponents());
-        }
-        if (dt instanceof Union) {
-            Union un = (Union) dt;
-            return formatCompositeDefinition("union", un.getName(), un.getComponents());
-        }
-        return null;
-    }
-
-    private String formatCompositeDefinition(String kind, String name, DataTypeComponent[] components) {
-        if (name == null || name.isEmpty()) {
-            return null;
-        }
-        StringBuilder sb = new StringBuilder();
-        sb.append("typedef ").append(kind).append(" ").append(name).append(" {").append("\n");
-        if (components != null) {
-            for (DataTypeComponent c : components) {
-                if (c == null || c.getDataType() == null) {
-                    continue;
-                }
-                String fieldName = c.getFieldName();
-                if (fieldName == null || fieldName.isEmpty()) {
-                    fieldName = "field_" + c.getOffset();
-                }
-                String decl = formatDeclaration(c.getDataType(), fieldName);
-                if (decl == null || decl.isEmpty()) {
-                    continue;
-                }
-                sb.append("    ").append(decl).append(";").append("\n");
-            }
-        }
-        sb.append("} ").append(name).append(";");
-        return sb.toString();
-    }
-
-    private String formatDeclaration(DataType dt, String name) {
-        if (dt instanceof Array) {
-            Array arr = (Array) dt;
-            String inner = formatDeclaration(arr.getDataType(), name);
-            if (inner == null || inner.isEmpty()) {
-                return null;
-            }
-            return inner + "[" + arr.getNumElements() + "]";
-        }
-        if (dt instanceof Pointer) {
-            Pointer ptr = (Pointer) dt;
-            String base = toCType(ptr.getDataType());
-            if (base == null || base.isEmpty()) {
-                base = "void";
-            }
-            return base + " *" + name;
-        }
-        String type = toCType(dt);
-        if (type == null || type.isEmpty()) {
-            return null;
-        }
-        return type + " " + name;
-    }
-
-    private String toCType(DataType dt) {
-        if (dt == null) {
-            return null;
-        }
-        if (dt instanceof FunctionDefinition) {
-            String name = dt.getName();
-            if (name != null && !name.isEmpty()) {
-                return name;
-            }
-        }
-        if (isTypedef(dt) || dt instanceof Structure || dt instanceof Union || dt instanceof Enum) {
-            return dt.getName();
-        }
-        String name = dt.getName();
-        if (name == null || name.isEmpty()) {
-            return null;
-        }
-        return name;
-    }
-
-    private boolean isTypedef(DataType dt) {
-        if (dt == null) {
-            return false;
-        }
-        String simple = dt.getClass().getSimpleName();
-        return "TypedefDataType".equals(simple) || "Typedef".equals(simple);
-    }
-
-    private DataType getTypedefBaseType(DataType dt) {
-        if (dt == null) {
-            return null;
-        }
-        try {
-            Method m = dt.getClass().getMethod("getDataType");
-            Object v = m.invoke(dt);
-            if (v instanceof DataType) {
-                return (DataType) v;
-            }
-        } catch (Exception e) {
-        }
-        try {
-            Method m = dt.getClass().getMethod("getBaseDataType");
-            Object v = m.invoke(dt);
-            if (v instanceof DataType) {
-                return (DataType) v;
-            }
-        } catch (Exception e) {
-        }
-        return null;
     }
 
     private void writeMetadata(File outDir) throws Exception {
@@ -945,18 +633,6 @@ public class AidaExport extends GhidraScript {
         return def;
     }
 
-    private String parseStringArg(String[] args, String flag, String def) {
-        if (args == null || args.length == 0) {
-            return def;
-        }
-        for (int i = 0; i < args.length - 1; i++) {
-            if (flag.equalsIgnoreCase(args[i])) {
-                return args[i + 1];
-            }
-        }
-        return def;
-    }
-
     private List<String> parsePositionalArgs(String[] args) {
         List<String> out = new ArrayList<>();
         if (args == null || args.length == 0) {
@@ -964,7 +640,7 @@ public class AidaExport extends GhidraScript {
         }
         for (int i = 0; i < args.length; i++) {
             String arg = args[i];
-            if ("--threads".equalsIgnoreCase(arg) || "--chunk".equalsIgnoreCase(arg) || "--export-c".equalsIgnoreCase(arg)) {
+            if ("--threads".equalsIgnoreCase(arg) || "--chunk".equalsIgnoreCase(arg)) {
                 i += 1;
                 continue;
             }

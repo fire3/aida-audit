@@ -20,7 +20,7 @@ aida-cli export <target_binary> -o <output_directory>
 *   `-s, --scan-dir <dir>`: **Batch Mode**. Recursively scans the specified directory to resolve dependencies (useful when analyzing firmware filesystems).
 *   `-j <n>`: Number of parallel worker threads (default: 4).
 *   `--verbose`: Enable verbose logging output.
-*   `--export-c`: Export the decompiled C file alongside the database.
+*   When using `--backend ghidra`, set `GHIDRA_HOME` in your environment first.
 
 **Examples:**
 ```bash
@@ -29,9 +29,6 @@ aida-cli export ./bin/httpd -o ./output
 
 # Analyze a binary within a firmware root and resolve dependencies
 aida-cli export ./squashfs-root/usr/sbin/httpd -o ./output --scan-dir ./squashfs-root
-
-# Export decompiled C output
-aida-cli export ./bin/httpd -o ./output --export-c
 
 # Export multiple targets via wildcard
 aida-cli export ./lib/uams/uams_* -o ./output

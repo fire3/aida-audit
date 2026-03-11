@@ -62,9 +62,10 @@ Use this section when you want to run and test the backend directly from source 
    python -m aida-cli.cli export <path_to_binary> -o <output_directory>
    python -m aida-cli.cli serve [path_to_project_or_db]
    ```
-3. If you want to use Ghidra for export, set `GHIDRA_HOME` or pass `--ghidra-home`:
+3. If you want to use Ghidra for export, set `GHIDRA_HOME` first:
    ```bash
-   python -m aida-cli.cli export <path_to_binary> -o <output_directory> --backend ghidra --ghidra-home <path_to_ghidra>
+   export GHIDRA_HOME=<path_to_ghidra>
+   python -m aida-cli.cli export <path_to_binary> -o <output_directory> --backend ghidra
    ```
 4. If you want to use IDA for export, ensure your Python environment can import IDA's Python API as noted below in the Export Command section.
 
@@ -84,7 +85,6 @@ Options:
 - `--scan-dir <dir>`: Enable bulk mode to scan for dependencies in the given directory.
 - `-j <workers>`: Number of parallel workers (default: 4).
 - `--verbose`: Enable verbose output.
-- `--export-c`: Export the decompiled C file alongside the database.
 
 **Note**: This command requires a Python environment that can access IDA Pro's Python API. If you are using the system Python, ensure `PYTHONPATH` includes IDA's python directory, or run this tool using `idapyswitch` configured python.
 
