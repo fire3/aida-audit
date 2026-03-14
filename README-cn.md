@@ -2,6 +2,14 @@
 
 AIDA-AUDIT 是一个强大的工具，旨在连接 IDA Pro 二进制分析与现代 AI 辅助工作流。它提供了一种无缝的方式从 IDA Pro 导出分析数据，并通过丰富的 Web UI 或 Model Context Protocol (MCP) 进行程序化探索。
 
+## 截图
+
+### Web 界面
+![AIDA Web UI](docs/images/AIDA-Main.png)
+
+### 智能审计
+![AIDA Audit](docs/images/AIDA-Audit.png)
+
 ## 功能特性
 
 *   **导出 (Export)**: 自动化运行 IDA Pro 或 Ghidra，将二进制元数据（函数、字符串、导入导出表、伪代码等）提取到可移植的 SQLite 数据库中。自动初始化工作区并配置 MCP 客户端。

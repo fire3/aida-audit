@@ -2,6 +2,14 @@
 
 AIDA-AUDIT is a powerful tool designed to bridge the gap between IDA Pro binary analysis and modern AI-assisted workflows. It provides a seamless way to export analysis data from IDA Pro and explore it through a rich Web UI or programmatically via the Model Context Protocol (MCP).
 
+## Screenshots
+
+### Web UI
+![AIDA Web UI](docs/images/AIDA-Main.png)
+
+### Automated Audit
+![AIDA Audit](docs/images/AIDA-Audit.png)
+
 ## Features
 
 *   **Export**: Automated extraction of binary metadata (functions, strings, imports, exports, pseudocode, etc.) from IDA Pro or Ghidra into portable SQLite databases. Automatically initializes the workspace with MCP client configurations.
