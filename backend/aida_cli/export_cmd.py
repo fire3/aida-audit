@@ -1058,16 +1058,32 @@ class ExportOrchestrator:
 # =============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="Unified Export Script")
-    
-    # New arguments structure
-    parser.add_argument("target", nargs="+", help="Path to input binary file")
+    parser = argparse.ArgumentParser(
+        description="Export binary analysis results to SQLite database",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Export a single binary
+  aida-cli export ./binary -o ./output
+
+  # Export with Ghidra backend
+  aida-cli export ./binary -o ./output --backend ghidra
+
+  # Bulk mode - scan directory for dependencies
+  aida-cli export ./target -o ./output --scan-dir ./rootfs
+
+  # Multiple targets with wildcards
+  aida-cli export ./libs/*.so -o ./output
+"""
+    )
+
+    parser.add_argument("target", nargs="+", help="Input binary file(s) or pattern")
     parser.add_argument("-o", "--output", required=True, help="Output directory")
-    parser.add_argument("-s", "--scan-dir", help="Directory to scan for dependencies (enables Bulk Mode)")
+    parser.add_argument("-s", "--scan-dir", metavar="DIR", help="Scan directory for dependencies (enables bulk mode)")
     parser.add_argument("-j", "--workers", type=int, default=4, help="Number of parallel workers (default: 4)")
-    parser.add_argument("-l", "--log-file", help="Write detailed export logs to file")
+    parser.add_argument("-l", "--log-file", metavar="PATH", help="Write logs to file")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
-    parser.add_argument("--backend", choices=["ida", "ghidra"], default="ida", help="Export backend (ida or ghidra)")
+    parser.add_argument("--backend", choices=["ida", "ghidra"], default="ida", help="Export backend: ida or ghidra (default: ida)")
 
     args = parser.parse_args()
 

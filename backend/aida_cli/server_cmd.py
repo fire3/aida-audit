@@ -1138,11 +1138,28 @@ else:
     logger.warning(f"Static directory not found at {static_dir}. Frontend will not be served.")
 
 def main():
-    parser = argparse.ArgumentParser(description="AIDA MCP server (FastAPI + Uvicorn)")
-    parser.add_argument("project", nargs="?", default=".", help="Export project directory")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--reload", action="store_true", help="Enable auto-reload (debug mode)")
+    parser = argparse.ArgumentParser(
+        description="Start AIDA MCP server with web UI",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Start server in current directory
+  aida-cli serve
+
+  # Start server with specific project
+  aida-cli serve ./my-project
+
+  # Start server on custom port
+  aida-cli serve ./my-project --port 8080
+
+  # Enable auto-reload for development
+  aida-cli serve ./my-project --reload
+"""
+    )
+    parser.add_argument("project", nargs="?", default=".", help="Project directory containing exported databases (default: .)")
+    parser.add_argument("--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=8765, help="Port to bind to (default: 8765)")
+    parser.add_argument("--reload", action="store_true", help="Enable auto-reload (for development)")
     args = parser.parse_args()
 
     os.environ["AIDA_MCP_PROJECT"] = args.project
