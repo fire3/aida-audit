@@ -1,6 +1,6 @@
 # MCP 工具接口规范
 
-本文档描述 AIDA-CLI 通过 MCP（Model Context Protocol）提供的工具接口。
+本文档描述 AIDA-AUDIT 通过 MCP（Model Context Protocol）提供的工具接口。
 
 ## 基础信息
 

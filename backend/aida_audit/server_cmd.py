@@ -1066,7 +1066,7 @@ def dispatch(msg):
 
     if method == "initialize":
         pv = params.get("protocolVersion") or "2025-06-18"
-        server_info = {"name": "aida-cli", "version": "0.1.0"}
+        server_info = {"name": "aida-audit", "version": "0.1.0"}
         result = {"protocolVersion": pv, "capabilities": {"tools": {}}, "serverInfo": server_info}
         return {"jsonrpc": "2.0", "id": mid, "result": result}
 
@@ -1144,16 +1144,16 @@ def main():
         epilog="""
 Examples:
   # Start server in current directory
-  aida-cli serve
+  aida-audit serve
 
   # Start server with specific project
-  aida-cli serve ./my-project
+  aida-audit serve ./my-project
 
   # Start server on custom port
-  aida-cli serve ./my-project --port 8080
+  aida-audit serve ./my-project --port 8080
 
   # Enable auto-reload for development
-  aida-cli serve ./my-project --reload
+  aida-audit serve ./my-project --reload
 """
     )
     parser.add_argument("project", nargs="?", default=".", help="Project directory containing exported databases (default: .)")

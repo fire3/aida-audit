@@ -1,6 +1,6 @@
-# AIDA-CLI
+# AIDA-AUDIT
 
-AIDA-CLI is a powerful tool designed to bridge the gap between IDA Pro binary analysis and modern AI-assisted workflows. It provides a seamless way to export analysis data from IDA Pro and explore it through a rich Web UI or programmatically via the Model Context Protocol (MCP).
+AIDA-AUDIT is a powerful tool designed to bridge the gap between IDA Pro binary analysis and modern AI-assisted workflows. It provides a seamless way to export analysis data from IDA Pro and explore it through a rich Web UI or programmatically via the Model Context Protocol (MCP).
 
 ## Features
 
@@ -14,14 +14,14 @@ AIDA-CLI is a powerful tool designed to bridge the gap between IDA Pro binary an
 ### Prerequisites
 
 *   **Python 3.9+**
-*   **IDA Pro**: Required for the `aida-cli export` command with IDA backend.
+*   **IDA Pro**: Required for the `aida-audit export` command with IDA backend.
 *   **Ghidra**: Required when exporting with the Ghidra backend.
 *   **JDK**: Required for running Ghidra (skip if your Ghidra bundle includes a JDK).
 *   **Node.js**: Required only if you plan to build the frontend from source (optional).
 
 ### Install IDA Pro lib (Required)
 
-To make the `aida-cli export` command work properly with the IDA backend, you need to install the IDA Pro Python library.
+To make the `aida-audit export` command work properly with the IDA backend, you need to install the IDA Pro Python library.
 
 1.  Ensure IDA Pro is installed and the environment is configured.
 2.  Navigate to the `idalib/python` subdirectory under your IDA Pro installation directory (e.g., `C:\Program Files\IDA Professional 9.2\`).
@@ -34,7 +34,7 @@ To make the `aida-cli export` command work properly with the IDA backend, you ne
 
 ### Install Node.js (Optional)
 
-If you plan to build and install `aida-cli` from source, you need to install Node.js.
+If you plan to build and install `aida-audit` from source, you need to install Node.js.
 
 1.  Download and install the latest version of Node.js.
 2.  Verify the installation:
@@ -78,26 +78,26 @@ This script will automatically:
 *   Copy the frontend assets to the backend package.
 *   Copy the built-in skills into the backend package.
 *   Build the Python wheel.
-*   Install `aida-cli` using `pip`.
+*   Install `aida-audit` using `pip`.
 
 ### PIP Installation
 
 If you only need the backend or want to install from a pre-built wheel:
 
 ```bash
-pip install aida-cli
+pip install aida-audit
 ```
 
 ## Usage
 
-Once installed, the `aida-cli` command is available in your terminal.
+Once installed, the `aida-audit` command is available in your terminal.
 
 ### 1. Export Analysis Data (`export`)
 
 The `export` command runs a headless IDA Pro or Ghidra instance to analyze a binary and save the results. It automatically initializes the workspace with MCP client configurations.
 
 ```bash
-aida-cli export <target_binary> -o <output_directory>
+aida-audit export <target_binary> -o <output_directory>
 ```
 
 **Arguments:**
@@ -123,16 +123,16 @@ The export command automatically creates the following in the output directory:
 **Example:**
 ```bash
 # Analyze a single binary
-aida-cli export ./bin/httpd -o ./output
+aida-audit export ./bin/httpd -o ./output
 
 # Analyze a binary within a firmware root, resolving dependencies
-aida-cli export ./squashfs-root/usr/sbin/httpd -o ./output --scan-dir ./squashfs-root
+aida-audit export ./squashfs-root/usr/sbin/httpd -o ./output --scan-dir ./squashfs-root
 
 # Export with the Ghidra backend (using GHIDRA_HOME)
-aida-cli export ./bin/httpd -o ./output --backend ghidra
+aida-audit export ./bin/httpd -o ./output --backend ghidra
 
 # Export multiple targets via wildcard
-aida-cli export ./lib/uams/uams_* -o ./output
+aida-audit export ./lib/uams/uams_* -o ./output
 ```
 
 ### 2. Start the Server (`serve`)
@@ -140,7 +140,7 @@ aida-cli export ./lib/uams/uams_* -o ./output
 The `serve` command launches the Web UI and the MCP server.
 
 ```bash
-aida-cli serve [project_path]
+aida-audit serve [project_path]
 ```
 
 **Arguments:**
@@ -165,5 +165,5 @@ Once the server is running, open your browser and navigate to:
 *   `devdocs/`: Design documentation and API specifications.
 
 ### Running in Development Mode
-1.  **Backend**: `cd backend && uvicorn aida-cli.server_cmd:app --reload`
+1.  **Backend**: `cd backend && uvicorn aida-audit.server_cmd:app --reload`
 2.  **Frontend**: `cd frontend && npm run dev`

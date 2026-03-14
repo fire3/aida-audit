@@ -208,11 +208,11 @@ class AidaEmulator:
             db_path = os.path.join(temp_dir, os.path.basename(binary_path) + ".db")
             
             try:
-                from aida_cli.export_cmd import ExportOrchestrator
+                from aida_audit.export_cmd import ExportOrchestrator
             except ImportError:
                 raise ImportError(
-                    "Failed to import aida_cli.export_cmd. "
-                    "Make sure aida_cli is properly installed."
+                    "Failed to import aida_audit.export_cmd. "
+                    "Make sure aida_audit is properly installed."
                 )
             
             cmd = ExportOrchestrator(workers=1, verbose=False)

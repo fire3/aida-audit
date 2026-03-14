@@ -1,6 +1,6 @@
 # BinaryDB 数据模型规范
 
-BinaryDB 是 AIDA-CLI 用于存储二进制文件静态分析结果的 SQLite 数据库。由 IDA Pro 或 Ghidra 导出工具生成，包含函数、反汇编、伪代码、交叉引用等核心分析数据。
+BinaryDB 是 AIDA-AUDIT 用于存储二进制文件静态分析结果的 SQLite 数据库。由 IDA Pro 或 Ghidra 导出工具生成，包含函数、反汇编、伪代码、交叉引用等核心分析数据。
 
 ## 数据库文件
 
@@ -321,7 +321,7 @@ CREATE VIRTUAL TABLE functions_rtree USING rtree(
 推荐使用 `DbLoader` 类访问 BinaryDB：
 
 ```python
-from aida_cli.aida_emu.db_loader import DatabaseLoader
+from aida_audit.aida_emu.db_loader import DatabaseLoader
 
 db = DatabaseLoader(project_path)
 functions = db.load_functions()

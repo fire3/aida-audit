@@ -1,6 +1,6 @@
 # REST API 规范
 
-本文档描述 AIDA-CLI 服务提供的 REST API 接口。服务基于 FastAPI 构建，同时支持 REST 和 MCP（JSON-RPC 2.0）协议。
+本文档描述 AIDA-AUDIT 服务提供的 REST API 接口。服务基于 FastAPI 构建，同时支持 REST 和 MCP（JSON-RPC 2.0）协议。
 
 ## 基础信息
 

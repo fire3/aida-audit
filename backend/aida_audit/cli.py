@@ -6,31 +6,31 @@ from . import server_cmd
 
 def main():
     if len(sys.argv) < 2:
-        print("AIDA-CLI - Binary Analysis Export & MCP Server")
+        print("AIDA-AUDIT - Binary Analysis Export & MCP Server")
         print()
-        print("Usage: aida-cli <command> [options]")
+        print("Usage: aida-audit <command> [options]")
         print()
         print("Commands:")
         print("  export  Export binary analysis results to SQLite database")
         print("          (auto-initializes workspace with MCP configs)")
         print("  serve   Start the MCP server with web UI")
         print()
-        print("For more information, run: aida-cli <command> -h")
+        print("For more information, run: aida-audit <command> -h")
         sys.exit(1)
 
     command = sys.argv[1]
 
     if command in ("-h", "--help"):
-        print("AIDA-CLI - Binary Analysis Export & MCP Server")
+        print("AIDA-AUDIT - Binary Analysis Export & MCP Server")
         print()
-        print("Usage: aida-cli <command> [options]")
+        print("Usage: aida-audit <command> [options]")
         print()
         print("Commands:")
         print("  export  Export binary analysis results to SQLite database")
         print("          (auto-initializes workspace with MCP configs)")
         print("  serve   Start the MCP server with web UI")
         print()
-        print("For more information, run: aida-cli <command> -h")
+        print("For more information, run: aida-audit <command> -h")
         sys.exit(0)
 
     del sys.argv[1]
@@ -41,7 +41,7 @@ def main():
         server_cmd.main()
     else:
         print(f"error: unknown command '{command}'")
-        print("Run 'aida-cli' for usage information.")
+        print("Run 'aida-audit' for usage information.")
         sys.exit(1)
 
 

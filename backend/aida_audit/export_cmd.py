@@ -419,7 +419,7 @@ class ExportOrchestrator:
             raise FileNotFoundError("Ghidra script directory not found")
         project_dir = os.path.join(export_dir, "project")
         os.makedirs(project_dir, exist_ok=True)
-        project_name = "aida-cli"
+        project_name = "aida-audit"
         json_dir = os.path.join(export_dir, "json")
         os.makedirs(json_dir, exist_ok=True)
         thread_count = max(1, int(threads) if threads else 1)
@@ -1064,16 +1064,16 @@ def main():
         epilog="""
 Examples:
   # Export a single binary
-  aida-cli export ./binary -o ./output
+  aida-audit export ./binary -o ./output
 
   # Export with Ghidra backend
-  aida-cli export ./binary -o ./output --backend ghidra
+  aida-audit export ./binary -o ./output --backend ghidra
 
   # Bulk mode - scan directory for dependencies
-  aida-cli export ./target -o ./output --scan-dir ./rootfs
+  aida-audit export ./target -o ./output --scan-dir ./rootfs
 
   # Multiple targets with wildcards
-  aida-cli export ./libs/*.so -o ./output
+  aida-audit export ./libs/*.so -o ./output
 
 Workspace:
   The export command automatically initializes the output directory with:

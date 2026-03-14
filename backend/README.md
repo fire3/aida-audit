@@ -46,7 +46,7 @@ Or manually:
    ```
 2. Install the generated wheel:
    ```bash
-   pip install dist/aida-cli-0.1.0-py3-none-any.whl
+   pip install dist/aida-audit-0.1.0-py3-none-any.whl
    ```
 
 ## Development (No Install)
@@ -59,26 +59,26 @@ Use this section when you want to run and test the backend directly from source 
    ```
 2. Run commands directly with Python module execution:
    ```bash
-   python -m aida-cli.cli export <path_to_binary> -o <output_directory>
-   python -m aida-cli.cli serve [path_to_project_or_db]
+   python -m aida-audit.cli export <path_to_binary> -o <output_directory>
+   python -m aida-audit.cli serve [path_to_project_or_db]
    ```
 3. If you want to use Ghidra for export, set `GHIDRA_HOME` first:
    ```bash
    export GHIDRA_HOME=<path_to_ghidra>
-   python -m aida-cli.cli export <path_to_binary> -o <output_directory> --backend ghidra
+   python -m aida-audit.cli export <path_to_binary> -o <output_directory> --backend ghidra
    ```
 4. If you want to use IDA for export, ensure your Python environment can import IDA's Python API as noted below in the Export Command section.
 
 ## Usage
 
-After installation, the `aida-cli` command will be available in your Python scripts directory.
+After installation, the `aida-audit` command will be available in your Python scripts directory.
 
 ### Export Command
 
 Analyzes a binary and exports it to a database in the output directory. Automatically initializes the workspace with MCP client configurations (opencode.json, .mcp.json, .trae/mcp.json, .claude/settings.local.json).
 
 ```bash
-aida-cli export <path_to_binary> -o <output_directory>
+aida-audit export <path_to_binary> -o <output_directory>
 ```
 
 Options:
@@ -96,7 +96,7 @@ Options:
 Starts the MCP HTTP server with Web UI.
 
 ```bash
-aida-cli serve [path_to_project_dir]
+aida-audit serve [path_to_project_dir]
 ```
 
 Arguments:
@@ -108,5 +108,5 @@ Options:
 
 ## Directory Structure
 
-- `aida_cli/`: Source code package.
+- `aida_audit/`: Source code package.
 - `setup.py`: Packaging configuration.

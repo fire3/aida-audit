@@ -13,7 +13,7 @@ DEFAULT_CONFIG = {
     "mcp": {
         "transport": "http",
         "url": "http://127.0.0.1:8765/mcp",
-        "command": [sys.executable, "-m", "aida_cli.mcp_stdio_server", "--project", "."],
+        "command": [sys.executable, "-m", "aida_audit.mcp_stdio_server", "--project", "."],
         "working_directory": "."
     },
     "report_language": "Chinese",

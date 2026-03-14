@@ -11,14 +11,14 @@ from concurrent.futures import ThreadPoolExecutor
 # Ensure we can import local modules if run as script
 if __name__ == "__main__" and __package__ is None:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    __package__ = "aida_cli"
+    __package__ = "aida_audit"
 
 from .project_store import ProjectStore
 from .mcp_service import McpService, McpError
 
 # Configure logging to stderr (so stdout is clean for JSON-RPC)
 logging.basicConfig(stream=sys.stderr, level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger("aida-cli-server")
+logger = logging.getLogger("aida-audit-server")
 
 _print_lock = threading.Lock()
 
@@ -110,7 +110,7 @@ def handle_request(request: dict, service: McpService):
         if msg_type == "initialize":
             params = request.get("params") or {}
             pv = params.get("protocolVersion") or "2025-06-18"
-            server_info = {"name": "aida-cli", "version": "0.1.0"}
+            server_info = {"name": "aida-audit", "version": "0.1.0"}
             result = {"protocolVersion": pv, "capabilities": {"tools": {}}, "serverInfo": server_info}
             response = {"jsonrpc": "2.0", "id": msg_id, "result": result}
         elif msg_type == "tools/list":

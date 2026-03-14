@@ -86,7 +86,7 @@ def init_workspace(workspace_root, url="http://127.0.0.1:8765/mcp"):
     os.makedirs(claude_skills_root, exist_ok=True)
 
     path = os.path.join(workspace_root, "opencode.json")
-    _write_json(path, _build_opencode_http_config(url, "aida-cli"))
+    _write_json(path, _build_opencode_http_config(url, "aida-audit"))
 
     mcp_json_path = os.path.join(workspace_root, ".mcp.json")
     mcp_payload = _build_mcp_http_config(url)

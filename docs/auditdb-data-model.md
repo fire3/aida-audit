@@ -1,6 +1,6 @@
 # AuditDB 数据模型规范
 
-AuditDB 是 AIDA-CLI 用于存储安全审计工作数据的 SQLite 数据库。用于记录审计计划、任务、笔记、漏洞发现和审计会话等。
+AuditDB 是 AIDA-AUDIT 用于存储安全审计工作数据的 SQLite 数据库。用于记录审计计划、任务、笔记、漏洞发现和审计会话等。
 
 ## 数据库文件
 
@@ -358,7 +358,7 @@ AuditDB 是 AIDA-CLI 用于存储安全审计工作数据的 SQLite 数据库。
 推荐使用 `AuditDatabase` 类访问 AuditDB：
 
 ```python
-from aida_cli.audit_database import AuditDatabase
+from aida_audit.audit_database import AuditDatabase
 
 audit_db = AuditDatabase(project_path)
 

@@ -654,7 +654,7 @@ class AuditService:
                 url = config.mcp.get("url", f"http://127.0.0.1:{port}/mcp")
                 mcp_client = HttpMcpClient(url)
             else:
-                cmd = config.mcp.get("command", ["aida_cli", "serve"])
+                cmd = config.mcp.get("command", ["aida_audit", "serve"])
                 cwd = config.mcp.get("working_directory", ".")
                 mcp_client = StdioMcpClient(cmd, cwd=os.path.abspath(cwd))
                 mcp_client.start()

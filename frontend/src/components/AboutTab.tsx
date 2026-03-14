@@ -44,7 +44,7 @@ export function AboutTab() {
 {`{
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "aida-cli": {
+    "aida-audit": {
       "type": "remote",
       "url": "http://localhost:8765/mcp",
       "enabled": true
@@ -53,7 +53,7 @@ export function AboutTab() {
 }`}
                 </pre>
                 <p className="text-xs text-muted-foreground mt-2">
-                  * Note: Ensure the <code>aida-cli</code> package is installed or in your PYTHONPATH.
+                  * Note: Ensure the <code>aida-audit</code> package is installed or in your PYTHONPATH.
                 </p>
               </div>
             </div>
