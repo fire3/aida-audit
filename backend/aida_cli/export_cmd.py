@@ -27,7 +27,7 @@ from .ghidra_importer import import_ghidra_export
 from .elf_service import ElfService
 from .audit_database import AuditDatabase
 from .constants import AUDIT_DB_FILENAME
-from .workspace_cmd import init_workspace
+from .workspace import init_workspace
 
 # =============================================================================
 # Shared Utilities & Logging

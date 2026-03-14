@@ -9,7 +9,6 @@ def _print_main_help():
     print("Commands:")
     print("  export  - Export MCP database")
     print("  serve   - Start MCP server")
-    print("  scan    - Run IDA Microcode taint scan")
 
 def main():
     if len(sys.argv) < 2:
@@ -31,14 +30,9 @@ def main():
         export_cmd.main()
     elif command == "serve":
         server_cmd.main()
-    elif command == "install":
-        print("Error: 'install' command is deprecated.")
-        sys.exit(1)
-    elif command == "scan":
-        ida_scan_cmd.main()
     else:
         print(f"Unknown command: {command}")
-        print("Available commands: export, serve, scan")
+        print("Available commands: export, serve")
         sys.exit(1)
 
 if __name__ == "__main__":

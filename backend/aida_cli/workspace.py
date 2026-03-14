@@ -1,7 +1,5 @@
-import sys
 import os
 import json
-import argparse
 import shutil
 
 
@@ -115,25 +113,3 @@ def init_workspace(workspace_root, url="http://127.0.0.1:8765/mcp"):
         "skills_dir": opencode_skills_root if skills_source else None,
         "copied_skills": copied,
     }
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Initialize a local MCP workspace")
-    parser.add_argument("--init", required=True, default=".", help="Workspace directory to initialize")
-    parser.add_argument("--python", dest="python_cmd", default=sys.executable)
-    parser.add_argument("--url", default="http://127.0.0.1:8765/mcp")
-    args = parser.parse_args()
-
-    result = init_workspace(args.init, url=args.url)
-    print(f"opencode: {result['opencode']}")
-    print(f"mcp: {result['mcp']}")
-    print(f"trae mcp: {result['trae_mcp']}")
-    print(f"claude: {result['claude']}")
-    if result["skills_dir"]:
-        print(f"skills: {result['skills_dir']}")
-    else:
-        print("skills: not found")
-
-
-if __name__ == "__main__":
-    main()
