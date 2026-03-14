@@ -156,33 +156,6 @@ aida-cli serve [project_path]
 **MCP服务器地址:**
 **http://localhost:8765/mcp**
 
-### 3. 安装 MCP 配置 (`install`)
-
-`install` 命令用于生成或更新 OpenCode 配置文件。`config` 是兼容别名。
-
-```bash
-aida-cli install
-```
-
-**选项：**
-*   `--transport`: 传输模式。可选值：`stdio` (默认), `http`。
-    *   `stdio`: 启动本地 Python 进程。
-    *   `http`: 连接到正在运行的服务器（需要先运行 `aida-cli serve`）。
-*   `--url`: HTTP 传输的 URL (默认: `http://127.0.0.1:8765/mcp`)。
-*   `--output`: 输出路径。
-    *   `auto` (默认): 尝试定位客户端的配置文件并合并配置。
-    *   `-`: 打印到标准输出 (stdout)。
-    *   `<path>`: 写入指定的文件或目录。
-
-**示例：**
-```bash
-# 为 OpenCode 安装配置 (stdio 模式)
-aida-cli install
-
-# 将配置打印到标准输出
-aida-cli install --output -
-```
-
 ## 开发指南
 
 ### 目录结构

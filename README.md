@@ -157,33 +157,6 @@ Once the server is running, open your browser and navigate to:
 **MCP Server Address:**
 **http://localhost:8765/mcp**
 
-### 3. Install MCP Configuration (`install`)
-
-The `install` command generates or updates the OpenCode configuration file. The `config` command is an alias.
-
-```bash
-aida-cli install
-```
-
-**Options:**
-*   `--transport`: The transport mode. Choices: `stdio` (default), `http`.
-    *   `stdio`: Starts a local python process.
-    *   `http`: Connects to a running server (requires `aida-cli serve` to be running).
-*   `--url`: The URL for the HTTP transport (default: `http://127.0.0.1:8765/mcp`).
-*   `--output`: Output path.
-    *   `auto` (default): Tries to locate the client's configuration file and merge the config.
-    *   `-`: Print to stdout.
-    *   `<path>`: Write to a specific file or directory.
-
-**Examples:**
-```bash
-# Install for OpenCode (stdio mode)
-aida-cli install
-
-# Print configuration to stdout
-aida-cli install --output -
-```
-
 ## Development
 
 ### Directory Structure
