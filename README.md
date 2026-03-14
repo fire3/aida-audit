@@ -109,7 +109,6 @@ aida-cli export <target_binary> -o <output_directory>
 *   `-j <n>`: Number of parallel workers (default: 4).
 *   `--backend <ida|ghidra>`: Choose the export backend (default: `ida`).
 *   `--verbose`: Enable detailed logging.
-*   `--perf-summary`: Show performance summary.
 *   `--log-file <path>`: Write logs to a file.
 *   When `--backend ghidra` is used, set `GHIDRA_HOME` in your environment before running.
 

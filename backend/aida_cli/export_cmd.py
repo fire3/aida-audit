@@ -319,24 +319,14 @@ def _detect_idb_path(binary_path):
             return p
     return None
 
-def _load_perf_json(path):
-    if not path or not os.path.exists(path):
-        return None
-    try:
-        with open(path, "r") as f:
-            return json.load(f)
-    except Exception:
-        return None
-
 # =============================================================================
 # Export Orchestrator
 # =============================================================================
 
 class ExportOrchestrator:
-    def __init__(self, workers=4, verbose=False, show_perf_summary=False, log_file=None, backend="ida"):
+    def __init__(self, workers=4, verbose=False, log_file=None, backend="ida"):
         self.workers = workers
         self.verbose = verbose
-        self.show_perf_summary = show_perf_summary
         self.backend = backend
         self.logger = ConsoleLogger(log_file=log_file)
         self.progress = ExportProgressPanel()
@@ -996,15 +986,6 @@ class ExportOrchestrator:
             stats['total_time'] = time.time() - stats['start_time']
             
             self.logger.log(f"Success! Full export saved to {output_db}", context="ORCHESTRATOR")
-            
-            if self.show_perf_summary:
-                master_perf = _load_perf_json(master_res['master_perf_json'])
-                worker_perfs = []
-                for p in worker_res['worker_perf_paths']:
-                    wp = _load_perf_json(p)
-                    if wp:
-                        worker_perfs.append(wp)
-                self.print_full_performance_summary(stats, master_perf, worker_perfs)
             self.progress.finish(True, "导出完成")
             return True
         except Exception as e:
@@ -1084,7 +1065,6 @@ def main():
     parser.add_argument("-o", "--output", required=True, help="Output directory")
     parser.add_argument("-s", "--scan-dir", help="Directory to scan for dependencies (enables Bulk Mode)")
     parser.add_argument("-j", "--workers", type=int, default=4, help="Number of parallel workers (default: 4)")
-    parser.add_argument("-p", "--perf-summary", action="store_true", help="Show performance summary")
     parser.add_argument("-l", "--log-file", help="Write detailed export logs to file")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument("--backend", choices=["ida", "ghidra"], default="ida", help="Export backend (ida or ghidra)")
@@ -1114,7 +1094,6 @@ def main():
     orchestrator = ExportOrchestrator(
         workers=args.workers,
         verbose=args.verbose,
-        show_perf_summary=args.perf_summary,
         log_file=args.log_file,
         backend=args.backend
     )

@@ -108,7 +108,6 @@ aida-cli export <target_binary> -o <output_directory>
 *   `-j <n>`: 并行工作线程数（默认：4）。
 *   `--backend <ida|ghidra>`: 选择导出后端（默认：`ida`）。
 *   `--verbose`: 启用详细日志输出。
-*   `--perf-summary`: 显示性能摘要。
 *   `--log-file <path>`: 将日志写入文件。
 *   使用 `--backend ghidra` 时，请先在环境中设置 `GHIDRA_HOME`。
 
