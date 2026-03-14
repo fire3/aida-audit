@@ -7,6 +7,7 @@ AIDA-AUDIT is a powerful tool designed to bridge the gap between IDA Pro binary 
 *   **Export**: Automated extraction of binary metadata (functions, strings, imports, exports, pseudocode, etc.) from IDA Pro or Ghidra into portable SQLite databases. Automatically initializes the workspace with MCP client configurations.
 *   **Web UI**: A modern, interactive web interface to browse and analyze the exported data.
 *   **MCP Server**: A fully compliant Model Context Protocol server that allows AI assistants to query and reason about the binary structure.
+*   **Automated Code Audit**: An intelligent agent system powered by LLM that automatically plans, executes, and verifies security audits on binaries, with real-time feedback and detailed reporting.
 *   **REST API**: A FastAPI-backed backend for custom integrations.
 
 ## Installation
@@ -156,6 +157,26 @@ Once the server is running, open your browser and navigate to:
 
 **MCP Server Address:**
 **http://localhost:8765/mcp**
+
+## Automated Code Audit
+
+AIDA-AUDIT includes a sophisticated intelligent agent system designed to automate the security audit process. This system leverages Large Language Models (LLMs) and the Model Context Protocol (MCP) to perform in-depth analysis of binaries.
+
+### Key Capabilities
+
+*   **Intelligent Planning**: The `PlanAgent` analyzes the target binary's structure and creates a comprehensive, high-level audit plan tailored to the specific characteristics of the code.
+*   **Autonomous Execution**: The `AuditAgent` executes the plan by decomposing it into specific tasks. It utilizes a rich set of tools to explore code, analyze control flow, and identify potential vulnerabilities.
+*   **Verification & Validation**: A dedicated `VerificationAgent` reviews the findings to minimize false positives and ensure the accuracy of the report.
+*   **Real-time Dashboard**: Monitor the agent's thought process, tool usage, and findings in real-time through the "Live" tab in the Web UI.
+*   **Loop Detection**: Advanced loop detection mechanisms prevent the agent from getting stuck in repetitive analysis cycles.
+*   **Bilingual Reporting**: Supports generating reports and findings in both English and Chinese.
+
+### How it Works
+
+1.  **Initialization**: When you start an audit session, the system initializes the agents and loads the necessary context from the exported database.
+2.  **Planning Phase**: The planner agent surveys the binary's functions, strings, and imports to outline a strategy.
+3.  **Audit Loop**: The audit agent picks up tasks from the plan, uses tools (like `audit_report_finding`, `audit_create_note`) to document its work, and updates the task status.
+4.  **Completion**: Once all tasks are completed or the user stops the session, a final report is generated.
 
 ## Development
 
