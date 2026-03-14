@@ -1059,7 +1059,7 @@ class ExportOrchestrator:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Export binary analysis results to SQLite database",
+        description="Export binary analysis results to SQLite database and initialize workspace with MCP client configs",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -1074,6 +1074,14 @@ Examples:
 
   # Multiple targets with wildcards
   aida-cli export ./libs/*.so -o ./output
+
+Workspace:
+  The export command automatically initializes the output directory with:
+  - opencode.json       OpenCode project config
+  - .mcp.json           MCP client configuration
+  - .trae/mcp.json      Trae client MCP config
+  - .claude/settings.local.json  Claude desktop settings
+  - .opencode/skills/   OpenCode skills (if available)
 """
     )
 
