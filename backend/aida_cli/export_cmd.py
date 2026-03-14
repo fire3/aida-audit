@@ -1082,6 +1082,7 @@ Workspace:
   - .trae/mcp.json      Trae client MCP config
   - .claude/settings.local.json  Claude desktop settings
   - .opencode/skills/   OpenCode skills (if available)
+  - .claude/skills/     Claude Code skills (if available)
 """
     )
 

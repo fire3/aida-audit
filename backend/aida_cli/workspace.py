@@ -81,7 +81,9 @@ def _build_claude_settings():
 def init_workspace(workspace_root, url="http://127.0.0.1:8765/mcp"):
     workspace_root = os.path.abspath(workspace_root)
     opencode_skills_root = os.path.join(workspace_root, ".opencode", "skills")
+    claude_skills_root = os.path.join(workspace_root, ".claude", "skills")
     os.makedirs(opencode_skills_root, exist_ok=True)
+    os.makedirs(claude_skills_root, exist_ok=True)
 
     path = os.path.join(workspace_root, "opencode.json")
     _write_json(path, _build_opencode_http_config(url, "aida-cli"))
@@ -104,6 +106,7 @@ def init_workspace(workspace_root, url="http://127.0.0.1:8765/mcp"):
     copied = []
     if skills_source:
         copied.extend(_copy_skills(skills_source, opencode_skills_root))
+        copied.extend(_copy_skills(skills_source, claude_skills_root))
 
     return {
         "opencode": path,
@@ -111,5 +114,6 @@ def init_workspace(workspace_root, url="http://127.0.0.1:8765/mcp"):
         "trae_mcp": trae_mcp_path,
         "claude": settings_path,
         "skills_dir": opencode_skills_root if skills_source else None,
+        "claude_skills_dir": claude_skills_root if skills_source else None,
         "copied_skills": copied,
     }

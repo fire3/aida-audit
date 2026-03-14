@@ -2,7 +2,7 @@
 name: aida-cli-rce-analysis
 description: Guide for auditing RCE related CWEs using AIDA MCP
 license: MIT
-compatibility: opencode
+compatibility: opencode, claude
 ---
 
 # AIDA MCP RCE Analysis Skill Guide

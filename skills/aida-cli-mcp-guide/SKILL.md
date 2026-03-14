@@ -2,7 +2,7 @@
 name: aida-cli-guide
 description: Analysis Skill Guide for AIDA MCP
 license: MIT
-compatibility: opencode
+compatibility: opencode, claude
 ---
 
 # AIDA MCP Reverse Engineering Skills Guide

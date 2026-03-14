@@ -2,7 +2,7 @@
 name: aida-cli-attack-surface-analysis
 description: Guide for Attack Surface Analysis using AIDA MCP
 license: MIT
-compatibility: opencode
+compatibility: opencode, claude
 ---
 
 # AIDA MCP Attack Surface Analysis Skill Guide
