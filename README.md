@@ -4,7 +4,7 @@ AIDA-CLI is a powerful tool designed to bridge the gap between IDA Pro binary an
 
 ## Features
 
-*   **Export**: Automated extraction of binary metadata (functions, strings, imports, exports, pseudocode, etc.) from IDA Pro into portable SQLite databases.
+*   **Export**: Automated extraction of binary metadata (functions, strings, imports, exports, pseudocode, etc.) from IDA Pro or Ghidra into portable SQLite databases. Automatically initializes the workspace with MCP client configurations.
 *   **Web UI**: A modern, interactive web interface to browse and analyze the exported data.
 *   **MCP Server**: A fully compliant Model Context Protocol server that allows AI assistants to query and reason about the binary structure.
 *   **REST API**: A FastAPI-backed backend for custom integrations.
@@ -14,14 +14,14 @@ AIDA-CLI is a powerful tool designed to bridge the gap between IDA Pro binary an
 ### Prerequisites
 
 *   **Python 3.9+**
-*   **IDA Pro**: Required for the `aida-cli export` command (to run the analysis).
+*   **IDA Pro**: Required for the `aida-cli export` command with IDA backend.
 *   **Ghidra**: Required when exporting with the Ghidra backend.
 *   **JDK**: Required for running Ghidra (skip if your Ghidra bundle includes a JDK).
 *   **Node.js**: Required only if you plan to build the frontend from source (optional).
 
 ### Install IDA Pro lib (Required)
 
-To make the `aida-cli export` command work properly, you need to install the IDA Pro Python library.
+To make the `aida-cli export` command work properly with the IDA backend, you need to install the IDA Pro Python library.
 
 1.  Ensure IDA Pro is installed and the environment is configured.
 2.  Navigate to the `idalib/python` subdirectory under your IDA Pro installation directory (e.g., `C:\Program Files\IDA Professional 9.2\`).
@@ -94,7 +94,7 @@ Once installed, the `aida-cli` command is available in your terminal.
 
 ### 1. Export Analysis Data (`export`)
 
-The `export` command runs a headless IDA Pro instance to analyze a binary and save the results.
+The `export` command runs a headless IDA Pro or Ghidra instance to analyze a binary and save the results. It automatically initializes the workspace with MCP client configurations.
 
 ```bash
 aida-cli export <target_binary> -o <output_directory>
@@ -107,9 +107,19 @@ aida-cli export <target_binary> -o <output_directory>
 **Advanced Options:**
 *   `-s, --scan-dir <dir>`: **Bulk Mode**. Recursively scans the specified directory for dependencies (useful for analyzing firmware file systems).
 *   `-j <n>`: Number of parallel workers (default: 4).
-*   `--verbose`: Enable detailed logging.
 *   `--backend <ida|ghidra>`: Choose the export backend (default: `ida`).
+*   `--verbose`: Enable detailed logging.
+*   `--perf-summary`: Show performance summary.
+*   `--log-file <path>`: Write logs to a file.
 *   When `--backend ghidra` is used, set `GHIDRA_HOME` in your environment before running.
+
+**Workspace Initialization:**
+The export command automatically creates the following in the output directory:
+*   `opencode.json`: OpenCode project config with MCP servers.
+*   `.mcp.json`: MCP client configuration.
+*   `.trae/mcp.json`: Trae client MCP configuration.
+*   `.claude/settings.local.json`: Claude desktop settings.
+*   `.opencode/skills/`: OpenCode-compatible skills (if available).
 
 **Example:**
 ```bash
@@ -174,23 +184,6 @@ aida-cli install
 # Print configuration to stdout
 aida-cli install --output -
 ```
-
-### 4. Initialize Workspace (`workspace`)
-
-The `workspace` command creates a local workspace directory with MCP client configs and skills.
-
-```bash
-aida-cli workspace --init <workspace_dir>
-```
-
-**What it creates:**
-*   `<workspace_dir>/project/`: Place your exported `.db` files here.
-*   `<workspace_dir>/opencode.json`: OpenCode project config with MCP servers.
-*   `<workspace_dir>/.opencode/skills/`: OpenCode-compatible skills.
-
-**Options:**
-*   `--transport`: `stdio` (default) or `http`.
-*   `--url`: MCP server URL when using `http`.
 
 ## Development
 

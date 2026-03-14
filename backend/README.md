@@ -4,16 +4,16 @@ This is the backend tool for AIDA MCP. It provides functionality to export IDA P
 
 ## Features
 
-- **Export**: Analyze binaries using IDA Pro and export metadata to a local SQLite database.
-- **Serve**: Serve the exported project data via an MCP-compliant HTTP server.
+- **Export**: Analyze binaries using IDA Pro or Ghidra and export metadata to a local SQLite database. Automatically initializes the workspace with MCP client configurations.
+- **Serve**: Serve the exported project data via an MCP-compliant HTTP server with a Web UI.
 
 ## Installation
 
 ### Prerequisites
 
-- Python 3.8+
-- IDA Pro (for export functionality)
-- Valid IDA Python environment (for export)
+- Python 3.9+
+- IDA Pro (for export with IDA backend)
+- Ghidra (for export with Ghidra backend)
 
 ### Install from Source
 
@@ -75,7 +75,7 @@ After installation, the `aida-cli` command will be available in your Python scri
 
 ### Export Command
 
-Analyzes a binary and exports it to a database in the output directory.
+Analyzes a binary and exports it to a database in the output directory. Automatically initializes the workspace with MCP client configurations (opencode.json, .mcp.json, .trae/mcp.json, .claude/settings.local.json).
 
 ```bash
 aida-cli export <path_to_binary> -o <output_directory>
@@ -84,13 +84,16 @@ aida-cli export <path_to_binary> -o <output_directory>
 Options:
 - `--scan-dir <dir>`: Enable bulk mode to scan for dependencies in the given directory.
 - `-j <workers>`: Number of parallel workers (default: 4).
+- `--backend <ida|ghidra>`: Choose the export backend (default: ida).
 - `--verbose`: Enable verbose output.
+- `--perf-summary`: Show performance summary.
+- `--log-file <path>`: Write logs to a file.
 
 **Note**: This command requires a Python environment that can access IDA Pro's Python API. If you are using the system Python, ensure `PYTHONPATH` includes IDA's python directory, or run this tool using `idapyswitch` configured python.
 
 ### Serve Command
 
-Starts the MCP HTTP server.
+Starts the MCP HTTP server with Web UI.
 
 ```bash
 aida-cli serve [path_to_project_dir]
@@ -103,19 +106,7 @@ Options:
 - `--host`: Host to bind to (default: 127.0.0.1).
 - `--port`: Port to bind to (default: 8765).
 
-### Install Command
-
-Generates MCP client configuration files.
-
-```bash
-aida-cli install
-```
-
-Options:
-- `--transport`: `stdio` or `http` (default: `stdio`).
-- `--output`: Output path or `-` for stdout (default: `auto`).
-
 ## Directory Structure
 
-- `aida-cli/`: Source code package.
+- `aida_cli/`: Source code package.
 - `setup.py`: Packaging configuration.
