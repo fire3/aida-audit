@@ -1,6 +1,8 @@
 import { Link, Outlet } from 'react-router-dom';
-import { Layers, Settings } from 'lucide-react';
+import { Layers, Settings, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { buttonVariants } from '../components/ui/button';
+import { cn } from '../lib/utils';
 
 export function MainLayout() {
   const { t } = useTranslation();
@@ -16,10 +18,14 @@ export function MainLayout() {
               </span>
             </Link>
             <nav className="flex items-center space-x-6 text-sm font-medium">
-              <Link
+              <Link 
                 to="/audit"
-                className="transition-colors hover:text-foreground/80 text-foreground/60"
+                className={cn(
+                  buttonVariants({ variant: "default", size: "sm" }),
+                  "gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm hover:shadow-md transition-all duration-300 hover:scale-[1.02]"
+                )}
               >
+                <ShieldCheck className="h-4 w-4" />
                 {t('nav.audit')}
               </Link>
             </nav>

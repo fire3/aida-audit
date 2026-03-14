@@ -6,7 +6,7 @@
     "save": "Save"
   },
   "nav": {
-    "audit": "Audit",
+    "audit": "Audit Agent",
     "settings": "Settings",
     "binary_analysis": "Binary Analysis",
     "overview": "Overview",
