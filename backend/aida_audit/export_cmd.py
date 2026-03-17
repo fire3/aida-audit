@@ -65,12 +65,9 @@ class ConsoleLogger:
             except Exception:
                 pass
         level = self._detect_level(msg)
-        icon = self._ctx_icon.get(context, "🔹")
-        context_text = f"{icon} {context:<12}"
-        time_text = self._style(ts, "90")
-        context_text = self._style(context_text, "36")
         msg_text = self._style_msg(msg, level)
-        base = f"[{time_text}] {context_text}"
+        time_text = self._style(ts, "90")
+        base = f"[{time_text}]"
         if self.binary_name:
             base += f" {self._style(self.binary_name, '35')}"
         self._emit_line(f"{base} | {msg_text}")
