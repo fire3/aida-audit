@@ -577,41 +577,44 @@ class IDAExporter:
     def export_disasm_chunks(self):
         self.timer.start_step("DisasmChunks")
         self.log("Exporting disasm chunks...")
-        
-        min_ea = ida_ida.inf_get_min_ea()
-        max_ea = ida_ida.inf_get_max_ea()
-        total_range = max_ea - min_ea
-        if total_range <= 0: total_range = 1
-        tracker = ProgressTracker(total_range, self.log, "Disasm Chunks")
+
+        # Pre-calculate total heads for accurate progress tracking
+        total_heads = 0
+        for seg_ea in idautils.Segments():
+            seg = ida_segment.getseg(seg_ea)
+            if seg:
+                total_heads += sum(1 for _ in idautils.Heads(seg.start_ea, seg.end_ea))
+        if total_heads <= 0: total_heads = 1
+        tracker = ProgressTracker(total_heads, self.log, "Disasm Chunks")
 
         CHUNK_SIZE_LINES = 100
         data = []
-        
+
         for seg_ea in idautils.Segments():
             seg = ida_segment.getseg(seg_ea)
             if not seg: continue
-            
+
             current_chunk_lines = []
             current_chunk_start = None
             current_chunk_end = None
-            
+
             for head in idautils.Heads(seg.start_ea, seg.end_ea):
-                tracker.update(head - min_ea)
+                tracker.update()
                 if current_chunk_start is None:
                     current_chunk_start = head
-                
+
                 disasm_text = idc.generate_disasm_line(head, 0)
                 if disasm_text:
                     current_chunk_lines.append(f"{hex(head)}: {disasm_text}")
-                
+
                 current_chunk_end = head + ida_bytes.get_item_size(head)
-                
+
                 if len(current_chunk_lines) >= CHUNK_SIZE_LINES:
                     content = "\n".join(current_chunk_lines)
                     data.append((current_chunk_start, current_chunk_end, content))
                     current_chunk_lines = []
                     current_chunk_start = None
-            
+
             if current_chunk_lines:
                 content = "\n".join(current_chunk_lines)
                 data.append((current_chunk_start, current_chunk_end, content))
@@ -627,16 +630,15 @@ class IDAExporter:
     def export_data_items(self):
         self.timer.start_step("DataItems")
         self.log("Exporting data items...")
-        
-        min_ea = ida_ida.inf_get_min_ea()
-        max_ea = ida_ida.inf_get_max_ea()
-        total_range = max_ea - min_ea
-        if total_range <= 0: total_range = 1
-        tracker = ProgressTracker(total_range, self.log, "Data Items")
-        
+
+        # Pre-calculate total heads for accurate progress tracking
+        total_heads = sum(1 for _ in idautils.Heads())
+        if total_heads <= 0: total_heads = 1
+        tracker = ProgressTracker(total_heads, self.log, "Data Items")
+
         data = []
         for ea in idautils.Heads():
-            tracker.update(ea - min_ea)
+            tracker.update()
             flags = ida_bytes.get_flags(ea)
             if ida_bytes.is_data(flags):
                 size = ida_bytes.get_item_size(ea)
@@ -683,16 +685,15 @@ class IDAExporter:
     def export_xrefs(self):
         self.timer.start_step("Xrefs")
         self.log("Exporting xrefs...")
-        
-        min_ea = ida_ida.inf_get_min_ea()
-        max_ea = ida_ida.inf_get_max_ea()
-        total_range = max_ea - min_ea
-        if total_range <= 0: total_range = 1
-        tracker = ProgressTracker(total_range, self.log, "Xrefs")
-        
+
+        # Pre-calculate total heads for accurate progress tracking
+        total_heads = sum(1 for _ in idautils.Heads())
+        if total_heads <= 0: total_heads = 1
+        tracker = ProgressTracker(total_heads, self.log, "Xrefs")
+
         data = []
         for ea in idautils.Heads():
-            tracker.update(ea - min_ea)
+            tracker.update()
             for xref in idautils.XrefsFrom(ea, 0):
                 if not ida_segment.getseg(xref.to):
                     continue
@@ -910,18 +911,20 @@ class IDAExporter:
     def export_instructions(self):
         self.timer.start_step("Instructions")
         self.log("Exporting instructions...")
-        
-        # Iterate all heads that are code
+
+        # Pre-calculate total heads for accurate progress tracking
         min_ea = ida_ida.inf_get_min_ea()
         max_ea = ida_ida.inf_get_max_ea()
-        tracker = ProgressTracker(max_ea - min_ea, self.log, "Instructions")
-        
+        total_heads = sum(1 for _ in idautils.Heads(min_ea, max_ea))
+        if total_heads <= 0: total_heads = 1
+        tracker = ProgressTracker(total_heads, self.log, "Instructions")
+
         insn_data = []
         op_data = []
         BATCH_SIZE = 1000
-        
+
         for head in idautils.Heads(min_ea, max_ea):
-            tracker.update(head - min_ea)
+            tracker.update()
             flags = ida_bytes.get_flags(head)
             if not ida_bytes.is_code(flags):
                 continue
