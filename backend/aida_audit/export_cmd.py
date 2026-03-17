@@ -11,13 +11,9 @@ import sqlite3
 import threading
 import tempfile
 import platform
+import re
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import as_completed
-from rich.console import Console
-from rich.live import Live
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
 
 # =============================================================================
 # Import Setup
@@ -38,6 +34,18 @@ class ConsoleLogger:
         self._lock = threading.Lock()
         self.binary_name = None
         self.log_file = os.path.abspath(log_file) if log_file else None
+        self._ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+        self._use_color = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+        self._ctx_icon = {
+            "ERROR": "❌",
+            "WARN": "⚠️ ",
+            "MERGE": "🧩",
+            "MASTER": "🧠",
+            "ORCHESTRATOR": "🧭",
+            "BUNDLE": "📦",
+            "GHIDRA": "🐉",
+            "HOST": "🖥️ ",
+        }
         if self.log_file:
             parent = os.path.dirname(self.log_file)
             if parent:
@@ -49,60 +57,86 @@ class ConsoleLogger:
 
     def log(self, msg, context="HOST"):
         ts = time.strftime("%H:%M:%S", time.localtime())
-        
-        # Clean up worker output (strip [IDA HH:MM:SS])
-        # Example: [IDA 12:00:00] [INFO] msg -> [INFO] msg
         if msg.startswith("[IDA ") and "]" in msg:
-             try:
-                 parts = msg.split("] ", 1)
-                 if len(parts) > 1:
-                     msg = parts[1]
-             except:
-                 pass
-        
-        # Format: [DateTime] [Context] [Binary] Msg
-        # Align Context to 12 chars
-        
-        context_str = f"[{context}]"
-        base = f"[{ts}] {context_str:<14}"
-        
+            try:
+                parts = msg.split("] ", 1)
+                if len(parts) > 1:
+                    msg = parts[1]
+            except Exception:
+                pass
+        level = self._detect_level(msg)
+        icon = self._ctx_icon.get(context, "🔹")
+        context_text = f"{icon} {context:<12}"
+        time_text = self._style(ts, "90")
+        context_text = self._style(context_text, "36")
+        msg_text = self._style_msg(msg, level)
+        base = f"[{time_text}] {context_text}"
         if self.binary_name:
-            base += f" [{self.binary_name}]"
-            
-        final_msg = f"{base} {msg}"
-        self._write_line(final_msg)
+            base += f" {self._style(self.binary_name, '35')}"
+        self._emit_line(f"{base} | {msg_text}")
 
     def plain(self, msg):
-        self._write_line(msg)
+        self._emit_line(msg)
 
-    def _write_line(self, line):
-        if not self.log_file:
-            return
+    def _detect_level(self, msg):
+        msg_upper = msg.upper()
+        if "[ERROR]" in msg_upper or "FAILED" in msg_upper or "ERROR" in msg_upper:
+            return "ERROR"
+        if "[WARN]" in msg_upper or "WARNING" in msg_upper:
+            return "WARN"
+        if "[INFO]" in msg_upper:
+            return "INFO"
+        return "NORMAL"
+
+    def _style_msg(self, msg, level):
+        if level == "ERROR":
+            return f"❌ {self._style(msg, '31')}"
+        if level == "WARN":
+            return f"⚠️  {self._style(msg, '33')}"
+        if level == "INFO":
+            return f"ℹ️  {self._style(msg, '37')}"
+        if "Done (" in msg or "Success" in msg:
+            return f"✅ {self._style(msg, '32')}"
+        if "Starting" in msg or "Launching" in msg:
+            return f"🚀 {self._style(msg, '36')}"
+        return msg
+
+    def _style(self, text, color_code):
+        if not self._use_color:
+            return text
+        return f"\033[{color_code}m{text}\033[0m"
+
+    def _emit_line(self, line):
         with self._lock:
-            with open(self.log_file, "a", encoding="utf-8") as f:
-                f.write(f"{line}\n")
+            print(line, flush=True)
+            if self.log_file:
+                with open(self.log_file, "a", encoding="utf-8") as f:
+                    sanitized = self._ansi_re.sub("", line)
+                    f.write(f"{sanitized}\n")
 
 
 class ExportProgressPanel:
-    def __init__(self):
-        self.console = Console()
+    def __init__(self, logger):
+        self.logger = logger
         self._lock = threading.Lock()
         self._started = False
-        self._live = None
         self.start_time = None
         self.binary_name = "-"
         self.output_db = "-"
         self.backend = "-"
         self.workers = 0
-        self.stage = "等待开始"
+        self.stage = "Pending"
         self.detail = ""
         self.worker_total = 0
         self.worker_done = 0
         self.worker_failed = 0
         self.worker_running = 0
-        self.status = "运行中"
+        self.status = "Running"
         self.last_event = ""
         self.last_event_at = 0.0
+        self._last_stage_key = None
+        self._last_notify = ""
+        self._last_notify_at = 0.0
 
     def start(self, binary_name, output_db, backend, workers):
         with self._lock:
@@ -112,17 +146,23 @@ class ExportProgressPanel:
             self.output_db = output_db
             self.backend = backend
             self.workers = workers
-            self.stage = "初始化"
-            self.detail = "准备导出任务"
+            self.stage = "Initializing"
+            self.detail = "Preparing export task"
             self.worker_total = 0
             self.worker_done = 0
             self.worker_failed = 0
             self.worker_running = 0
-            self.status = "运行中"
-            self.last_event = "任务已创建"
+            self.status = "Running"
+            self.last_event = "Task created"
             self.last_event_at = time.time()
-            self._live = Live(self._render(), console=self.console, refresh_per_second=16, transient=False)
-            self._live.start()
+            self._last_stage_key = None
+            self._last_notify = ""
+            self._last_notify_at = 0.0
+            self.logger.log(
+                f"🚀 Export started | target={self.binary_name} | backend={self.backend} | workers={self.workers}",
+                context="ORCHESTRATOR",
+            )
+            self.logger.log(f"📄 Output database: {self.output_db}", context="ORCHESTRATOR")
 
     def update_stage(self, stage, detail=""):
         with self._lock:
@@ -130,7 +170,13 @@ class ExportProgressPanel:
                 return
             self.stage = stage
             self.detail = detail
-            self._refresh()
+            stage_key = f"{stage}|{detail}"
+            if stage_key != self._last_stage_key:
+                self._last_stage_key = stage_key
+                text = f"🔄 Stage: {stage}"
+                if detail:
+                    text += f" | {detail}"
+                self.logger.log(text, context="ORCHESTRATOR")
 
     def set_worker_total(self, total):
         with self._lock:
@@ -140,9 +186,12 @@ class ExportProgressPanel:
             self.worker_done = 0
             self.worker_failed = 0
             self.worker_running = total
-            self.last_event = f"并行任务启动: {total} 个 worker"
+            self.last_event = f"Parallel tasks started: {total} workers"
             self.last_event_at = time.time()
-            self._refresh()
+            self.logger.log(
+                f"🧵 Parallel tasks started: total={total}, running={self.worker_running}",
+                context="ORCHESTRATOR",
+            )
 
     def worker_finished(self, ok):
         with self._lock:
@@ -154,11 +203,15 @@ class ExportProgressPanel:
             if self.worker_running > 0:
                 self.worker_running -= 1
             self.last_event = (
-                f"worker 完成 {self.worker_done}/{self.worker_total}"
-                + (f"，失败 {self.worker_failed}" if self.worker_failed else "")
+                f"Worker finished {self.worker_done}/{self.worker_total}"
+                + (f", failed {self.worker_failed}" if self.worker_failed else "")
             )
             self.last_event_at = time.time()
-            self._refresh()
+            icon = "✅" if ok else "❌"
+            self.logger.log(
+                f"{icon} Worker progress: done={self.worker_done}/{self.worker_total}, running={self.worker_running}, failed={self.worker_failed}",
+                context="ORCHESTRATOR",
+            )
 
     def notify(self, detail):
         with self._lock:
@@ -166,55 +219,24 @@ class ExportProgressPanel:
                 return
             self.last_event = detail
             self.last_event_at = time.time()
-            self._refresh()
+            now = time.time()
+            if detail != self._last_notify and now - self._last_notify_at >= 1.5:
+                self._last_notify = detail
+                self._last_notify_at = now
 
     def finish(self, success, message):
         with self._lock:
             if not self._started:
                 return
-            self.status = "完成" if success else "失败"
-            self.stage = "结束"
+            self.status = "Completed" if success else "Failed"
+            self.stage = "Finished"
             self.detail = message
             self.last_event = message
             self.last_event_at = time.time()
-            self._refresh()
-            if self._live:
-                self._live.stop()
-                self._live = None
+            elapsed = time.time() - self.start_time if self.start_time else 0.0
+            prefix = "✅ Export completed" if success else "❌ Export failed"
+            self.logger.log(f"{prefix} | elapsed={elapsed:.1f}s | {message}", context="ORCHESTRATOR")
             self._started = False
-
-    def _refresh(self):
-        if self._live:
-            self._live.update(self._render())
-
-    def _render(self):
-        elapsed = 0.0
-        if self.start_time:
-            elapsed = time.time() - self.start_time
-        table = Table.grid(padding=(0, 1))
-        table.add_column(justify="right", style="cyan")
-        table.add_column()
-        table.add_row("状态", self.status)
-        table.add_row("阶段", self.stage)
-        table.add_row("目标", self.binary_name)
-        table.add_row("后端", self.backend)
-        table.add_row("输出", self.output_db)
-        parallel_text = str(self.workers)
-        if self.worker_total > 0:
-            parallel_text = (
-                f"{self.workers} (运行中 {self.worker_running}, 完成 {self.worker_done}/{self.worker_total}, "
-                f"失败 {self.worker_failed})"
-            )
-        table.add_row("并行", parallel_text)
-        table.add_row("耗时", f"{elapsed:.1f}s")
-        if self.detail:
-            table.add_row("说明", self.detail)
-        if self.last_event:
-            event_age = max(0.0, time.time() - self.last_event_at) if self.last_event_at else 0.0
-            table.add_row("最近事件", f"{self.last_event} ({event_age:.1f}s 前)")
-        border_style = "green" if self.status == "完成" else "red" if self.status == "失败" else "blue"
-        title = Text("AIDA Export", style="bold")
-        return Panel(table, title=title, border_style=border_style)
 
 def _sha256_prefix(path, n=8):
     h = hashlib.sha256()
@@ -329,7 +351,7 @@ class ExportOrchestrator:
         self.verbose = verbose
         self.backend = backend
         self.logger = ConsoleLogger(log_file=log_file)
-        self.progress = ExportProgressPanel()
+        self.progress = ExportProgressPanel(self.logger)
         self.log_file = os.path.abspath(log_file) if log_file else None
         self.layout = None
 
@@ -346,7 +368,7 @@ class ExportOrchestrator:
             self.logger.log("Starting...", context=context)
         else:
             self.logger.log("Starting command...", context="HOST")
-        self.progress.notify(f"{context} 启动")
+        self.progress.notify(f"{context} started")
             
         start_time = time.time()
         
@@ -376,16 +398,16 @@ class ExportOrchestrator:
         duration = time.time() - start_time
         
         if returncode != 0:
-            self.progress.update_stage("执行失败", f"{context} 退出码 {returncode}")
+            self.progress.update_stage("Failed", f"{context} exit code {returncode}")
             self.logger.log(f"Failed (exit={returncode}, {duration:.2f}s).", context=context)
             if not stream_output:
                 self.logger.plain(result_stdout.rstrip())
             self.logger.plain(result_stderr.rstrip())
-            self.progress.notify(f"{context} 失败 (exit={returncode})")
+            self.progress.notify(f"{context} failed (exit={returncode})")
             return {"ok": False, "duration": duration, "returncode": returncode, "stdout": result_stdout, "stderr": result_stderr}
             
         self.logger.log(f"Done ({duration:.2f}s).", context=context)
-        self.progress.notify(f"{context} 完成 ({duration:.2f}s)")
+        self.progress.notify(f"{context} done ({duration:.2f}s)")
         return {"ok": True, "duration": duration, "returncode": returncode, "stdout": result_stdout, "stderr": result_stderr}
 
     def _resolve_ghidra_home(self):
@@ -578,7 +600,7 @@ class ExportOrchestrator:
         """
         Step 1: Run Master (Export Metadata + Dump Functions)
         """
-        self.progress.update_stage("主分析", "导出元数据并提取函数列表")
+        self.progress.update_stage("Master Analysis", "Exporting metadata and extracting function list")
         self.logger.log("Running Master (Analysis & Metadata)", context="ORCHESTRATOR")
         master_start = time.time()
 
@@ -621,7 +643,7 @@ class ExportOrchestrator:
         """
         Step 2: Split Work
         """
-        self.progress.update_stage("拆分任务", "准备并行 worker 任务")
+        self.progress.update_stage("Splitting Task", "Preparing parallel worker tasks")
         self.logger.log("Splitting work", context="ORCHESTRATOR")
         try:
             with open(funcs_json, 'r') as f:
@@ -663,7 +685,7 @@ class ExportOrchestrator:
         """
         Step 3: Run Workers
         """
-        self.progress.update_stage("并行导出", "worker 正在处理伪代码")
+        self.progress.update_stage("Parallel Export", "Workers processing pseudocode")
         self.progress.set_worker_total(len(worker_files))
         self.logger.log(f"Launching {len(worker_files)} workers", context="ORCHESTRATOR")
         worker_start = time.time()
@@ -756,7 +778,7 @@ class ExportOrchestrator:
         if output_is_dir:
             if os.path.isfile(output_db):
                 self.logger.log(f"Error: Output path is a file, not a directory: {output_db}", context="ERROR")
-                self.progress.finish(False, "输出路径错误")
+                self.progress.finish(False, "Output path error")
                 return False
             out_dir = output_db
             _safe_makedirs(out_dir)
@@ -777,12 +799,12 @@ class ExportOrchestrator:
                 self.logger.log(f"Warning: failed to copy input binary to output directory: {e}", context="ORCHESTRATOR")
 
         self.progress.start(os.path.basename(input_path), output_db, self.backend, self.workers)
-        self.progress.update_stage("准备", "初始化导出上下文")
+        self.progress.update_stage("Prepare", "Initializing export context")
 
         if os.path.exists(output_db):
             self.logger.log(f"Target database already exists: {output_db}", context="ORCHESTRATOR")
             self.logger.log("Skipping export.", context="ORCHESTRATOR")
-            self.progress.finish(True, "目标数据库已存在，已跳过")
+            self.progress.finish(True, "Target database already exists, skipped")
             return True
 
         self.logger.log(f"Input  : {input_path}", context="ORCHESTRATOR")
@@ -793,7 +815,7 @@ class ExportOrchestrator:
         temp_dir = export_root or tempfile.mkdtemp(prefix="ghidra_export_")
         json_dir = None
         try:
-            self.progress.update_stage("Ghidra 导出", "执行 headless 导出")
+            self.progress.update_stage("Ghidra Export", "Running headless export")
             json_dir = self._run_ghidra_headless(
                 input_path,
                 temp_dir,
@@ -801,18 +823,18 @@ class ExportOrchestrator:
                 chunk_size=0
             )
             if not json_dir:
-                self.progress.finish(False, "Ghidra 导出失败")
+                self.progress.finish(False, "Ghidra export failed")
                 return False
-            self.progress.update_stage("导入数据库", "写入 SQLite 数据库")
+            self.progress.update_stage("Import Database", "Writing to SQLite database")
             ok = import_ghidra_export(json_dir, output_db, self.logger, role=role)
             if not ok:
-                self.progress.finish(False, "导入导出结果失败")
+                self.progress.finish(False, "Failed to import export results")
                 return False
-            self.progress.finish(True, "导出完成")
+            self.progress.finish(True, "Export completed")
             return True
         except Exception as e:
             self.logger.log(f"Failed to export with ghidra: {e}", context="ERROR")
-            self.progress.finish(False, f"导出异常: {e}")
+            self.progress.finish(False, f"Export exception: {e}")
             return False
         finally:
             if cleanup_export_root and not (json_dir and os.path.exists(json_dir)):
@@ -890,7 +912,7 @@ class ExportOrchestrator:
         layout = self._resolve_layout(os.path.dirname(os.path.dirname(output_db)))
         self.logger.set_binary(os.path.basename(input_path))
         self.progress.start(os.path.basename(input_path), output_db, self.backend, self.workers)
-        self.progress.update_stage("准备", "初始化导出上下文")
+        self.progress.update_stage("Prepare", "Initializing export context")
             
         # Ensure original binary is present in the output directory
         try:
@@ -937,11 +959,11 @@ class ExportOrchestrator:
             save_idb = os.path.join(layout["idbs_dir"], os.path.basename(input_path))
 
         try:
-            self.progress.update_stage("主分析", "导出元数据并提取函数")
+            self.progress.update_stage("Master Analysis", "Exporting metadata and extracting functions")
             # Step 1: Run Master
             master_res = self._run_master_analysis(existing_idb or input_path, output_db, temp_dir, save_idb, role)
             if not master_res:
-                self.progress.finish(False, "主分析失败")
+                self.progress.finish(False, "Master analysis failed")
                 return False
             stats['master_time'] = master_res['duration']
             
@@ -959,7 +981,7 @@ class ExportOrchestrator:
             # Step 2: Split Work
             split_res = self._split_work(master_res['funcs_json'], temp_dir)
             if not split_res:
-                self.progress.finish(False, "任务拆分失败")
+                self.progress.finish(False, "Task split failed")
                 return False
             stats['total_funcs'] = split_res['total_funcs']
             worker_files = split_res['worker_files']
@@ -975,7 +997,7 @@ class ExportOrchestrator:
             stats['worker_time'] = worker_res['duration']
             
             # Step 4: Merge Results
-            self.progress.update_stage("合并结果", "合并 worker 数据库")
+            self.progress.update_stage("Merging Results", "Merging worker databases")
             self.logger.log("Merging results", context="ORCHESTRATOR")
             merge_start = time.time()
             
@@ -986,11 +1008,11 @@ class ExportOrchestrator:
             stats['total_time'] = time.time() - stats['start_time']
             
             self.logger.log(f"Success! Full export saved to {output_db}", context="ORCHESTRATOR")
-            self.progress.finish(True, "导出完成")
+            self.progress.finish(True, "Export completed")
             return True
         except Exception as e:
             self.logger.log(f"Failed to export: {e}", context="ERROR")
-            self.progress.finish(False, f"导出异常: {e}")
+            self.progress.finish(False, f"Export exception: {e}")
             return False
             
         finally:
@@ -1099,8 +1121,8 @@ Workspace:
     if args.backend == "ghidra":
         ghidra_home = os.environ.get("GHIDRA_HOME")
         if not ghidra_home:
-            print("Error: 使用 ghidra 后端前，请先设置 GHIDRA_HOME 环境变量。")
-            print("例如: export GHIDRA_HOME=/path/to/ghidra")
+            print("Error: Please set GHIDRA_HOME environment variable before using ghidra backend.")
+            print("Example: export GHIDRA_HOME=/path/to/ghidra")
             sys.exit(1)
     
     target_values = []
@@ -1131,10 +1153,10 @@ Workspace:
     orchestrator.set_layout(layout)
     _ensure_audit_db(layout["databases_dir"], orchestrator.logger)
     init_workspace(output_dir)
-    print(f"Workspace initialized: {output_dir}")
-    print(f"Binaries  : {layout['binaries_dir']}")
-    print(f"Databases : {layout['databases_dir']}")
-    print(f"IDBs      : {layout['idbs_dir']}")
+    orchestrator.logger.log(f"🏗️  Workspace initialized: {output_dir}", context="HOST")
+    orchestrator.logger.log(f"📦 Binaries  : {layout['binaries_dir']}", context="HOST")
+    orchestrator.logger.log(f"🗄️  Databases : {layout['databases_dir']}", context="HOST")
+    orchestrator.logger.log(f"💾 IDBs      : {layout['idbs_dir']}", context="HOST")
 
     # Determine mode based on arguments
     if args.scan_dir:
@@ -1149,7 +1171,7 @@ Workspace:
                 print(f"Error: Target binary '{target_path}' must be within scan directory '{scan_dir}' for bulk mode.")
                 sys.exit(1)
 
-        print(f"Mode: Bulk (Targets: {len(target_paths)}, Scan: {scan_dir})")
+        orchestrator.logger.log(f"📚 Mode: Bulk (Targets={len(target_paths)}, Scan={scan_dir})", context="HOST")
         try:
             for target_path in target_paths:
                 if args.backend == "ghidra":
@@ -1170,7 +1192,7 @@ Workspace:
             
     else:
         # Single Mode
-        print(f"Mode: Single (Targets: {len(target_paths)})")
+        orchestrator.logger.log(f"🎯 Mode: Single (Targets={len(target_paths)})", context="HOST")
         all_ok = True
         for target_path in target_paths:
             if os.path.isdir(target_path):
