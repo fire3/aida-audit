@@ -12,6 +12,7 @@ import threading
 import tempfile
 import platform
 import re
+import select
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import as_completed
 
@@ -351,6 +352,8 @@ class ExportOrchestrator:
         self.progress = ExportProgressPanel(self.logger)
         self.log_file = os.path.abspath(log_file) if log_file else None
         self.layout = None
+        self.worker_idle_timeout = max(30, int(os.environ.get("AIDA_EXPORT_WORKER_IDLE_TIMEOUT", "900")))
+        self.worker_max_retries = max(0, int(os.environ.get("AIDA_EXPORT_WORKER_MAX_RETRIES", "1")))
 
     def set_layout(self, layout):
         self.layout = layout
@@ -406,6 +409,212 @@ class ExportOrchestrator:
         self.logger.log(f"Done ({duration:.2f}s).", context=context)
         self.progress.notify(f"{context} done ({duration:.2f}s)")
         return {"ok": True, "duration": duration, "returncode": returncode, "stdout": result_stdout, "stderr": result_stderr}
+
+    def _run_command_with_idle_timeout(self, cmd, context, idle_timeout):
+        self.logger.log("Starting...", context=context)
+        self.progress.notify(f"{context} started")
+        start_time = time.time()
+        process = subprocess.Popen(
+            cmd,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        stdout_lines = []
+        timed_out = False
+        last_output_at = time.time()
+        try:
+            while True:
+                ready, _, _ = select.select([process.stdout], [], [], 1.0)
+                if ready:
+                    line = process.stdout.readline()
+                    if line:
+                        stripped = line.rstrip()
+                        self.logger.log(stripped, context=context)
+                        stdout_lines.append(line)
+                        if stripped:
+                            self.progress.notify(f"{context}: {stripped[:80]}")
+                        last_output_at = time.time()
+                        continue
+
+                if process.poll() is not None:
+                    break
+
+                if idle_timeout and (time.time() - last_output_at) >= idle_timeout:
+                    timed_out = True
+                    self.logger.log(f"No worker output for {idle_timeout}s, killing process.", context=context)
+                    self.progress.notify(f"{context} timeout after {idle_timeout}s")
+                    try:
+                        process.kill()
+                    except Exception:
+                        pass
+                    break
+        finally:
+            try:
+                remaining = process.stdout.read() if process.stdout else ""
+            except Exception:
+                remaining = ""
+            if remaining:
+                stdout_lines.append(remaining)
+                for raw in remaining.splitlines():
+                    if raw:
+                        self.logger.log(raw, context=context)
+                        self.progress.notify(f"{context}: {raw[:80]}")
+            try:
+                if process.stdout:
+                    process.stdout.close()
+            except Exception:
+                pass
+            try:
+                process.wait(timeout=5)
+            except Exception:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+                try:
+                    process.wait(timeout=5)
+                except Exception:
+                    pass
+
+        returncode = process.returncode
+        result_stdout = "".join(stdout_lines)
+        duration = time.time() - start_time
+
+        if timed_out:
+            self.logger.log(f"Failed (timeout, {duration:.2f}s).", context=context)
+            return {
+                "ok": False,
+                "duration": duration,
+                "returncode": returncode if returncode is not None else -9,
+                "stdout": result_stdout,
+                "stderr": "",
+                "timed_out": True,
+            }
+
+        if returncode != 0:
+            self.logger.log(f"Failed (exit={returncode}, {duration:.2f}s).", context=context)
+            self.progress.notify(f"{context} failed (exit={returncode})")
+            return {
+                "ok": False,
+                "duration": duration,
+                "returncode": returncode,
+                "stdout": result_stdout,
+                "stderr": "",
+                "timed_out": False,
+            }
+
+        self.logger.log(f"Done ({duration:.2f}s).", context=context)
+        self.progress.notify(f"{context} done ({duration:.2f}s)")
+        return {
+            "ok": True,
+            "duration": duration,
+            "returncode": returncode,
+            "stdout": result_stdout,
+            "stderr": "",
+            "timed_out": False,
+        }
+
+    def _collect_idb_candidates(self, path_spec):
+        if not path_spec:
+            return []
+        abs_path = os.path.abspath(path_spec)
+        root, ext = os.path.splitext(abs_path)
+        ext = ext.lower()
+        candidates = []
+        if ext in (".i64", ".idb"):
+            candidates.extend([abs_path, root + ".i64", root + ".idb"])
+        else:
+            candidates.extend([abs_path + ".i64", abs_path + ".idb"])
+        uniq = []
+        seen = set()
+        for p in candidates:
+            rp = os.path.realpath(p)
+            if rp in seen:
+                continue
+            seen.add(rp)
+            uniq.append(p)
+        return uniq
+
+    def _find_existing_idb(self, input_path, save_idb):
+        base_name = os.path.splitext(input_path)[0]
+        candidates = []
+        candidates.extend(self._collect_idb_candidates(input_path))
+        candidates.extend(self._collect_idb_candidates(base_name))
+        candidates.extend(self._collect_idb_candidates(save_idb))
+        for candidate in candidates:
+            if os.path.exists(candidate):
+                return candidate
+        return None
+
+    def _run_worker_task(self, worker_idx, chunk_file, chunk_size, input_path, analyzed_idb, ida_export_script, temp_dir):
+        worker_root = os.path.join(temp_dir, "workers", f"worker_{worker_idx}")
+        max_attempts = self.worker_max_retries + 1
+        result = {
+            "ok": False,
+            "worker_db": None,
+            "attempts": 0,
+            "returncode": None,
+        }
+
+        for attempt in range(max_attempts):
+            attempt_dir = os.path.join(worker_root, f"attempt_{attempt + 1}")
+            if os.path.exists(attempt_dir):
+                shutil.rmtree(attempt_dir, ignore_errors=True)
+            os.makedirs(attempt_dir, exist_ok=True)
+
+            local_chunk = os.path.join(attempt_dir, "funcs.json")
+            shutil.copy2(chunk_file, local_chunk)
+
+            worker_db = os.path.join(attempt_dir, "worker.db")
+            worker_input = input_path
+
+            if analyzed_idb:
+                ext = os.path.splitext(analyzed_idb)[1]
+                worker_idb = os.path.join(attempt_dir, f"worker_input{ext}")
+                try:
+                    shutil.copy2(analyzed_idb, worker_idb)
+                    worker_input = worker_idb
+                except Exception as e:
+                    self.logger.log(
+                        f"Worker {worker_idx} failed to prepare IDB copy: {e}. Using original input.",
+                        context="ORCHESTRATOR",
+                    )
+
+            cmd = f"\"{sys.executable}\" \"{ida_export_script}\" \"{worker_input}\" --output \"{worker_db}\" --mode worker --funcs-file \"{local_chunk}\""
+            self.logger.log(
+                f"Worker {worker_idx}: funcs={chunk_size} attempt={attempt + 1}/{max_attempts} dir={attempt_dir}",
+                context="ORCHESTRATOR",
+            )
+            run_res = self._run_command_with_idle_timeout(
+                cmd=cmd,
+                context=f"WORKER_{worker_idx}",
+                idle_timeout=self.worker_idle_timeout,
+            )
+
+            result.update(
+                {
+                    "ok": bool(run_res.get("ok")),
+                    "worker_db": worker_db,
+                    "attempts": attempt + 1,
+                    "returncode": run_res.get("returncode"),
+                    "timed_out": bool(run_res.get("timed_out")),
+                }
+            )
+
+            if result["ok"]:
+                return result
+
+            if attempt + 1 < max_attempts:
+                self.logger.log(
+                    f"Worker {worker_idx} failed on attempt {attempt + 1}, clearing temp directory and restarting.",
+                    context="ORCHESTRATOR",
+                )
+                shutil.rmtree(attempt_dir, ignore_errors=True)
+
+        return result
 
     def _resolve_ghidra_home(self):
         env_home = os.environ.get("GHIDRA_HOME")
@@ -609,13 +818,11 @@ class ExportOrchestrator:
             if low.endswith(".i64") or low.endswith(".idb"):
                 analysis_base = os.path.splitext(analysis_base)[0]
 
-        master_perf_json = os.path.join(temp_dir, "perf_master.json")
-
         # NOTE: We assume ida-export-worker.py is in the same directory as this script
         current_script_dir = os.path.dirname(os.path.abspath(__file__))
         ida_export_script = os.path.join(current_script_dir, "ida_export_worker.py")
 
-        master_cmd = f"\"{sys.executable}\" \"{ida_export_script}\" \"{master_input}\" --output \"{output_db}\" --parallel-master --dump-funcs \"{funcs_json}\" --save-idb \"{analysis_base}\" --perf-json \"{master_perf_json}\" --no-perf-report --fast --plain-log"
+        master_cmd = f"\"{sys.executable}\" \"{ida_export_script}\" \"{master_input}\" --output \"{output_db}\" --mode master --funcs-file \"{funcs_json}\" --save-idb \"{analysis_base}\" --fast"
         if role:
             master_cmd += f" --role {role}"
             
@@ -633,7 +840,6 @@ class ExportOrchestrator:
             "duration": time.time() - master_start,
             "funcs_json": funcs_json,
             "analysis_base": analysis_base,
-            "master_perf_json": master_perf_json
         }
 
     def _split_work(self, funcs_json, temp_dir):
@@ -701,52 +907,41 @@ class ExportOrchestrator:
             
         current_script_dir = os.path.dirname(os.path.abspath(__file__))
         ida_export_script = os.path.join(current_script_dir, "ida_export_worker.py")
-        
-        worker_cmds = []
-        worker_perf_paths = []
-        for i, (chunk_file, worker_db, chunk_size) in enumerate(worker_files):
-            worker_input = input_path
-            
-            if analyzed_idb:
-                # Copy IDB for this worker to avoid contention
-                ext = os.path.splitext(analyzed_idb)[1]
-                worker_idb = os.path.join(temp_dir, f"worker_{i}{ext}")
-                try:
-                    if not os.path.exists(worker_idb):
-                        shutil.copy2(analyzed_idb, worker_idb)
-                    worker_input = worker_idb
-                except Exception as e:
-                    self.logger.log(f"Failed to copy IDB for worker {i}: {e}. Using original input.", context="ORCHESTRATOR")
 
-            cmd = f"\"{sys.executable}\" \"{ida_export_script}\" \"{worker_input}\" --output \"{worker_db}\" --parallel-worker \"{chunk_file}\""
-            perf_json = os.path.join(temp_dir, f"perf_worker_{i}.json")
-            cmd += f" --perf-json \"{perf_json}\" --no-perf-report --plain-log"
-            worker_cmds.append(cmd)
-            worker_perf_paths.append(perf_json)
-            self.logger.log(f"Worker {i}: funcs={chunk_size} db={worker_db}", context="ORCHESTRATOR")
-
-        # Run workers
+        worker_dbs = []
+        worker_results = [None] * len(worker_files)
         with ThreadPoolExecutor(max_workers=self.workers) as executor:
             future_to_idx = {}
-            for i, cmd in enumerate(worker_cmds):
-                future = executor.submit(self.run_command, cmd, True, f"WORKER_{i}")
+            for i, (chunk_file, _worker_db, chunk_size) in enumerate(worker_files):
+                future = executor.submit(
+                    self._run_worker_task,
+                    i,
+                    chunk_file,
+                    chunk_size,
+                    input_path,
+                    analyzed_idb,
+                    ida_export_script,
+                    temp_dir,
+                )
                 future_to_idx[future] = i
-            results = [None] * len(worker_cmds)
+
             for future in as_completed(future_to_idx):
                 idx = future_to_idx[future]
                 res = future.result()
-                results[idx] = res
+                worker_results[idx] = res
+                if res.get("worker_db"):
+                    worker_dbs.append(res["worker_db"])
                 self.progress.worker_finished(res["ok"])
             
         duration = time.time() - worker_start
             
-        if not all(r["ok"] for r in results):
+        if not all(r and r.get("ok") for r in worker_results):
             self.logger.log("Some workers failed.", context="ORCHESTRATOR")
             
         return {
             "duration": duration,
-            "results": results,
-            "worker_perf_paths": worker_perf_paths
+            "results": worker_results,
+            "worker_dbs": worker_dbs,
         }
 
     def process_single_file_ghidra(self, input_path, output_db, role=None):
@@ -940,20 +1135,11 @@ class ExportOrchestrator:
             'total_funcs': 0
         }
 
-        base_name = os.path.splitext(input_path)[0]
-        existing_idb = None
-        for candidate in [
-            input_path + ".i64",
-            input_path + ".idb",
-            base_name + ".i64",
-            base_name + ".idb",
-        ]:
-            if os.path.exists(candidate):
-                existing_idb = candidate
-                break
-        
         if save_idb is None:
             save_idb = os.path.join(layout["idbs_dir"], os.path.basename(input_path))
+        existing_idb = self._find_existing_idb(input_path, save_idb)
+        if existing_idb:
+            self.logger.log(f"Reusing existing IDB: {existing_idb}", context="ORCHESTRATOR")
 
         try:
             self.progress.update_stage("Master Analysis", "Exporting metadata and extracting functions")
@@ -998,7 +1184,7 @@ class ExportOrchestrator:
             self.logger.log("Merging results", context="ORCHESTRATOR")
             merge_start = time.time()
             
-            worker_dbs_paths = [w_db for _, w_db, _ in worker_files]
+            worker_dbs_paths = worker_res.get("worker_dbs") or [w_db for _, w_db, _ in worker_files]
             self.merge_databases(output_db, worker_dbs_paths)
             
             stats['merge_time'] = time.time() - merge_start
