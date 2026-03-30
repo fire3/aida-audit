@@ -10,6 +10,8 @@ setup(
         "h11",
         "rich",
         "requests",
+        "anthropic",
+        "pydantic>=2.0",
     ],
     entry_points={
         "console_scripts": [
