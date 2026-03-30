@@ -226,21 +226,23 @@ def get_config():
 
 @api_router.post("/config/validate")
 def validate_config(data: ConfigUpdate):
-    """Validate configuration by listing models."""
+    """Validate configuration by listing models using saved config."""
     config = Config()
-    
-    # Determine which key to use
-    api_key = data.api_key
-    if not api_key or "..." in api_key or api_key.strip() == '':
-        api_key = config.get_llm_api_key()
-        
+
+    # Always use saved configuration, ignore frontend input
+    base_url = config.get_llm_base_url()
+    api_key = config.get_llm_api_key()
+
     if not api_key:
         raise HTTPException(status_code=400, detail="API Key is required")
-        
+
+    if not base_url:
+        raise HTTPException(status_code=400, detail="Base URL is required")
+
     try:
         # Create temporary client to test connection
         # Use a default model name just for initialization
-        client = LLMClient(data.base_url, api_key, "gpt-4o")
+        client = LLMClient(base_url, api_key, "gpt-4o")
         models = client.list_models()
         return {"valid": True, "models": models}
     except Exception as e:

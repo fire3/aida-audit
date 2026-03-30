@@ -197,11 +197,21 @@ class LLMClient:
         return []
 
     def list_models(self) -> List[str]:
+        import httpx
         try:
-            # Call the models endpoint using the configured client
-            # This works for Anthropic API and compatible interfaces
-            response = self.client.models.list()
-            return [model.id for model in response.data]
+            # Use httpx to call OpenAI-compatible models endpoint
+            base_url = str(self.client.base_url).rstrip("/") + "/v1"
+            response = httpx.get(
+                f"{base_url}/models",
+                headers={"Authorization": f"Bearer {self.client.api_key}"},
+                timeout=10.0
+            )
+            if response.status_code == 200:
+                data = response.json()
+                return [model["id"] for model in data.get("data", [])]
+            else:
+                print(f"Failed to list models: {response.status_code} - {response.text[:200] if response.text else 'empty'}")
+                return []
         except Exception as e:
             print(f"Failed to list models from API: {e}")
             return []
