@@ -15,6 +15,7 @@ AIDA-AUDIT 是一个强大的工具，旨在连接 IDA Pro 二进制分析与现
 *   **导出 (Export)**: 自动化运行 IDA Pro 或 Ghidra，将二进制元数据（函数、字符串、导入导出表、伪代码等）提取到可移植的 SQLite 数据库中。自动初始化工作区并配置 MCP 客户端。
 *   **Web 界面 (Web UI)**: 一个现代化的交互式 Web 界面，用于浏览和分析导出的数据。
 *   **MCP 服务器 (MCP Server)**: 完全兼容 Model Context Protocol 的服务器，允许 AI 助手查询和理解二进制结构。
+*   **aida-audit MCP 服务**: `serve` 命令会提供开箱即用的 MCP 接口（`/mcp`），并直接基于导出的二进制数据库工作，可被 OpenCode、Claude、Trae 等工具直接调用。
 *   **智能体自动审计**: 一个由 LLM 驱动的智能体系统，可自动规划、执行和验证二进制安全审计，并提供实时反馈和详细报告。
 *   **REST API**: 基于 FastAPI 的后端，支持自定义集成。
 
@@ -128,6 +129,8 @@ export 命令会在输出目录中自动创建以下文件：
 *   `.claude/settings.local.json`: Claude 桌面版设置。
 *   `.opencode/skills/`: OpenCode 兼容 skills（如果有）。
 
+这些配置文件会在 export 阶段自动生成，并且可以直接使用。通常你无需手写配置，直接在 OpenCode 或 Claude 中打开导出后的项目即可使用已配置好的 MCP 服务。
+
 **示例：**
 ```bash
 # 分析单个二进制文件
@@ -164,6 +167,27 @@ aida-audit serve [project_path]
 
 **MCP服务器地址:**
 **http://localhost:8765/mcp**
+
+### 3. 在 OpenCode / Claude / Trae 中使用 `aida-audit` MCP 服务
+
+执行 `export` 后，项目内已包含常见 AI 工具可直接使用的 MCP 配置文件：
+*   OpenCode: `opencode.json` 与 `.opencode/skills/`
+*   Claude: `.claude/settings.local.json`
+*   Trae: `.trae/mcp.json`
+*   通用 MCP 客户端: `.mcp.json`
+
+执行 `serve` 后，这些客户端即可连接到：
+**http://localhost:8765/mcp**
+
+### 4. MCP 服务主要能力
+
+`aida-audit` MCP 服务提供从二进制分析到审计协作的完整能力闭环：
+*   **标准 MCP 接口**: 基于 JSON-RPC 提供工具发现与调用能力（`initialize`、`tools/list`、`tools/call`），可被 MCP 客户端直接接入。
+*   **二进制分析能力**: 支持查询元数据、函数、符号、反汇编、伪代码、调用关系、交叉引用、字符串、导入导出等核心信息。
+*   **项目级检索能力**: 支持在全部导出二进制中搜索字符串与函数，便于在多二进制固件/软件项目中快速定位关键逻辑。
+*   **审计工作流能力**: 支持笔记记录、漏洞上报、漏洞验证，以及宏观计划与任务管理，便于结构化推进安全审计。
+*   **覆盖率与进度统计**: 自动记录浏览行为并输出统计信息，帮助评估分析覆盖范围与审计进度。
+*   **多种传输模式**: 同时支持 HTTP MCP 端点（`/mcp`）和 stdio MCP 服务模式，适配不同工具集成场景。
 
 ## 智能体自动审计 (Automated Code Audit)
 

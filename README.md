@@ -15,6 +15,7 @@ AIDA-AUDIT is a powerful tool designed to bridge the gap between IDA Pro binary 
 *   **Export**: Automated extraction of binary metadata (functions, strings, imports, exports, pseudocode, etc.) from IDA Pro or Ghidra into portable SQLite databases. Automatically initializes the workspace with MCP client configurations.
 *   **Web UI**: A modern, interactive web interface to browse and analyze the exported data.
 *   **MCP Server**: A fully compliant Model Context Protocol server that allows AI assistants to query and reason about the binary structure.
+*   **aida-audit MCP Service**: The `serve` command exposes a ready-to-use MCP endpoint (`/mcp`) backed by exported binary databases, so tools like OpenCode, Claude, and Trae can directly call analysis and audit tools.
 *   **Automated Code Audit**: An intelligent agent system powered by LLM that automatically plans, executes, and verifies security audits on binaries, with real-time feedback and detailed reporting.
 *   **REST API**: A FastAPI-backed backend for custom integrations.
 
@@ -129,6 +130,8 @@ The export command automatically creates the following in the output directory:
 *   `.claude/settings.local.json`: Claude desktop settings.
 *   `.opencode/skills/`: OpenCode-compatible skills (if available).
 
+These files are generated during export and can be used directly. In most workflows, you can open the exported project in OpenCode or Claude and start using the preconfigured MCP service without manually writing configuration.
+
 **Example:**
 ```bash
 # Analyze a single binary
@@ -165,6 +168,27 @@ Once the server is running, open your browser and navigate to:
 
 **MCP Server Address:**
 **http://localhost:8765/mcp**
+
+### 3. Use the `aida-audit` MCP Service in OpenCode / Claude / Trae
+
+After running `export`, the project already contains ready-to-use MCP client configuration files for common AI tools:
+*   OpenCode: `opencode.json` and `.opencode/skills/`
+*   Claude: `.claude/settings.local.json`
+*   Trae: `.trae/mcp.json`
+*   Generic MCP clients: `.mcp.json`
+
+After running `serve`, these clients can connect to:
+**http://localhost:8765/mcp**
+
+### 4. Main MCP Service Capabilities
+
+The `aida-audit` MCP service provides an end-to-end binary analysis and audit workflow:
+*   **Standard MCP Interface**: JSON-RPC based tool discovery and invocation (`initialize`, `tools/list`, `tools/call`), ready for direct integration with MCP-compatible clients.
+*   **Binary Analysis Tools**: Query metadata, functions, symbols, disassembly, pseudocode, call graph relations, cross-references, strings, imports, and exports.
+*   **Project-wide Search**: Search strings and functions across all exported binaries to quickly locate relevant code paths in multi-binary firmware or software projects.
+*   **Audit Workflow Tools**: Create notes, report findings, verify findings, and manage macro plans and agent tasks for structured security auditing.
+*   **Coverage and Progress Tracking**: Automatically records browsing activity and provides statistics to help assess analysis coverage and audit progress.
+*   **Multiple Transport Modes**: Supports both HTTP MCP endpoint (`/mcp`) and stdio MCP server mode for different client environments.
 
 ## Automated Code Audit
 
