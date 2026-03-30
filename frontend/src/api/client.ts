@@ -1,7 +1,17 @@
 import axios from 'axios';
 
-// Default to localhost:8765 if not specified
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8765/api/v1';
+// Auto-detect API URL from current page location
+// This enables cross-machine access when backend listens on 0.0.0.0
+const getApiBaseUrl = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  // Use current page's protocol and host
+  const { protocol, host } = window.location;
+  return `${protocol}//${host}/api/v1`;
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
