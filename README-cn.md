@@ -14,6 +14,7 @@ AIDA-AUDIT 是一个强大的工具，旨在连接 IDA Pro 二进制分析与现
 
 *   **导出 (Export)**: 自动化运行 IDA Pro 或 Ghidra，将二进制元数据（函数、字符串、导入导出表、伪代码等）提取到可移植的 SQLite 数据库中。自动初始化工作区并配置 MCP 客户端。
 *   **Web 界面 (Web UI)**: 一个现代化的交互式 Web 界面，用于浏览和分析导出的数据。
+*   **命令行查询 (CLI Query)**: 提供强大的 `query` 命令，可直接在终端中查询分析数据。支持 JSON、富文本(Rich Text) 和 Markdown 格式输出，非常适合 LLM 集成和脚本自动化处理。
 *   **MCP 服务器 (MCP Server)**: 完全兼容 Model Context Protocol 的服务器，允许 AI 助手查询和理解二进制结构。
 *   **aida-audit MCP 服务**: `serve` 命令会提供开箱即用的 MCP 接口（`/mcp`），并直接基于导出的二进制数据库工作，可被 OpenCode、Claude、Trae 等工具直接调用。
 *   **智能体自动审计**: 一个由 LLM 驱动的智能体系统，可自动规划、执行和验证二进制安全审计，并提供实时反馈和详细报告。
@@ -168,7 +169,23 @@ aida-audit serve [project_path]
 **MCP服务器地址:**
 **http://localhost:8765/mcp**
 
-### 3. 在 OpenCode / Claude / Trae 中使用 `aida-audit` MCP 服务
+### 3. 通过 CLI 进行命令行查询
+
+你可以使用 `query` 子命令直接从终端查询导出的数据库。这对于 LLM 交互或在不启动 Web UI 的情况下进行快速检查非常有用。
+
+```bash
+# 查询项目概览信息
+aida-audit query project
+
+# 根据地址查询函数详情，包含伪代码和调用关系，并以 JSON 格式输出
+aida-audit query function -b target.bin -a 0x401000 --pseudocode --calls -f json
+
+# 以 Markdown 格式查询并列出安全发现
+aida-audit query audit -t finding -f markdown
+```
+使用 `aida-audit query --help` 查看所有支持的查询能力。
+
+### 4. 在 OpenCode / Claude / Trae 中使用 `aida-audit` MCP 服务
 
 执行 `export` 后，项目内已包含常见 AI 工具可直接使用的 MCP 配置文件：
 *   OpenCode: `opencode.json` 与 `.opencode/skills/`
@@ -179,7 +196,7 @@ aida-audit serve [project_path]
 执行 `serve` 后，这些客户端即可连接到：
 **http://localhost:8765/mcp**
 
-### 4. MCP 服务主要能力
+### 5. MCP 服务主要能力
 
 `aida-audit` MCP 服务提供从二进制分析到审计协作的完整能力闭环：
 *   **标准 MCP 接口**: 基于 JSON-RPC 提供工具发现与调用能力（`initialize`、`tools/list`、`tools/call`），可被 MCP 客户端直接接入。
