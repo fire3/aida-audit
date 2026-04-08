@@ -6,7 +6,7 @@
 核心目标包括：
 1. **压缩工具数量**：将 20+ 个细碎的 MCP 工具接口（如按名字查函数、按地址查函数、查被调用函数等）按“实体（Entity）”聚合成少数几个核心子命令。
 2. **统一参数传递**：摒弃复杂的 JSON 字符串传参，仅支持标准的 POSIX 命令行长短参数（如 `--name`, `--address`），对人类和 LLM 都更加友好且不易出错。
-3. **双重输出模式**：通过全局参数控制输出格式，支持 `json`（供 LLM 稳定解析）和 `text`（使用 `rich` 库渲染终端表格/高亮文本，供人类阅读）。
+3. **三重输出模式**：通过全局参数控制输出格式，支持 `json`（供 LLM 稳定解析）、`text`（使用 `rich` 库渲染终端表格/高亮文本，供人类阅读）以及 `markdown`（适合生成报告或 Markdown 格式的展示）。
 
 ---
 
@@ -17,11 +17,12 @@
 | 参数 | 简写 | 说明 | 默认值 |
 | :--- | :--- | :--- | :--- |
 | `--project` | `-p` | 包含导出 `.db` 文件的项目目录路径 | `.` (当前目录) |
-| `--format` | `-f` | 输出格式，可选值为 `json` 或 `text` | `text` |
+| `--format` | `-f` | 输出格式，可选值为 `json`, `text` 或 `markdown` | `text` |
 
 **输出行为规范：**
 *   **`--format json`**：严格输出 JSON 字符串，不包含任何 ANSI 颜色控制符，确保 LLM 和 `jq` 等工具可直接解析。
 *   **`--format text`**：使用 Python `rich` 库，以表格、树状图、语法高亮等形式在终端美观展示数据。
+*   **`--format markdown`**：输出标准的 Markdown 格式文本，包含 Markdown 表格、带有语言标签的代码块等，非常适合粘贴到文档或供偏好 Markdown 的系统解析。
 
 ---
 
@@ -144,10 +145,33 @@ aida-audit query audit --type <plan|task|finding> [--id <id>]
 - main (0x402000)
 ```
 
+### 4.3 Markdown 模式 (`--format markdown`)
+输出原生的 Markdown 格式代码：
+
+```markdown
+### [二进制: target.bin] 函数详情
+
+| 属性 | 值 |
+| --- | --- |
+| 函数名 | printf |
+| 地址 | 0x401000 |
+| 大小 | 120 bytes |
+
+#### 伪代码
+```c
+int printf(const char *format, ...) {
+    return vprintf(format, args);
+}
+```
+
+#### 调用者 (Callers)
+* main (0x402000)
+```
+
 ## 5. 实现路径规划
 
 1. 在 `backend/aida_audit/` 下创建 `query_cmd.py`。
 2. 使用 `argparse` 构建带子命令的 CLI 树（`project`, `binary`, `function`, `symbol`, `audit`）。
 3. 解析参数后，在内部按需实例化 `McpService` 或直接调用 `ProjectStore` / `AuditDatabase` 的底层 API，组装并聚合数据。
-4. 引入 `rich` 库处理 `--format text` 的终端渲染；引入 `json` 库处理 `--format json` 的格式化输出。
+4. 引入 `rich` 库处理 `--format text` 的终端渲染；引入 `json` 库处理 `--format json` 的格式化输出；手动组装或利用 `rich.console.Console(record=True)`/第三方库处理 `--format markdown` 的输出。
 5. 将 `query_cmd.main()` 注册进 `cli.py`。
