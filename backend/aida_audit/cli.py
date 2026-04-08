@@ -2,6 +2,7 @@ import sys
 import argparse
 from . import export_cmd
 from . import server_cmd
+from . import query_cmd
 
 
 def main():
@@ -14,6 +15,7 @@ def main():
         print("  export  Export binary analysis results to SQLite database")
         print("          (auto-initializes workspace with MCP configs)")
         print("  serve   Start the MCP server with web UI")
+        print("  query   Query binary analysis and audit data from CLI")
         print()
         print("For more information, run: aida-audit <command> -h")
         sys.exit(1)
@@ -29,6 +31,7 @@ def main():
         print("  export  Export binary analysis results to SQLite database")
         print("          (auto-initializes workspace with MCP configs)")
         print("  serve   Start the MCP server with web UI")
+        print("  query   Query binary analysis and audit data from CLI")
         print()
         print("For more information, run: aida-audit <command> -h")
         sys.exit(0)
@@ -39,6 +42,8 @@ def main():
         export_cmd.main()
     elif command == "serve":
         server_cmd.main()
+    elif command == "query":
+        query_cmd.main()
     else:
         print(f"error: unknown command '{command}'")
         print("Run 'aida-audit' for usage information.")
