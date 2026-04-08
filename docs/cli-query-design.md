@@ -7,6 +7,7 @@
 1. **压缩工具数量**：将 20+ 个细碎的 MCP 工具接口（如按名字查函数、按地址查函数、查被调用函数等）按“实体（Entity）”聚合成少数几个核心子命令。
 2. **统一参数传递**：摒弃复杂的 JSON 字符串传参，仅支持标准的 POSIX 命令行长短参数（如 `--name`, `--address`），对人类和 LLM 都更加友好且不易出错。
 3. **三重输出模式**：通过全局参数控制输出格式，支持 `json`（供 LLM 稳定解析）、`text`（使用 `rich` 库渲染终端表格/高亮文本，供人类阅读）以及 `markdown`（适合生成报告或 Markdown 格式的展示）。
+4. **详尽友好的帮助文档 (`--help`)**：提供清晰的命令层次、参数说明和使用示例，方便 LLM 随时查询自身可用的能力及正确的调用方式。
 
 ---
 
@@ -168,10 +169,39 @@ int printf(const char *format, ...) {
 * main (0x402000)
 ```
 
-## 5. 实现路径规划
+## 5. 帮助系统 (`--help`) 设计规范
+
+为了让 LLM 能够自我发现和纠错，`query` 命令及其所有子命令必须提供极其详细的帮助信息。
+
+### 5.1 全局帮助 (`aida-audit query --help`)
+必须清晰列出：
+1. **工具定位**：说明这是用于查询二进制分析与审计数据的工具。
+2. **核心概念**：简述 Project, Binary, Function, Symbol, Audit 等实体的关系。
+3. **子命令列表**：带有简短但精确的说明。
+4. **全局参数**：说明 `--project` 和 `--format` 的作用，特别是不同 format 的使用场景。
+
+### 5.2 子命令帮助 (例如 `aida-audit query function --help`)
+必须包含：
+1. **功能描述**：说明该命令聚合了哪些底层能力（如：获取函数元数据、伪代码、调用关系）。
+2. **参数分组**：利用 `argparse` 的 `add_argument_group` 将参数分类：
+   - 必填参数 (Required Arguments)
+   - 查询条件 (Search Criteria)
+   - 扩展信息开关 (Extension Flags)
+3. **使用示例 (Examples)**：提供至少 2-3 个真实的调用示例，尤其是对于 LLM 常见的组合查询场景：
+   ```text
+   Examples:
+     # 1. 列表查询：获取目标二进制中的前 50 个函数
+     aida-audit query function -b target.bin --limit 50
+     
+     # 2. 精确查询：按地址查询函数并同时拉取伪代码和调用关系
+     aida-audit query function -b target.bin -a 0x401000 --pseudocode --calls -f json
+   ```
+4. **互斥说明**：明确指出哪些参数不能同时使用（例如 `--name` 和 `--address` 通常是互斥的查询条件）。
+
+## 6. 实现路径规划
 
 1. 在 `backend/aida_audit/` 下创建 `query_cmd.py`。
-2. 使用 `argparse` 构建带子命令的 CLI 树（`project`, `binary`, `function`, `symbol`, `audit`）。
+2. 使用 `argparse` 构建带子命令的 CLI 树（`project`, `binary`, `function`, `symbol`, `audit`）。利用 `argparse.RawTextHelpFormatter` 或第三方库（如 `rich-argparse`）来格式化帮助信息，确保其结构清晰。
 3. 解析参数后，在内部按需实例化 `McpService` 或直接调用 `ProjectStore` / `AuditDatabase` 的底层 API，组装并聚合数据。
 4. 引入 `rich` 库处理 `--format text` 的终端渲染；引入 `json` 库处理 `--format json` 的格式化输出；手动组装或利用 `rich.console.Console(record=True)`/第三方库处理 `--format markdown` 的输出。
 5. 将 `query_cmd.main()` 注册进 `cli.py`。
