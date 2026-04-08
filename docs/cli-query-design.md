@@ -158,13 +158,6 @@ aida-audit query audit --type <plan|task|finding> [--id <id>]
 | 地址 | 0x401000 |
 | 大小 | 120 bytes |
 
-#### 伪代码
-```c
-int printf(const char *format, ...) {
-    return vprintf(format, args);
-}
-```
-
 #### 调用者 (Callers)
 * main (0x402000)
 ```
