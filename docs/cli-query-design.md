@@ -191,10 +191,49 @@ aida-audit query audit --type <plan|task|finding> [--id <id>]
    ```
 4. **互斥说明**：明确指出哪些参数不能同时使用（例如 `--name` 和 `--address` 通常是互斥的查询条件）。
 
-## 6. 实现路径规划
+## 6. 实现路径规划与开发指导
 
-1. 在 `backend/aida_audit/` 下创建 `query_cmd.py`。
-2. 使用 `argparse` 构建带子命令的 CLI 树（`project`, `binary`, `function`, `symbol`, `audit`）。利用 `argparse.RawTextHelpFormatter` 或第三方库（如 `rich-argparse`）来格式化帮助信息，确保其结构清晰。
-3. 解析参数后，在内部按需实例化 `McpService` 或直接调用 `ProjectStore` / `AuditDatabase` 的底层 API，组装并聚合数据。
-4. 引入 `rich` 库处理 `--format text` 的终端渲染；引入 `json` 库处理 `--format json` 的格式化输出；手动组装或利用 `rich.console.Console(record=True)`/第三方库处理 `--format markdown` 的输出。
-5. 将 `query_cmd.main()` 注册进 `cli.py`。
+为了确保代码结构清晰、可维护，并严格对齐本设计文档，开发需遵循以下详细步骤与技术选型：
+
+### 6.1 目录与模块结构划分
+在 `backend/aida_audit/` 目录下新增以下结构，避免单文件代码过长：
+*   `query_cmd.py`: CLI 的主入口文件，负责 `argparse` 的根解析和子命令路由。
+*   `query/`: 新建目录，用于存放不同实体的查询处理逻辑。
+    *   `__init__.py`
+    *   `project_handler.py`: 处理 `project` 子命令。
+    *   `binary_handler.py`: 处理 `binary` 子命令。
+    *   `function_handler.py`: 处理 `function` 子命令（核心逻辑最重的地方）。
+    *   `symbol_handler.py`: 处理 `symbol` 子命令。
+    *   `audit_handler.py`: 处理 `audit` 子命令。
+    *   `formatter.py`: 统一负责 `json`, `text`, `markdown` 三种格式的输出渲染逻辑。
+
+### 6.2 核心依赖与初始化机制
+1.  **数据源直接调用**：不要通过 HTTP 或启动 MCP Server 进程，而是直接在当前进程实例化 `ProjectStore` 和 `AuditDatabase`，直接调用其底层的 Python API 抓取数据。这与 `McpService` 内部调用的接口是同一套。
+2.  **统一上下文上下文**：在 `query_cmd.py` 解析出全局参数 `--project` 后，初始化 `ProjectStore` 实例，并将其作为上下文传递给各个 `handler`。
+
+### 6.3 `argparse` 构建规范
+1.  **使用 `argparse.RawTextHelpFormatter`**：确保 `description` 和 `epilog` 中的换行和缩进（特别是 Examples 部分）能够被原样输出，不会被自动折叠。
+2.  **严格使用 `add_argument_group`**：在各个子命令中，必须明确划分参数组。例如在 `function_handler` 中：
+    ```python
+    required_group = parser.add_argument_group('Required Arguments')
+    search_group = parser.add_argument_group('Search Criteria (Mutex)')
+    ext_group = parser.add_argument_group('Extension Flags')
+    ```
+3.  **互斥组校验**：对于 `function` 和 `symbol`，利用 `parser.add_mutually_exclusive_group()` 强制校验 `--name` 和 `--address` 只能二选一。
+
+### 6.4 格式化输出 (Formatter) 架构
+新建一个 `OutputFormatter` 类，接收结构化的 Python 字典/列表数据，并根据 `--format` 参数派发到具体渲染函数：
+*   **JSON 渲染**：直接使用标准库 `json.dumps(data, indent=2)` 打印，不要附加任何额外的前缀/后缀。
+*   **Text/Rich 渲染**：
+    *   必须使用 `rich.console.Console()` 进行输出。
+    *   对于列表数据（如函数列表），使用 `rich.table.Table`。
+    *   对于包含代码块的数据（如伪代码），使用 `rich.syntax.Syntax` 实现 C 语言高亮。
+*   **Markdown 渲染**：
+    *   **不要**试图用 `rich` 来生成纯 Markdown 文本。
+    *   使用纯 Python 字符串拼接：手动构造 `| Column | Value |` 的表格结构和 ````c ```` 的代码块结构，然后通过普通 `print()` 输出，确保没有任何 ANSI 颜色转义字符污染输出结果。
+
+### 6.5 主入口集成
+最后，在现有的 `backend/aida_audit/cli.py` 中：
+1.  导入 `query_cmd`。
+2.  在主命令分发逻辑中增加 `elif command == "query": query_cmd.main()`。
+3.  更新 `cli.py` 的全局 Help 信息，增加对 `query` 命令的简要说明。
