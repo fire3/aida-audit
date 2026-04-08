@@ -1,6 +1,6 @@
 # AIDA-AUDIT
 
-[中文](./README-cn)
+[中文](./README-cn.md)
 
 AIDA-AUDIT is a powerful tool designed to bridge the gap between IDA Pro binary analysis and modern AI-assisted workflows. It provides a seamless way to export analysis data from IDA Pro and explore it through a rich Web UI or programmatically via the Model Context Protocol (MCP).
 
